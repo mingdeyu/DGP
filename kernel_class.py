@@ -1,7 +1,7 @@
 import numpy as np
         
 class kernel:
-    def __init__(self, length, mean=0, scale=1., nugget=1e-5, prior=np.array([0.3338,0.0835]),name='sexp',nugget_est=0, scale_est=0, prior_est=1):
+    def __init__(self, length, scale=1., nugget=1e-5, prior=np.array([0.3338,0.0835]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, zero_mean=0):
         #0.3338,0.0835
         self.length=length
         self.scale=np.array([scale])
@@ -11,13 +11,13 @@ class kernel:
         self.prior=prior
         self.prior_est=prior_est
         self.n_theta=len(length)
-        self.mean=np.array([mean])
+        self.zero_mean=zero_mean
         self.name=name
         if nugget_est==1:
             self.n_theta=self.n_theta+1
 
     def collect_para(self):
-        para=np.concatenate((self.mean,self.scale,self.length,self.nugget))
+        para=np.concatenate((self.scale,self.length,self.nugget))
         return para
 
     def log_t(self):
@@ -44,12 +44,12 @@ class kernel:
             dis=L-2*X_l@X_l.T+L.T
             K=np.exp(-dis)+self.nugget*np.eye(n)
         elif self.name=='matern2.5':
-            X_l=X_l.reshape([d,n,1])
+            X_l=X_l.T.reshape([d,n,1])
             L=X_l**2
             dis=L-2*X_l@X_l.transpose([0,2,1])+L.transpose([0,2,1])
             K_1=np.prod(1+np.sqrt(5*dis)+5/3*dis,0)
             K_2=np.exp(-np.sum(np.sqrt(5*dis),0))
-            K=K_1*K_2
+            K=K_1*K_2+self.nugget*np.eye(n)
         return K
 
     def k_fod(self,X):

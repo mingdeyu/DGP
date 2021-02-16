@@ -16,6 +16,7 @@ class dgp:
         for kernel in all_kernel:
              self.para_path.append(kernel.collect_para())
         self.lastmcmc=[]
+        self.samples=[]
 
     def train(self, N, burnin=100, sub_burn=100, method='BFGS'):
         #sub_burn>=1
@@ -31,7 +32,7 @@ class dgp:
                 new_ini=self.lastmcmc
             obj=ess(all_kernel_old,self.X,self.Y,new_ini)
             samples=obj.sample_ess(N=1,burnin=sub_burn)
-            self.lastmcmc=samples
+            self.lastmcmc=samples[1:-1]
             #M-step
             for l in range(self.layer):
                 ker=copy.deepcopy(all_kernel_old[l])
@@ -51,27 +52,53 @@ class dgp:
             re = minimize(Qlik, old_theta_trans, args=(ker,w1,w2), method='Nelder-Mead')
         new_theta_trans=re.x
         ker.update(new_theta_trans)
-
+        
         K=ker.k_matrix(w1)
-        H=np.ones(shape=[n,1])
-        KinvH=np.linalg.solve(K,H)
-        HKinvH=H.T@KinvH
-        KinvY=np.linalg.solve(K,w2)
-        HKinvY=H.T@KinvY
-        new_b=HKinvY/HKinvH
-        ker.mean=new_b.flatten()
-
-        if ker.scale_est==1:
-            R=w2-new_b*H
-            KinvR=KinvY-new_b*KinvH
-            RKinvR=R.T@KinvR
-            new_scale=RKinvR/(n-1)
-            ker.scale=new_scale.flatten()
+        if ker.zero_mean==0:
+            H=np.ones(shape=[n,1])
+            KinvH=np.linalg.solve(K,H)
+            HKinvH=H.T@KinvH
+            KinvY=np.linalg.solve(K,w2)
+            HKinvY=H.T@KinvY
+            new_b=HKinvY/HKinvH
+            ker.mean=new_b.flatten()
+            if ker.scale_est==1:
+                R=w2-new_b*H
+                KinvR=KinvY-new_b*KinvH
+                RKinvR=R.T@KinvR
+                new_scale=RKinvR/(n-1)
+                ker.scale=new_scale.flatten()
+        else:
+            if ker.scale_est==1:
+                KinvY=np.linalg.solve(K,w2)
+                YKinvY=w2.T@KinvY
+                new_scale=YKinvY/n
+                ker.scale=new_scale.flatten()
         if re.success==True:
             res='Coverged!'
         else:
             res='NoConverge'
-
         return ker,res
+
+    def predict(self, z, N, burnin=1000, method='sampling'):
+        if N!=0:
+            if not self.lastmcmc:    
+                hidden=np.linspace(np.min(self.Y),np.max(self.Y), num=len(self.Y))   
+                new_ini=[hidden]*(self.layer-1)    
+            else:
+                new_ini=self.lastmcmc
+            obj=ess(self.all_kernel,self.X,self.Y,new_ini)
+            samples=obj.sample_ess(N=N,burnin=1)
+            if self.samples:
+                self.samples=[np.vstack((i,j)) for i,j in zip(self.samples,samples)]
+            else:
+                self.samples=samples
+            self.lastmcmc=[t[-1] for t in samples[1:-1]]
+        adj_sample=[t[burnin:] for t in self.samples]
+        mean,variance=linkgp(z,adj_sample,self.all_kernel)
+        if method=='sampling':
+
+        elif method=='mean_var':
+
 
     
