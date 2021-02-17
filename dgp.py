@@ -1,9 +1,9 @@
 import numpy as np
-from elliptical_slice import ess
 from tqdm.notebook import trange, tqdm
 import copy
-from functions import Qlik, Qlik_der
 from scipy.optimize import minimize
+from functions import Qlik, Qlik_der, linkgp
+from elliptical_slice import ess
 
 class dgp:
     #main algorithm
@@ -61,7 +61,6 @@ class dgp:
             KinvY=np.linalg.solve(K,w2)
             HKinvY=H.T@KinvY
             new_b=HKinvY/HKinvH
-            ker.mean=new_b.flatten()
             if ker.scale_est==1:
                 R=w2-new_b*H
                 KinvR=KinvY-new_b*KinvH
@@ -96,9 +95,9 @@ class dgp:
             self.lastmcmc=[t[-1] for t in samples[1:-1]]
         adj_sample=[t[burnin:] for t in self.samples]
         mean,variance=linkgp(z,adj_sample,self.all_kernel)
-        if method=='sampling':
+        #if method=='sampling':
 
-        elif method=='mean_var':
+        #elif method=='mean_var':
 
 
     

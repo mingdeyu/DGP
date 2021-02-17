@@ -1,6 +1,6 @@
-from functions import log_likelihood_func, mvn, k_one_matrix, update_f
 from numpy.random import uniform
 import numpy as np
+from functions import log_likelihood_func, mvn, k_one_matrix, update_f
 
 class ess:
     def __init__(self, all_kernel,X,Y,ini):
@@ -51,13 +51,13 @@ class ess:
         f=f.flatten()
         y=y.flatten()
         
-        covariance=k1.scale*k_one_matrix(x,k1.length,k1.nugget,k1.name)
+        covariance=k_one_matrix(x,k1.length,k1.nugget,k1.name)
         # Choose the ellipse for this sampling iteration.
         #nu = multivariate_normal(np.zeros(mean.shape), covariance)
-        nu = mvn(covariance,k1.mean_prior,k1.zero_mean)
+        nu = mvn(covariance,k1.scale,k1.mean_prior,k1.zero_mean)
         # Set the candidate acceptance threshold.
-        cov_f=k2.scale*k_one_matrix(f.reshape([-1,1]),k2.length,k2.nugget,k2.name)
-        log_y = log_likelihood_func(y,cov_f,k2.mean_prior,k2.zero_mean) + np.log(uniform())
+        cov_f=k_one_matrix(f.reshape([-1,1]),k2.length,k2.nugget,k2.name)
+        log_y = log_likelihood_func(y,cov_f,k2.scale,k2.mean_prior,k2.zero_mean) + np.log(uniform())
         # Set the bracket for selecting candidates on the ellipse.
         theta = np.random.uniform(0., 2.*np.pi)
         theta_min, theta_max = theta - 2.*np.pi, theta
@@ -68,8 +68,8 @@ class ess:
             # also compute the log-likelihood of the candidate and compare to
             # our threshold.
             fp = update_f(f,mean,nu,theta)
-            cov_fp=k2.scale*k_one_matrix(fp.reshape([-1,1]),k2.length,k2.nugget,k2.name)
-            log_fp = log_likelihood_func(y,cov_fp,k2.mean_prior,k2.zero_mean)
+            cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length,k2.nugget,k2.name)
+            log_fp = log_likelihood_func(y,cov_fp,k2.scale,k2.mean_prior,k2.zero_mean)
             if log_fp > log_y:
                 return fp.reshape([-1,1])
             else:

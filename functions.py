@@ -3,33 +3,34 @@ import numpy as np
 from numpy.random import randn
 
 @jit(nopython=True,cache=True)
-def log_likelihood_func(y,cov,mean_prior,zero_mean):
+def log_likelihood_func(y,cov,scale,mean_prior,zero_mean):
     if zero_mean==1:
+        cov=scale*cov
         _,logdet=np.linalg.slogdet(cov)
         quad=np.sum(y*np.linalg.solve(cov,y))
         llik=-0.5*len(y)*np.log(2*np.pi)-0.5*(logdet+quad)
     else:
-        cov=cov+mean_prior
+        cov=scale*(cov+mean_prior)
         _,logdet=np.linalg.slogdet(cov)
         quad=np.sum(y*np.linalg.solve(cov,y))
         llik=-0.5*len(y)*np.log(2*np.pi)-0.5*(logdet+quad)
     return llik
 
 @jit(nopython=True,cache=True)
-def mvn(cov,mean_prior,zero_mean):
+def mvn(cov,scale,mean_prior,zero_mean):
     d=len(cov)
     sn=randn(d)
     if zero_mean==1:
-        L=np.linalg.cholesky(cov)
+        L=np.linalg.cholesky(scale*cov)
         samp=np.sum(sn*L,axis=1)
     else:
         #one_vec=np.ones(d)
         #RinvOne=np.linalg.solve(cov,one_vec)
         #coef=np.sum(one_vec*RinvOne)+1/mean_prior
         #mat=np.eye(d)-RinvOne/coef
-        #U=np.linalg.cholesky(np.linalg.solve(cov,mat)).T
+        #U=np.linalg.cholesky(np.linalg.solve(cov,mat)/scale).T
         #samp=np.linalg.solve(U,sn)
-        L=np.linalg.cholesky(cov+mean_prior)
+        L=np.linalg.cholesky(scale*(cov+mean_prior))
         samp=np.sum(sn*L,axis=1)
     return samp
 
@@ -65,29 +66,37 @@ def Qlik(x,ker,w1,w2):
     ker.update(x)
     n=np.shape(w1)[0]
     K=ker.k_matrix(w1)
-    _,logdet=np.linalg.slogdet(K)
-    KinvY=np.linalg.solve(K,w2)
     if ker.zero_mean==0:
-        H=np.ones(shape=[n,1])
-        KinvH=np.linalg.solve(K,H)
-        HKinvH=H.T@KinvH
-        HKinvY=H.T@KinvY
-        b=HKinvY/HKinvH
-        R=w2-b*H
-        KinvR=KinvY-b*KinvH
-        RKinvR=R.T@KinvR
+        _,logdet=np.linalg.slogdet(K+ker.mean_prior)
+        KvinvY=np.linalg.solve(K+ker.mean_prior,w2)
+        YKvinvY=w2.T@KvinvY
         if ker.scale_est==1:
-            scale=RKinvR/(n-1)
-            neg_qlik=0.5*(n-1)*np.log(2*np.pi)+0.5*(n-1)+0.5*(logdet+np.log(HKinvH)+(n-1)*np.log(scale))
+            scale=YKvinvY/n
+            neg_qlik=0.5*(logdet+n*np.log(scale))
         else:
-            neg_qlik=0.5*(n-1)*np.log(2*np.pi)+0.5*(logdet+np.log(HKinvH)+RKinvR)
+            neg_qlik=0.5*(logdet+YKvinvY) 
+        #_,logdet=np.linalg.slogdet(K)
+        #KinvY=np.linalg.solve(K,w2)
+        #YKinvY=w2.T@KinvY
+        #H=np.ones(shape=[n,1])
+        #KinvH=np.linalg.solve(K,H)
+        #HKinvH=H.T@KinvH
+        #HKinvY=H.T@KinvY
+        #HKinvHv=HKinvH+1/ker.mean_prior
+        #if ker.scale_est==1:
+        #    scale=(YKinvY-HKinvY**2/HKinvHv)/n
+        #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+(n-1)*np.log(scale))
+        #else:
+        #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+YKinvY-HKinvY**2/HKinvHv)
     else:
+        _,logdet=np.linalg.slogdet(K)
+        KinvY=np.linalg.solve(K,w2)
         YKinvY=w2.T@KinvY
         if ker.scale_est==1:
             scale=YKinvY/n
-            neg_qlik=0.5*n*np.log(2*np.pi)+0.5*n+0.5*(logdet+n*np.log(scale))
+            neg_qlik=0.5*(logdet+n*np.log(scale))
         else:
-            neg_qlik=0.5*n*np.log(2*np.pi)+0.5*(logdet+YKinvY) 
+            neg_qlik=0.5*(logdet+YKinvY) 
     neg_qlik=neg_qlik.flatten()
 
     if ker.prior_est==1:
@@ -99,31 +108,43 @@ def Qlik_der(x,ker,w1,w2):
     n=np.shape(w1)[0]
     K=ker.k_matrix(w1)
     Kt=ker.k_fod(w1)
-    KinvKt=np.linalg.solve(K,Kt)
-    tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-    KinvY=np.linalg.solve(K,w2)
     if ker.zero_mean==0:
-        H=np.ones(shape=[n,1])
-        KinvH=np.linalg.solve(K,H)
-        HKinvH=H.T@KinvH
-        HKinvY=H.T@KinvY
-        b=HKinvY/HKinvH
-        R=w2-b*H
-        RKinvH=R.T@KinvH
-        KinvR=KinvY-b*KinvH
-        HKinvKtKinvH=H.T@KinvKt@KinvH
-        RKinvKtKinvR=R.T@KinvKt@KinvR
-        HKinvKtKinvY=H.T@KinvKt@KinvY
-        bt=HKinvY/HKinvH**2*HKinvKtKinvH-HKinvKtKinvY/HKinvH
-        P1=-0.5*tr_KinvKt+0.5*HKinvKtKinvH/HKinvH
-        P2=RKinvH*bt+0.5*RKinvKtKinvR
+        KvinvKt=np.linalg.solve(K+ker.mean_prior,Kt)
+        tr_KvinvKt=np.trace(KvinvKt,axis1=1, axis2=2)
+        KvinvY=np.linalg.solve(K+ker.mean_prior,w2)
+        YKvinvKtKvinvY=w2.T@KvinvKt@KvinvY
+        P1=-0.5*tr_KvinvKt
+        P2=0.5*YKvinvKtKvinvY
         if ker.scale_est==1:
-            RKinvR=R.T@KinvR
-            scale=RKinvR/(n-1)
+            YKvinvY=w2.T@KvinvY
+            scale=YKvinvY/n
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2
+        #KinvKt=np.linalg.solve(K,Kt)
+        #tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
+        #KinvY=np.linalg.solve(K,w2)
+        #H=np.ones(shape=[n,1])
+        #KinvH=np.linalg.solve(K,H)
+        #HKinvH=H.T@KinvH
+        #HKinvHv=HKinvH+1/ker.mean_prior
+        #HKinvY=H.T@KinvY
+        #HKinvKtKinvH=H.T@KinvKt@KinvH
+        #HKinvKtKinvY=H.T@KinvKt@KinvY
+        #YKinvKtKinvY=w2.T@KinvKt@KinvY
+        #b=HKinvY/HKinvHv
+        #P1=-0.5*tr_KinvKt+0.5*HKinvKtKinvH/HKinvHv
+        #P2=0.5*YKinvKtKinvY+0.5*b**2*HKinvKtKinvH-b*HKinvKtKinvY
+        #if ker.scale_est==1:
+        #    YKinvY=w2.T@KinvY
+        #    scale=(YKinvY-HKinvY**2/HKinvHv)/n
+        #    neg_St=-P1-P2/scale
+        #else:
+        #    neg_St=-P1-P2
     else:
+        KinvKt=np.linalg.solve(K,Kt)
+        tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
+        KinvY=np.linalg.solve(K,w2)
         YKinvKtKinvY=w2.T@KinvKt@KinvY
         P1=-0.5*tr_KinvKt
         P2=0.5*YKinvKtKinvY
@@ -171,7 +192,7 @@ def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
             Rinv_r=np.linalg.solve(R,r)
             Rinv_H=np.linalg.solve(R,H)
             yRinvH=np.sum(y*Rinv_H)
-            HRinHv=np.sum(Rinv_H)+scale/mean_prior
+            HRinHv=np.sum(Rinv_H)+1/mean_prior
             b=yRinvH/HRinHv
             res=y-b
             m[i,]=res.T@Rinv_r+b
@@ -182,6 +203,7 @@ def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
 
 @jit(nopython=True,cache=True)
 def link(m,v,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
+    
     return m,v
 
 @jit(nopython=True,cache=True)
