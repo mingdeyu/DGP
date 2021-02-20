@@ -1,4 +1,5 @@
 import numpy as np
+from math import exp, sqrt
         
 class kernel:
     def __init__(self, length, scale=1., nugget=1e-5, mean_prior=np.array([0.1]),prior=np.array([0.3338,0.0835]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, zero_mean=0):
@@ -29,7 +30,7 @@ class kernel:
         return log_theta
 
     def update(self,log_theta):
-        theta=np.exp(log_theta)
+        theta=exp(log_theta)
         if self.nugget_est==1:
             self.length=theta[0:len(self.length)]
             self.nugget=theta[len(self.length)]
@@ -43,13 +44,13 @@ class kernel:
         if self.name=='sexp':
             L=np.sum(X_l**2,0).reshape([-1,1])
             dis=L-2*X_l@X_l.T+L.T
-            K=np.exp(-dis)+self.nugget*np.eye(n)
+            K=exp(-dis)+self.nugget*np.eye(n)
         elif self.name=='matern2.5':
             X_l=X_l.T.reshape([d,n,1])
             L=X_l**2
             dis=L-2*X_l@X_l.transpose([0,2,1])+L.transpose([0,2,1])
-            K_1=np.prod(1+np.sqrt(5*dis)+5/3*dis,0)
-            K_2=np.exp(-np.sum(np.sqrt(5*dis),0))
+            K_1=np.prod(1+sqrt(5*dis)+5/3*dis,0)
+            K_2=exp(-np.sum(sqrt(5*dis),0))
             K=K_1*K_2+self.nugget*np.eye(n)
         return K
 
@@ -60,7 +61,7 @@ class kernel:
         if self.name=='sexp':
             L=np.sum(X_l**2,0).reshape([-1,1])
             dis=L-2*X_l@X_l.T+L.T
-            K=np.exp(-dis)
+            K=exp(-dis)
             K=np.expand_dims(K,axis=0)
             X_li=X_l.reshape([d,n,1])
             Li=X_li**2
@@ -70,11 +71,11 @@ class kernel:
             X_li=X_li.reshape([d,n,1])
             Li=X_li**2
             disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
-            K_1=np.prod(1+np.sqrt(5*disi)+5/3*disi,0)
-            K_2=np.exp(-np.sum(np.sqrt(5*disi),0))
+            K_1=np.prod(1+sqrt(5*disi)+5/3*disi,0)
+            K_2=exp(-np.sum(sqrt(5*disi),0))
             K=K_1*K_2
             K=np.expand_dims(K,axis=0)
-            coefi=disi*(1+np.sqrt(5*disi))/(1+np.sqrt(5*disi)+5/3*disi)
+            coefi=disi*(1+sqrt(5*disi))/(1+sqrt(5*disi)+5/3*disi)
             fod=5/3*coefi*K
         if self.nugget_est==1:
             nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)

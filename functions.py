@@ -1,5 +1,6 @@
-from numba import jit
+from numba import jit, vectorize, float64
 import numpy as np
+from math import erf, exp, sqrt, pi
 from numpy.random import randn
 
 @jit(nopython=True,cache=True)
@@ -19,19 +20,19 @@ def log_likelihood_func(y,cov,scale,mean_prior,zero_mean):
 @jit(nopython=True,cache=True)
 def mvn(cov,scale,mean_prior,zero_mean):
     d=len(cov)
-    sn=randn(d)
+    sn=randn(d,1)
     if zero_mean==1:
         L=np.linalg.cholesky(scale*cov)
-        samp=np.sum(sn*L,axis=1)
+        samp=(L@sn).flatten()
     else:
         #one_vec=np.ones(d)
         #RinvOne=np.linalg.solve(cov,one_vec)
-        #coef=np.sum(one_vec*RinvOne)+1/mean_prior
+        #coef=np.sum(RinvOne)+1/mean_prior
         #mat=np.eye(d)-RinvOne/coef
         #U=np.linalg.cholesky(np.linalg.solve(cov,mat)/scale).T
         #samp=np.linalg.solve(U,sn)
         L=np.linalg.cholesky(scale*(cov+mean_prior))
-        samp=np.sum(sn*L,axis=1)
+        samp=(L@sn).flatten()
     return samp
 
 @jit(nopython=True,cache=True)
@@ -39,9 +40,9 @@ def k_one_matrix(X,length,nugget,name):
     if name=='sexp':
         n=len(X)
         X_l=X/length
-        L=np.sum(X_l**2,1).reshape(n,1)
+        L=np.sum(X_l**2,axis=1,keepdims=1)
         dis=L-2*X_l@X_l.T+L.T
-        K=np.exp(-dis)+nugget*np.identity(n)
+        K=exp(-dis)+nugget*np.identity(n)
     elif name=='matern2.5':
         n=np.shape(X)[0]
         d=np.shape(X)[1]
@@ -51,9 +52,9 @@ def k_one_matrix(X,length,nugget,name):
         K2=np.zeros((n,n))
         for i in range(d):
             dis=L[i]-2*X_l[i]@X_l[i].T+L[i].T
-            K1=K1*(1+np.sqrt(5*dis)+5/3*dis)
-            K2=K2+np.sqrt(5*dis)
-        K2=np.exp(-K2)
+            K1*=(1+sqrt(5*dis)+5/3*dis)
+            K2+=sqrt(5*dis)
+        K2=exp(-K2)
         K=K1*K2+nugget*np.identity(n)
     return K
 
@@ -176,35 +177,70 @@ def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
     N=len(w1)
     M=len(z)
     m=np.empty((N,M))
-    v=np.empty((N,M))
+    X=w1[0]
+    R=k_one_matrix(X,length,nugget,name)
+    r=k_one_vec(X,z,length,name)
+    if zero_mean==1:
+        Rinv_r=np.linalg.solve(R,r)
+        r_Rinv_r=np.sum(r*Rinv_r,axis=0)
+        v=np.ones((N,1))*abs(scale*(1+nugget-r_Rinv_r))
+    else:
+        H=np.ones((len(R),1))
+        Rinv_r=np.linalg.solve(R,r)
+        Rinv_H=np.linalg.solve(R,H)
+        HRinvHv=np.sum(Rinv_H)+1/mean_prior
+        r_Rinv_r=np.sum(r*Rinv_r,axis=0)
+        r_Rinv_H=np.sum(r*Rinv_H,axis=0)
+        v=np.ones((N,1))*abs(scale*(1+nugget-r_Rinv_r+(1-r_Rinv_H)**2/HRinvHv))
     for i in range(N):
-        X=w1[i]
         y=w2[i]
-        R=k_one_matrix(X,length,nugget,name)
-        r=k_one_vec(X,z,length,name)
         if zero_mean==1:
-            Rinv_r=np.linalg.solve(R,r)
             m[i,]=y.T@Rinv_r
-            r_Rinv_r=np.sum(r*Rinv_r,axis=1)
-            v[i,]=abs(scale*(1+nugget-r_Rinv_r))
         else:
-            H=np.ones((len(R),1))
-            Rinv_r=np.linalg.solve(R,r)
-            Rinv_H=np.linalg.solve(R,H)
-            yRinvH=np.sum(y*Rinv_H)
-            HRinHv=np.sum(Rinv_H)+1/mean_prior
-            b=yRinvH/HRinHv
+            yRinvH=y.T@Rinv_H
+            b=yRinvH/HRinvHv
             res=y-b
-            m[i,]=res.T@Rinv_r+b
-            r_Rinv_r=np.sum(r*Rinv_r,axis=1)
-            r_Rinv_H=np.sum(r*Rinv_H,axis=1)
-            v[i,]=abs(scale*(1+nugget-r_Rinv_r+(1-r_Rinv_H)**2/HRinHv))
+            m[i,]=res.T@Rinv_r+b         
+    m=np.expand_dims(m,axis=2)
+    v=np.expand_dims(v,axis=2)
     return m, v
 
 @jit(nopython=True,cache=True)
 def link(m,v,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
-    
-    return m,v
+    N=np.shape(m)[0]
+    M=np.shape(m)[1]
+    m_new=np.empty((N,M))
+    v_new=np.empty((N,M))
+    for i in range(N):
+        X=w1[i]
+        y=w2[i] 
+        R=k_one_matrix(X,length,nugget,name)
+        Rinv_y=np.linalg.solve(R,y)
+        if zero_mean==0:
+            H=np.ones((len(R),1))
+            Rinv_H=np.linalg.solve(R,H)
+            yRinvH=np.sum(y*Rinv_H)
+            HRinvHv=np.sum(Rinv_H)+1/mean_prior
+            b=yRinvH/HRinvHv
+            Rinv_res=Rinv_y-b*Rinv_H
+        for j in range(M):
+            z_m=m[i,j]
+            z_v=v[i,j]
+            I,J=IJ(X,z_m,z_v,length,name)
+            tr_RinvJ=np.trace(np.linalg.solve(R,J))
+            if zero_mean==1:
+                IRinv_y=np.sum(I*Rinv_y)
+                m_new[i,j]=IRinv_y
+                v_new[i,j]=abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+            else:
+                HRinvI=np.sum(I*Rinv_H)
+                HRinvJRinvH=Rinv_H.T@J@Rinv_H
+                IRinv_res=np.sum(I*Rinv_res)
+                m_new[i,j]=b+IRinv_res
+                v_new[i,j]=abs(Rinv_res.T@J@Rinv_res-IRinv_res**2+scale*(1+nugget-tr_RinvJ+(1-2*HRinvI+HRinvJRinvH)/HRinvHv))
+    m_new=np.expand_dims(m_new,axis=2)
+    v_new=np.expand_dims(v_new,axis=2)
+    return m_new,v_new
 
 @jit(nopython=True,cache=True)
 def k_one_vec(X,z,length,name):
@@ -213,10 +249,10 @@ def k_one_vec(X,z,length,name):
         m=len(z)
         X_l=X/length
         z_l=z/length
-        L_X=np.sum(X_l**2,1).reshape(n,1)
-        L_z=np.sum(z_l**2,1).reshape(m,1)
+        L_X=np.sum(X_l**2,axis=1,keepdims=1)
+        L_z=np.sum(z_l**2,axis=1,keepdims=1)
         dis=L_X-2*X_l@z_l.T+L_z.T
-        k=np.exp(-dis)
+        k=exp(-dis)
     elif name=='matern2.5':
         n=np.shape(X)[0]
         d=np.shape(X)[1]
@@ -229,8 +265,52 @@ def k_one_vec(X,z,length,name):
         k2=np.zeros((n,m))
         for i in range(d):
             dis=L_X[i]-2*X_l[i]@z_l[i].T+L_z[i].T
-            k1=k1*(1+np.sqrt(5*dis)+5/3*dis)
-            k2=k2+np.sqrt(5*dis)
-        k2=np.exp(-k2)
+            k1*=(1+sqrt(5*dis)+5/3*dis)
+            k2+=sqrt(5*dis)
+        k2=exp(-k2)
         k=k1*k2
     return k
+
+@jit(nopython=True,cache=True)
+def IJ(X,z_m,z_v,length,name):
+    n=np.shape(X)[0]
+    d=np.shape(X)[1]
+    if name=='sexp':
+        X_z=X-z_m
+        I=np.prod(1/sqrt(1+2*z_v/length**2)*exp(X_z**2/(2*z_v+length**2)),axis=1,keepdims=1)
+        J=np.ones((n,n))
+        X_z=X_z.T.reshape((d,n,1))
+        for i in range(d):
+            L_X_z=X_z[i]**2
+            cross_L_X_z=X_z[i]@X_z[i].T
+            dis1=L_X_z+2*cross_L_X_z+L_X_z.T
+            dis2=L_X_z-2*cross_L_X_z+L_X_z.T
+            J*=1/sqrt(1+4*z_v[i]/length[i]**2)*exp(-dis1/(2*length[i]**2+8*z_v[i])-dis2/(2*length[i]**2))
+    elif name=='matern2.5':
+        zX=z_m-X
+        muA=(zX-sqrt(5)*z_v/length).T.reshape((d,n,1))
+        muB=(zX+sqrt(5)*z_v/length).T.reshape((d,n,1))
+        zX=zX.T.reshape((d,n,1))
+        I=np.ones((n,1))
+        J=np.ones((n,n))
+        for i in range(d):
+            if z_v[i]!=0:
+                I*=exp((5*z_v[i]-2*exp(5)*length[i]*zX[i])/(2*length[i]**2))* \
+                    ((1+sqrt(5)*muA[i]/length[i]+5*(muA[i]**2+z_v[i])/(3*length[i]**2))*pnorm(muA[i]/sqrt(z_v[i]))+ \
+                    (sqrt(5)+(5*muA[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*exp(-0.5*muA[i]**2/length[i]))+ \
+                   exp((5*z_v[i]+2*exp(5)*length[i]*zX[i])/(2*length[i]**2))* \
+                    ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
+                    (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*exp(-0.5*muB[i]**2/length[i]))
+            else:
+                I*=(1+sqrt(5)*abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*exp(-sqrt(5)*abs(zX[i])/length[i])
+
+  
+        
+
+
+     
+    return I,J
+
+@vectorize([float64(float64)],nopython=True,cache=True)
+def pnorm(x):
+    return 0.5*(1+erf(x/sqrt(2)))
