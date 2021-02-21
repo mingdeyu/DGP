@@ -95,9 +95,14 @@ class dgp:
             self.lastmcmc=[t[-1] for t in samples[1:-1]]
         adj_sample=[t[burnin:] for t in self.samples]
         mean,variance=linkgp(z,adj_sample,self.all_kernel)
-        #if method=='sampling':
+        if method=='sampling':
+            realisation=np.random.normal(mean,np.sqrt(variance))
+            return np.squeeze(realisation)
+        elif method=='mean_var':
+            mu=np.mean(mean,axis=0)
+            sigma2=np.mean((mean**2+variance),axis=0)-mu**2
+            return mu.flatten(), sigma2.flatten()
 
-        #elif method=='mean_var':
 
 
     

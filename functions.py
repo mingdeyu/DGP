@@ -291,9 +291,10 @@ def IJ(X,z_m,z_v,length,name):
         muA=(zX-sqrt(5)*z_v/length).T.reshape((d,n,1))
         muB=(zX+sqrt(5)*z_v/length).T.reshape((d,n,1))
         zX=zX.T.reshape((d,n,1))
+        X=X.T.reshape((d,n,1))
         I=np.ones((n,1))
-        J=np.ones((n,n))
-        for i in range(d):
+        J=np.ones((n**2,1))
+        for i in range(d):    
             if z_v[i]!=0:
                 I*=exp((5*z_v[i]-2*exp(5)*length[i]*zX[i])/(2*length[i]**2))* \
                     ((1+sqrt(5)*muA[i]/length[i]+5*(muA[i]**2+z_v[i])/(3*length[i]**2))*pnorm(muA[i]/sqrt(z_v[i]))+ \
@@ -301,16 +302,61 @@ def IJ(X,z_m,z_v,length,name):
                    exp((5*z_v[i]+2*exp(5)*length[i]*zX[i])/(2*length[i]**2))* \
                     ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
                     (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*exp(-0.5*muB[i]**2/length[i]))
+                X_rep=np.ones((1,n))*X[i]
+                X1_vec=X_rep.reshape((n**2,1))
+                X2_vec=X_rep.T.reshape((n**2,1))
+                J*=Jd(X1_vec,X2_vec,z_m[i],z_v[i],length[i])
             else:
-                I*=(1+sqrt(5)*abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*exp(-sqrt(5)*abs(zX[i])/length[i])
-
-  
-        
-
-
-     
+                Id=(1+sqrt(5)*abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*exp(-sqrt(5)*abs(zX[i])/length[i])
+                I*=Id
+                J*=(Id@Id.T).reshape((n**2,1))
+        J=J.reshape((n,n))
     return I,J
 
 @vectorize([float64(float64)],nopython=True,cache=True)
 def pnorm(x):
-    return 0.5*(1+erf(x/sqrt(2)))
+    return 0.5*(1+erf(x/sqrt(2)))    
+
+@vectorize([float64(float64,float64,float64,float64,float64)],nopython=True,cache=True)
+def Jd(X1,X2,z_m,z_v,length):
+    if X1<X2:
+        x1=X1
+        x2=X2
+    else:
+        x1=X2
+        x2=X1
+    E30=1+(25*x1**2*x2**2-3*sqrt(5)*(3*length**3+5*length*x1*x2)*(x1+x2)+15*length**2*(x1**2+x2**2+3*x1*x2))/(9*length**4)
+    E31=(18*sqrt(5)*length**3+15*sqrt(5)*length*(x1**2+x2**2)-(75*length**2+50*x1*x2)*(x1+x2)+60*sqrt(5)*length*x1*x2)/(9*length**4)
+    E32=5*(5*x1**2+5*x2**2+15*length**2-9*sqrt(5)*length*(x1+x2)+20*x1*x2)/(9*length**4)
+    E33=10*(3*sqrt(5)*length-5*x1-5*x2)/(9*length**4)
+    E34=25/(9*length**4)
+    muC=z_m-2*sqrt(5)*z_v/length
+    E3A31=E30+muC*E31+(muC**2+z_v)*E32+(muC**3+3*z_v*muC)*E33+(muC**4+6*z_v*muC**2+3*z_v**2)*E34
+    E3A32=E31+(muC+x2)*E32+(muC**2+2*z_v+x2**2+muC*x2)*E33+(muC**3+x2**3+x2*muC**2+muC*x2**2+3*z_v*x2+5*z_v*muC)*E34
+    P1=exp((10*z_v+sqrt(5)*length*(x1+x2-2*z_m))/length**2)*(0.5*E3A31*(1+erf((muC-x2)/sqrt(2*z_v)))+\
+        E3A32*sqrt(0.5*z_v/pi)*exp(-0.5*(x2-muC)**2/z_v))
+    
+    E40=1+(25*x1**2*x2**2+3*sqrt(5)*(3*length**3-5*length*x1*x2)*(X2-X1)+15*length**2*(x1**2+x2**2-3*x1*x2))/(9*length**4)
+    E41=5*(3*sqrt(5)*length*(x2**2-x1**2)+3*length**2*(x1+x2)-10*x1*x2*(x1+x2))/(9*length**4)
+    E42=5*(5*x1**2+5*x2**2-3*length**2-3*sqrt(5)*length*(x2-x1)+20*x1*x2)/(9*length**4)
+    E43=-50*(X1+X2)/(9*length**4)
+    E44=25/(9*length**4)
+    E4A41=E40+z_m*E41+(z_m**2+z_v)*E42+(z_m**3+3*z_v*z_m)*E43+(z_m**4+6*z_v*z_m**2+3*z_v**2)
+    E4A42=E41+(z_m+x1)*E42+(z_m**2+2*z_v+x1**2+z_m*x1)*E43+(z_m**3+x1**3+x1*z_m**2+z_m*x1**2+3*z_v*x1+5*z_v*z_m)*E44
+    E4A43=E41+(z_m+x2)*E42+(z_m**2+2*z_v+x2**2+z_m*x2)*E43+(z_m**3+x2**3+x2*z_m**2+z_m*x2**2+3*z_v*x2+5*z_v*z_m)*E44
+    P2=exp(-sqrt(5)*(x2-x1)/length)*(0.5*E4A41*(erf((x2-z_m)/sqrt(2*z_v))-erf((x1-z_m)/sqrt(2*z_v)))+\
+        E4A42*sqrt(0.5*z_v/pi)*exp(-0.5*(x1-z_m)**2/z_v)-E4A43*sqrt(0.5*z_v/pi)*exp(-0.5*(x2-z_m)**2/z_v))
+
+    E50=1+(25*x1**2*x2**2+3*sqrt(5)*(3*length**3+5*length*x1*x2)*(x1+x2)+15*length**2*(x1**2+x2**2+3*x1*x2))/(9*length**4)
+    E51=(18*sqrt(5)*length**3+15*sqrt(5)*length*(x1**2+x2**2)+(75*length**2+50*x1*x2)*(x1+x2)+60*sqrt(5)*length*x1*x2)/(9*length**4)
+    E52=5*(5*x1**2+5*x2**2+15*length**2+9*sqrt(5)*length*(x1+x2)+20*x1*x2)/(9*length**4)
+    E53=10*(3*sqrt(5)*length+5*x1+5*x2)/(9*length**4)
+    E54=25/(9*length**4)
+    muD=z_m+2*sqrt(5)*z_v/length
+    E5A51=E50-muD*E51+(muD**2+z_v)*E52-(muD**3+3*z_v*muD)*E53+(muD**4+6*z_v*muD**2+3*z_v**2)*E54
+    E5A52=E51-(muD+x1)*E52+(muD**2+2*z_v+x1**2+muD*x1)*E53-(muD**3+x1**3+x1*muD**2+muD*x1**2+3*z_v*x1+5*z_v*muD)*E54
+    P3=exp((10*z_v-sqrt(5)*length*(x1+x2-2*z_m))/length**2)*(0.5*E5A51*(1+erf((x1-muD)/sqrt(2*z_v)))+\
+        E5A52*sqrt(0.5*z_v/pi)*exp(-0.5*(x1-muD)**2/z_v))
+
+    jd=P1+P2+P3
+    return jd
