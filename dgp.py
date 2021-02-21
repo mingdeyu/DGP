@@ -7,10 +7,10 @@ from elliptical_slice import ess
 
 class dgp:
     #main algorithm
-    def __init__(self, X, Y, layer, all_kernel):
+    def __init__(self, X, Y, all_kernel):
         self.X=X
         self.Y=Y
-        self.layer=layer
+        self.layer=len(all_kernel)
         self.all_kernel=all_kernel
         self.para_path=[]
         for kernel in all_kernel:
