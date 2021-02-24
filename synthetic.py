@@ -12,10 +12,13 @@ class path:
         path=np.empty((N,n))
         for i in range(N):
             x=self.X
-            for kernel in self.all_kernel[0:self.layer]:
-                cov=(kernel.k_matrix(x)+kernel.mean_prior)*kernel.scale
+            for kernel in self.all_kernel:
+                if kernel.zero_mean==0:
+                    cov=(kernel.k_matrix(x)+kernel.mean_prior)*kernel.scale
+                else:
+                    cov=kernel.k_matrix(x)*kernel.scale
                 L=np.linalg.cholesky(cov)
                 randn=np.random.normal(size=[n,1])
                 x=L@randn
             path[i,]=x.flatten()  
-        return path
+        return path.T

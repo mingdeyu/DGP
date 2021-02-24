@@ -40,9 +40,9 @@ def k_one_matrix(X,length,nugget,name):
     if name=='sexp':
         n=len(X)
         X_l=X/length
-        L=np.sum(X_l**2,axis=1,keepdims=1)
+        L=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
         dis=L-2*X_l@X_l.T+L.T
-        K=exp(-dis)+nugget*np.identity(n)
+        K=np.exp(-dis)+nugget*np.identity(n)
     elif name=='matern2.5':
         n=np.shape(X)[0]
         d=np.shape(X)[1]
@@ -52,9 +52,9 @@ def k_one_matrix(X,length,nugget,name):
         K2=np.zeros((n,n))
         for i in range(d):
             dis=L[i]-2*X_l[i]@X_l[i].T+L[i].T
-            K1*=(1+sqrt(5*dis)+5/3*dis)
-            K2+=sqrt(5*dis)
-        K2=exp(-K2)
+            K1*=(1+np.sqrt(5*dis)+5/3*dis)
+            K2+=np.sqrt(5*dis)
+        K2=np.exp(-K2)
         K=K1*K2+nugget*np.identity(n)
     return K
 
@@ -86,7 +86,7 @@ def Qlik(x,ker,w1,w2):
         #HKinvHv=HKinvH+1/ker.mean_prior
         #if ker.scale_est==1:
         #    scale=(YKinvY-HKinvY**2/HKinvHv)/n
-        #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+(n-1)*np.log(scale))
+        #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+n*np.log(scale))
         #else:
         #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+YKinvY-HKinvY**2/HKinvHv)
     else:
@@ -183,7 +183,7 @@ def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
     if zero_mean==1:
         Rinv_r=np.linalg.solve(R,r)
         r_Rinv_r=np.sum(r*Rinv_r,axis=0)
-        v=np.ones((N,1))*abs(scale*(1+nugget-r_Rinv_r))
+        v=np.ones((N,1))*np.abs(scale*(1+nugget-r_Rinv_r))
     else:
         H=np.ones((len(R),1))
         Rinv_r=np.linalg.solve(R,r)
@@ -191,7 +191,7 @@ def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
         HRinvHv=np.sum(Rinv_H)+1/mean_prior
         r_Rinv_r=np.sum(r*Rinv_r,axis=0)
         r_Rinv_H=np.sum(r*Rinv_H,axis=0)
-        v=np.ones((N,1))*abs(scale*(1+nugget-r_Rinv_r+(1-r_Rinv_H)**2/HRinvHv))
+        v=np.ones((N,1))*np.abs(scale*(1+nugget-r_Rinv_r+(1-r_Rinv_H)**2/HRinvHv))
     for i in range(N):
         y=w2[i]
         if zero_mean==1:
@@ -209,8 +209,8 @@ def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
 def link(m,v,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
     N=np.shape(m)[0]
     M=np.shape(m)[1]
-    m_new=np.empty((N,M))
-    v_new=np.empty((N,M))
+    m_new=np.empty((N,M,1))
+    v_new=np.empty((N,M,1))
     for i in range(N):
         X=w1[i]
         y=w2[i] 
@@ -230,16 +230,15 @@ def link(m,v,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
             tr_RinvJ=np.trace(np.linalg.solve(R,J))
             if zero_mean==1:
                 IRinv_y=np.sum(I*Rinv_y)
-                m_new[i,j]=IRinv_y
-                v_new[i,j]=abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+                m_new[i,j,]=IRinv_y
+                v_new[i,j,]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
             else:
                 HRinvI=np.sum(I*Rinv_H)
                 HRinvJRinvH=Rinv_H.T@J@Rinv_H
                 IRinv_res=np.sum(I*Rinv_res)
-                m_new[i,j]=b+IRinv_res
-                v_new[i,j]=abs(Rinv_res.T@J@Rinv_res-IRinv_res**2+scale*(1+nugget-tr_RinvJ+(1-2*HRinvI+HRinvJRinvH)/HRinvHv))
-    m_new=np.expand_dims(m_new,axis=2)
-    v_new=np.expand_dims(v_new,axis=2)
+                m_new[i,j,]=b+IRinv_res
+                v_new[i,j,]=np.abs(Rinv_res.T@J@Rinv_res-IRinv_res**2+scale*(1+nugget-tr_RinvJ+(1-2*HRinvI+HRinvJRinvH)/HRinvHv))
+    
     return m_new,v_new
 
 @jit(nopython=True,cache=True)
@@ -249,10 +248,10 @@ def k_one_vec(X,z,length,name):
         m=len(z)
         X_l=X/length
         z_l=z/length
-        L_X=np.sum(X_l**2,axis=1,keepdims=1)
-        L_z=np.sum(z_l**2,axis=1,keepdims=1)
+        L_X=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
+        L_z=np.expand_dims(np.sum(z_l**2,axis=1,),axis=1)
         dis=L_X-2*X_l@z_l.T+L_z.T
-        k=exp(-dis)
+        k=np.exp(-dis)
     elif name=='matern2.5':
         n=np.shape(X)[0]
         d=np.shape(X)[1]
@@ -265,9 +264,9 @@ def k_one_vec(X,z,length,name):
         k2=np.zeros((n,m))
         for i in range(d):
             dis=L_X[i]-2*X_l[i]@z_l[i].T+L_z[i].T
-            k1*=(1+sqrt(5*dis)+5/3*dis)
-            k2+=sqrt(5*dis)
-        k2=exp(-k2)
+            k1*=(1+np.sqrt(5*dis)+5/3*dis)
+            k2+=np.sqrt(5*dis)
+        k2=np.exp(-k2)
         k=k1*k2
     return k
 
@@ -277,15 +276,16 @@ def IJ(X,z_m,z_v,length,name):
     d=np.shape(X)[1]
     if name=='sexp':
         X_z=X-z_m
-        I=np.prod(1/sqrt(1+2*z_v/length**2)*exp(X_z**2/(2*z_v+length**2)),axis=1,keepdims=1)
+        I=np.ones((n,1))
         J=np.ones((n,n))
         X_z=X_z.T.reshape((d,n,1))
         for i in range(d):
+            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-X_z[i]**2/(2*z_v[i]+length[i]**2))
             L_X_z=X_z[i]**2
             cross_L_X_z=X_z[i]@X_z[i].T
             dis1=L_X_z+2*cross_L_X_z+L_X_z.T
             dis2=L_X_z-2*cross_L_X_z+L_X_z.T
-            J*=1/sqrt(1+4*z_v[i]/length[i]**2)*exp(-dis1/(2*length[i]**2+8*z_v[i])-dis2/(2*length[i]**2))
+            J*=1/np.sqrt(1+4*z_v[i]/length[i]**2)*np.exp(-dis1/(2*length[i]**2+8*z_v[i])-dis2/(2*length[i]**2))
     elif name=='matern2.5':
         zX=z_m-X
         muA=(zX-sqrt(5)*z_v/length).T.reshape((d,n,1))
@@ -296,18 +296,19 @@ def IJ(X,z_m,z_v,length,name):
         J=np.ones((n**2,1))
         for i in range(d):    
             if z_v[i]!=0:
-                I*=exp((5*z_v[i]-2*exp(5)*length[i]*zX[i])/(2*length[i]**2))* \
+                I*=np.exp((5*z_v[i]-2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
                     ((1+sqrt(5)*muA[i]/length[i]+5*(muA[i]**2+z_v[i])/(3*length[i]**2))*pnorm(muA[i]/sqrt(z_v[i]))+ \
-                    (sqrt(5)+(5*muA[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*exp(-0.5*muA[i]**2/length[i]))+ \
-                   exp((5*z_v[i]+2*exp(5)*length[i]*zX[i])/(2*length[i]**2))* \
+                    (sqrt(5)+(5*muA[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muA[i]**2/z_v[i]))+ \
+                   np.exp((5*z_v[i]+2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
                     ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
-                    (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*exp(-0.5*muB[i]**2/length[i]))
-                X_rep=np.ones((1,n))*X[i]
-                X1_vec=X_rep.reshape((n**2,1))
-                X2_vec=X_rep.T.reshape((n**2,1))
+                    (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muB[i]**2/z_v[i]))
+                X1_rep=np.ones((1,n))*X[i]
+                X1_vec=X1_rep.reshape((n**2,1))
+                X2_rep=np.ones((n,1))*X[i].T
+                X2_vec=X2_rep.reshape((n**2,1))
                 J*=Jd(X1_vec,X2_vec,z_m[i],z_v[i],length[i])
             else:
-                Id=(1+sqrt(5)*abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*exp(-sqrt(5)*abs(zX[i])/length[i])
+                Id=(1+sqrt(5)*np.abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*np.exp(-sqrt(5)*np.abs(zX[i])/length[i])
                 I*=Id
                 J*=(Id@Id.T).reshape((n**2,1))
         J=J.reshape((n,n))
@@ -336,12 +337,12 @@ def Jd(X1,X2,z_m,z_v,length):
     P1=exp((10*z_v+sqrt(5)*length*(x1+x2-2*z_m))/length**2)*(0.5*E3A31*(1+erf((muC-x2)/sqrt(2*z_v)))+\
         E3A32*sqrt(0.5*z_v/pi)*exp(-0.5*(x2-muC)**2/z_v))
     
-    E40=1+(25*x1**2*x2**2+3*sqrt(5)*(3*length**3-5*length*x1*x2)*(X2-X1)+15*length**2*(x1**2+x2**2-3*x1*x2))/(9*length**4)
+    E40=1+(25*x1**2*x2**2+3*sqrt(5)*(3*length**3-5*length*x1*x2)*(x2-x1)+15*length**2*(x1**2+x2**2-3*x1*x2))/(9*length**4)
     E41=5*(3*sqrt(5)*length*(x2**2-x1**2)+3*length**2*(x1+x2)-10*x1*x2*(x1+x2))/(9*length**4)
     E42=5*(5*x1**2+5*x2**2-3*length**2-3*sqrt(5)*length*(x2-x1)+20*x1*x2)/(9*length**4)
     E43=-50*(X1+X2)/(9*length**4)
     E44=25/(9*length**4)
-    E4A41=E40+z_m*E41+(z_m**2+z_v)*E42+(z_m**3+3*z_v*z_m)*E43+(z_m**4+6*z_v*z_m**2+3*z_v**2)
+    E4A41=E40+z_m*E41+(z_m**2+z_v)*E42+(z_m**3+3*z_v*z_m)*E43+(z_m**4+6*z_v*z_m**2+3*z_v**2)*E44
     E4A42=E41+(z_m+x1)*E42+(z_m**2+2*z_v+x1**2+z_m*x1)*E43+(z_m**3+x1**3+x1*z_m**2+z_m*x1**2+3*z_v*x1+5*z_v*z_m)*E44
     E4A43=E41+(z_m+x2)*E42+(z_m**2+2*z_v+x2**2+z_m*x2)*E43+(z_m**3+x2**3+x2*z_m**2+z_m*x2**2+3*z_v*x2+5*z_v*z_m)*E44
     P2=exp(-sqrt(5)*(x2-x1)/length)*(0.5*E4A41*(erf((x2-z_m)/sqrt(2*z_v))-erf((x1-z_m)/sqrt(2*z_v)))+\

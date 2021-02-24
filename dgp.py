@@ -17,6 +17,7 @@ class dgp:
              self.para_path.append(kernel.collect_para())
         self.lastmcmc=[]
         self.samples=[]
+        self.final_kernel=[]
 
     def train(self, N, burnin=100, sub_burn=100, method='BFGS'):
         #sub_burn>=1
@@ -27,7 +28,7 @@ class dgp:
             all_kernel_old=copy.deepcopy(self.all_kernel)
             if not self.lastmcmc:    
                 hidden=np.linspace(np.min(self.Y),np.max(self.Y), num=len(self.Y))   
-                new_ini=[hidden]*(self.layer-1)    
+                new_ini=[hidden.reshape([-1,1])]*(self.layer-1)    
             else:
                 new_ini=self.lastmcmc
             obj=ess(all_kernel_old,self.X,self.Y,new_ini)
@@ -41,7 +42,12 @@ class dgp:
                 self.all_kernel[l],res=self.optim(w1,w2,ker,method)
                 pgb.set_description('Iteration %i: Layer %i, %s' % (i,l+1,res))
                 self.para_path[l]=np.vstack((self.para_path[l],self.all_kernel[l].collect_para()))
-        return [t[burnin:] for t in self.para_path]
+        pare_path_thinned=[t[burnin:] for t in self.para_path]
+        final_kernel=copy.deepcopy(self.all_kernel)
+        for l in range(self.layer):
+            final_kernel[l].assign_point_para(pare_path_thinned[l])
+        self.final_kernel=final_kernel
+        return pare_path_thinned
     
     @staticmethod
     def optim(w1,w2,ker,method):
@@ -53,26 +59,24 @@ class dgp:
         new_theta_trans=re.x
         ker.update(new_theta_trans)
         
-        K=ker.k_matrix(w1)
-        if ker.zero_mean==0:
-            H=np.ones(shape=[n,1])
-            KinvH=np.linalg.solve(K,H)
-            HKinvH=H.T@KinvH
-            KinvY=np.linalg.solve(K,w2)
-            HKinvY=H.T@KinvY
-            new_b=HKinvY/HKinvH
-            if ker.scale_est==1:
-                R=w2-new_b*H
-                KinvR=KinvY-new_b*KinvH
-                RKinvR=R.T@KinvR
-                new_scale=RKinvR/(n-1)
+        if ker.scale_est==1:
+            K=ker.k_matrix(w1)
+            if ker.zero_mean==0:
+                H=np.ones(shape=[n,1])
+                KinvH=np.linalg.solve(K,H)
+                HKinvH=H.T@KinvH
+                KinvY=np.linalg.solve(K,w2)
+                HKinvY=H.T@KinvY
+                YKinvY=w2.T@KinvY
+                HKinvHv=HKinvH+1/ker.mean_prior
+                new_scale=(YKinvY-HKinvY**2/HKinvHv)/n
                 ker.scale=new_scale.flatten()
-        else:
-            if ker.scale_est==1:
+            else:
                 KinvY=np.linalg.solve(K,w2)
                 YKinvY=w2.T@KinvY
                 new_scale=YKinvY/n
                 ker.scale=new_scale.flatten()
+
         if re.success==True:
             res='Coverged!'
         else:
@@ -83,10 +87,13 @@ class dgp:
         if N!=0:
             if not self.lastmcmc:    
                 hidden=np.linspace(np.min(self.Y),np.max(self.Y), num=len(self.Y))   
-                new_ini=[hidden]*(self.layer-1)    
+                new_ini=[hidden.reshape([-1,1])]*(self.layer-1)    
             else:
                 new_ini=self.lastmcmc
-            obj=ess(self.all_kernel,self.X,self.Y,new_ini)
+            if self.final_kernel:
+                obj=ess(self.final_kernel,self.X,self.Y,new_ini)
+            else:
+                obj=ess(self.all_kernel,self.X,self.Y,new_ini)
             samples=obj.sample_ess(N=N,burnin=1)
             if self.samples:
                 self.samples=[np.vstack((i,j)) for i,j in zip(self.samples,samples)]
@@ -94,7 +101,10 @@ class dgp:
                 self.samples=samples
             self.lastmcmc=[t[-1] for t in samples[1:-1]]
         adj_sample=[t[burnin:] for t in self.samples]
-        mean,variance=linkgp(z,adj_sample,self.all_kernel)
+        if self.final_kernel:
+            mean,variance=linkgp(z,adj_sample,self.final_kernel)
+        else:
+            mean,variance=linkgp(z,adj_sample,self.all_kernel)
         if method=='sampling':
             realisation=np.random.normal(mean,np.sqrt(variance))
             return np.squeeze(realisation)
