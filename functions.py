@@ -46,8 +46,9 @@ def k_one_matrix(X,length,nugget,name):
     elif name=='matern2.5':
         n=np.shape(X)[0]
         d=np.shape(X)[1]
-        X_l=(X/length).T.reshape((d,n,1))
+        X_l=np.expand_dims((X/length).T,axis=2)
         L=X_l**2
+        #K=np.ones((n,n))
         K1=np.ones((n,n))
         K2=np.zeros((n,n))
         for i in range(d):
@@ -56,6 +57,8 @@ def k_one_matrix(X,length,nugget,name):
             K2+=np.sqrt(5*dis)
         K2=np.exp(-K2)
         K=K1*K2+nugget*np.identity(n)
+            #K*=(1+np.sqrt(5*dis)+5/3*dis)*np.exp(-np.sqrt(5*dis))
+        #K=K+nugget*np.identity(n)
     return K
 
 @jit(nopython=True,cache=True)

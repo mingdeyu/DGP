@@ -37,8 +37,8 @@ class dgp:
             #M-step
             for l in range(self.layer):
                 ker=copy.deepcopy(all_kernel_old[l])
-                w1=np.squeeze(samples[l])
-                w2=np.squeeze(samples[l+1])
+                w1=np.squeeze(samples[l],axis=0)
+                w2=np.squeeze(samples[l+1],axis=0)
                 self.all_kernel[l],res=self.optim(w1,w2,ker,method)
                 pgb.set_description('Iteration %i: Layer %i, %s' % (i,l+1,res))
                 self.para_path[l]=np.vstack((self.para_path[l],self.all_kernel[l].collect_para()))
@@ -95,8 +95,11 @@ class dgp:
             else:
                 obj=ess(self.all_kernel,self.X,self.Y,new_ini)
             samples=obj.sample_ess(N=N,burnin=1)
-            if self.samples:
-                self.samples=[np.vstack((i,j)) for i,j in zip(self.samples,samples)]
+            if not self.final_kernel:
+                if self.samples:
+                    self.samples=[np.vstack((i,j)) for i,j in zip(self.samples,samples)]
+                else:
+                    self.samples=samples
             else:
                 self.samples=samples
             self.lastmcmc=[t[-1] for t in samples[1:-1]]

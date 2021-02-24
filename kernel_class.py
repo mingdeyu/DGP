@@ -73,7 +73,7 @@ class kernel:
             disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
             fod=2*disi*K
         elif self.name=='matern2.5':
-            X_li=X_li.reshape([d,n,1])
+            X_li=X_l.T.reshape([d,n,1])
             Li=X_li**2
             disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
             K_1=np.prod(1+np.sqrt(5*disi)+5/3*disi,0)
