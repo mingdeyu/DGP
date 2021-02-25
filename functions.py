@@ -52,7 +52,7 @@ def k_one_matrix(X,length,nugget,name):
         K1=np.ones((n,n))
         K2=np.zeros((n,n))
         for i in range(d):
-            dis=L[i]-2*X_l[i]@X_l[i].T+L[i].T
+            dis=np.abs(L[i]-2*X_l[i]@X_l[i].T+L[i].T)
             K1*=(1+np.sqrt(5*dis)+5/3*dis)
             K2+=np.sqrt(5*dis)
         K2=np.exp(-K2)
@@ -266,7 +266,7 @@ def k_one_vec(X,z,length,name):
         k1=np.ones((n,m))
         k2=np.zeros((n,m))
         for i in range(d):
-            dis=L_X[i]-2*X_l[i]@z_l[i].T+L_z[i].T
+            dis=np.abs(L_X[i]-2*X_l[i]@z_l[i].T+L_z[i].T)
             k1*=(1+np.sqrt(5*dis)+5/3*dis)
             k2+=np.sqrt(5*dis)
         k2=np.exp(-k2)
