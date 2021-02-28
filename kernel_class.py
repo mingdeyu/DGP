@@ -1,14 +1,17 @@
 import numpy as np
 
 class kernel:
-    def __init__(self, length, scale=1., nugget=1e-8, mean_prior=np.array([0.1]),prior=np.array([0.3338,0.0835]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, zero_mean=0):
+    def __init__(self, length, scale=1., nugget=1e-8, mean_prior=0.1,prior=np.array([0.3338,0.0835]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, zero_mean=0):
         #0.3338,0.0835
         self.length=length
-        self.scale=np.array([scale])
+        #self.scale=np.array([scale])
+        self.scale=np.atleast_1d(scale)
         self.scale_est=scale_est
-        self.nugget=np.array([nugget])
+        #self.nugget=np.array([nugget])
+        self.nugget=np.atleast_1d(nugget)
         self.nugget_est=nugget_est
-        self.mean_prior=mean_prior
+        #self.mean_prior=mean_prior
+        self.mean_prior=np.atleast_1d(mean_prior)
         self.prior=prior
         self.prior_est=prior_est
         self.n_theta=len(length)

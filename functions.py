@@ -116,12 +116,12 @@ def Qlik_der(x,ker,w1,w2):
         KvinvKt=np.linalg.solve(K+ker.mean_prior,Kt)
         tr_KvinvKt=np.trace(KvinvKt,axis1=1, axis2=2)
         KvinvY=np.linalg.solve(K+ker.mean_prior,w2)
-        YKvinvKtKvinvY=w2.T@KvinvKt@KvinvY
+        YKvinvKtKvinvY=(w2.T@KvinvKt@KvinvY).flatten()
         P1=-0.5*tr_KvinvKt
         P2=0.5*YKvinvKtKvinvY
         if ker.scale_est==1:
             YKvinvY=w2.T@KvinvY
-            scale=YKvinvY/n
+            scale=(YKvinvY/n).flatten()
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2
@@ -149,17 +149,15 @@ def Qlik_der(x,ker,w1,w2):
         KinvKt=np.linalg.solve(K,Kt)
         tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
         KinvY=np.linalg.solve(K,w2)
-        YKinvKtKinvY=w2.T@KinvKt@KinvY
+        YKinvKtKinvY=(w2.T@KinvKt@KinvY).flatten()
         P1=-0.5*tr_KinvKt
         P2=0.5*YKinvKtKinvY
         if ker.scale_est==1:
             YKinvY=w2.T@KinvY
-            scale=YKinvY/n
+            scale=(YKinvY/n).flatten()
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2
-    neg_St=neg_St.flatten()
-
     if ker.prior_est==1:
         neg_St=neg_St-ker.log_prior_fod()
     return neg_St
