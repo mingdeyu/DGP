@@ -75,8 +75,12 @@ def Qlik(x,ker,w1,w2):
         KvinvY=np.linalg.solve(K+ker.mean_prior,w2)
         YKvinvY=w2.T@KvinvY
         if ker.scale_est==1:
-            scale=YKvinvY/n
-            neg_qlik=0.5*(logdet+n*np.log(scale))
+            if ker.scale_prior_est==1:
+                scale=(YKvinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
+                neg_qlik=0.5*(logdet+(n+2+2*ker.scale_prior[0])*np.log(scale))
+            else:
+                scale=YKvinvY/n
+                neg_qlik=0.5*(logdet+n*np.log(scale))
         else:
             neg_qlik=0.5*(logdet+YKvinvY) 
         #_,logdet=np.linalg.slogdet(K)
@@ -97,8 +101,12 @@ def Qlik(x,ker,w1,w2):
         KinvY=np.linalg.solve(K,w2)
         YKinvY=w2.T@KinvY
         if ker.scale_est==1:
-            scale=YKinvY/n
-            neg_qlik=0.5*(logdet+n*np.log(scale))
+            if ker.scale_prior_est==1:
+                scale=(YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
+                neg_qlik=0.5*(logdet+(n+2+2*ker.scale_prior[0])*np.log(scale))
+            else:
+                scale=YKinvY/n
+                neg_qlik=0.5*(logdet+n*np.log(scale))
         else:
             neg_qlik=0.5*(logdet+YKinvY) 
     neg_qlik=neg_qlik.flatten()
@@ -121,7 +129,10 @@ def Qlik_der(x,ker,w1,w2):
         P2=0.5*YKvinvKtKvinvY
         if ker.scale_est==1:
             YKvinvY=w2.T@KvinvY
-            scale=(YKvinvY/n).flatten()
+            if ker.scale_prior_est==1:
+                scale=((YKvinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])).flatten()
+            else:
+                scale=(YKvinvY/n).flatten()
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2
@@ -154,7 +165,10 @@ def Qlik_der(x,ker,w1,w2):
         P2=0.5*YKinvKtKinvY
         if ker.scale_est==1:
             YKinvY=w2.T@KinvY
-            scale=(YKinvY/n).flatten()
+            if ker.scale_prior_est==1:
+                scale=((YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])).flatten()
+            else:
+                scale=(YKinvY/n).flatten()
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2

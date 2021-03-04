@@ -1,10 +1,12 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm.notebook import trange, tqdm
 import copy
 from scipy.optimize import minimize
 from functions import Qlik, Qlik_der, linkgp
 from elliptical_slice import ess
 from sklearn.decomposition import KernelPCA
+import arviz as az
 
 class dgp:
     #main algorithm
@@ -14,6 +16,7 @@ class dgp:
         self.layer=len(all_kernel)
         self.all_kernel=all_kernel
         self.para_path=[]
+        self.burnin=[]
         for kernel in all_kernel:
              self.para_path.append(kernel.collect_para())
         self.lastmcmc=[]
@@ -25,18 +28,15 @@ class dgp:
     def train(self, N, burnin=100, sub_burn=100, method='BFGS',ini='sigmoid'):
         #sub_burn>=1
         #initialisation
+        self.burnin=burnin
         pgb=trange(1,N+1,ncols='70%')
         for i in pgb:
             #S-step
             all_kernel_old=copy.deepcopy(self.all_kernel)
-            if not self.lastmcmc:    
-                #hidden=np.linspace(np.min(self.Y),np.max(self.Y), num=len(self.Y))   
-                #new_ini=[hidden.reshape([-1,1])]*(self.layer-1) 
-                #new_ini=[self.Y]*(self.layer-1)   
+            if not self.lastmcmc:      
                 if np.shape(self.X)[1]==1:
                     new_ini=[self.X]*(self.layer-1) 
                 else:
-                    #pca = PCA(1)
                     pca=KernelPCA(n_components=1, kernel=ini)
                     new_ini=[pca.fit_transform(self.X)]*(self.layer-1) 
             else:
@@ -59,8 +59,23 @@ class dgp:
         self.final_kernel=final_kernel
         self.cur_opt_iter+=1
         self.last_opt_iter=self.cur_opt_iter-1
-        return pare_path_thinned
     
+    def update_final_kernel(self,burnin):
+        self.burnin=burnin
+        pare_path_thinned=[t[burnin:] for t in self.para_path]
+        for l in range(self.layer):
+            self.final_kernel[l].assign_point_para(pare_path_thinned[l])
+        self.cur_opt_iter+=1
+        self.last_opt_iter=self.cur_opt_iter-1
+
+    def plot(self,ker_no):
+        para_no=int(np.shape(self.para_path[ker_no])[1])
+        for p in range(para_no):
+            trace=self.para_path[ker_no][:,p]
+            plt.figure()
+            plt.plot(trace)
+            plt.show()
+
     @staticmethod
     def optim(w1,w2,ker,method):
         n=np.shape(w1)[0]
@@ -95,16 +110,12 @@ class dgp:
             res='NoConverge'
         return ker,res
 
-    def predict(self, z, N, burnin=1000, method='sampling',ini='sigmoid'):
+    def predict(self, z, N, burnin=0, method='sampling',ini='sigmoid'):
         if N!=0:
             if not self.lastmcmc:    
-                #hidden=np.linspace(np.min(self.Y),np.max(self.Y), num=len(self.Y))   
-                #new_ini=[hidden.reshape([-1,1])]*(self.layer-1)    
-                #new_ini=[self.Y]*(self.layer-1) 
                 if np.shape(self.X)[1]==1:
                     new_ini=[self.X]*(self.layer-1) 
                 else:
-                    #pca = PCA(1)
                     pca=KernelPCA(n_components=1, kernel=ini)
                     new_ini=[pca.fit_transform(self.X)]*(self.layer-1) 
             else:
@@ -131,6 +142,7 @@ class dgp:
             mean,variance=linkgp(z,adj_sample,self.final_kernel)
         else:
             mean,variance=linkgp(z,adj_sample,self.all_kernel)
+        print(f"se = {np.mean(np.array([az.mcse((mean[:,l,:]).flatten()) for l in range(np.shape(mean)[1])]))}, ess = {np.mean(np.array([az.ess((mean[:,l,:]).flatten()) for l in range(np.shape(mean)[1])]))}")
         if method=='sampling':
             realisation=np.random.normal(mean,np.sqrt(variance))
             return np.squeeze(realisation)
