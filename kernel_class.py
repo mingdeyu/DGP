@@ -1,7 +1,7 @@
 import numpy as np
 
 class kernel:
-    def __init__(self, length, scale=1., nugget=1e-8, mean_prior=0.1,prior=np.array([0.3338,0.0835]),scale_prior=np.array([1.,1.]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, scale_prior_est=1, zero_mean=0):
+    def __init__(self, length, scale=1., nugget=1e-8, mean_prior=0.1,prior=np.array([0.3338,0.0835]),scale_prior=np.array([1.,1.]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, scale_prior_est=0, zero_mean=1):
         #0.3338,0.0835
         self.length=length
         self.scale=np.atleast_1d(scale)

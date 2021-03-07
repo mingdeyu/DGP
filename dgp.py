@@ -25,7 +25,7 @@ class dgp:
         self.cur_opt_iter=0
         self.last_opt_iter=0
 
-    def train(self, N, burnin=100, sub_burn=100, method='BFGS',ini='sigmoid'):
+    def train(self, N, burnin=100, sub_burn=10, method='L-BFGS-B',ini='sigmoid'):
         #sub_burn>=1
         #initialisation
         self.burnin=burnin
@@ -42,7 +42,10 @@ class dgp:
             else:
                 new_ini=self.lastmcmc
             obj=ess(all_kernel_old,self.X,self.Y,new_ini)
-            samples=obj.sample_ess(N=1,burnin=sub_burn)
+            if not self.lastmcmc:
+                samples=obj.sample_ess(N=1,burnin=500)
+            else:
+                samples=obj.sample_ess(N=1,burnin=sub_burn)
             self.lastmcmc=samples[1:-1]
             #M-step
             for l in range(self.layer):
@@ -96,12 +99,18 @@ class dgp:
                 HKinvY=H.T@KinvY
                 YKinvY=w2.T@KinvY
                 HKinvHv=HKinvH+1/ker.mean_prior
-                new_scale=(YKinvY-HKinvY**2/HKinvHv)/n
+                if ker.scale_prior_est==1:
+                    new_scale=(YKinvY-HKinvY**2/HKinvHv+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
+                else:
+                    new_scale=(YKinvY-HKinvY**2/HKinvHv)/n
                 ker.scale=new_scale.flatten()
             else:
                 KinvY=np.linalg.solve(K,w2)
                 YKinvY=w2.T@KinvY
-                new_scale=YKinvY/n
+                if ker.scale_prior_est==1:
+                    new_scale=(YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
+                else:
+                    new_scale=YKinvY/n
                 ker.scale=new_scale.flatten()
 
         if re.success==True:
@@ -142,7 +151,7 @@ class dgp:
             mean,variance=linkgp(z,adj_sample,self.final_kernel)
         else:
             mean,variance=linkgp(z,adj_sample,self.all_kernel)
-        print(f"se = {np.mean(np.array([az.mcse((mean[:,l,:]).flatten()) for l in range(np.shape(mean)[1])]))}, ess = {np.mean(np.array([az.ess((mean[:,l,:]).flatten()) for l in range(np.shape(mean)[1])]))}")
+        print(f"se = {np.mean(np.array([az.mcse((mean[:,l,:]).flatten()) for l in range(np.shape(mean)[1])]))}")
         if method=='sampling':
             realisation=np.random.normal(mean,np.sqrt(variance))
             return np.squeeze(realisation)
