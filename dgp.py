@@ -25,7 +25,7 @@ class dgp:
         self.cur_opt_iter=0
         self.last_opt_iter=0
 
-    def train(self, N, burnin=100, sub_burn=10, method='L-BFGS-B',ini='sigmoid'):
+    def train(self, N=400, burnin=300, sub_burn=20, method='L-BFGS-B',latent_ini='sigmoid'):
         #sub_burn>=1
         #initialisation
         self.burnin=burnin
@@ -37,13 +37,13 @@ class dgp:
                 if np.shape(self.X)[1]==1:
                     new_ini=[self.X]*(self.layer-1) 
                 else:
-                    pca=KernelPCA(n_components=1, kernel=ini)
+                    pca=KernelPCA(n_components=1, kernel=latent_ini)
                     new_ini=[pca.fit_transform(self.X)]*(self.layer-1) 
             else:
                 new_ini=self.lastmcmc
             obj=ess(all_kernel_old,self.X,self.Y,new_ini)
             if not self.lastmcmc:
-                samples=obj.sample_ess(N=1,burnin=500)
+                samples=obj.sample_ess(N=1,burnin=100)
             else:
                 samples=obj.sample_ess(N=1,burnin=sub_burn)
             self.lastmcmc=samples[1:-1]
@@ -85,7 +85,7 @@ class dgp:
         old_theta_trans=ker.log_t()
         re = minimize(Qlik, old_theta_trans, args=(ker,w1,w2), method=method, jac=Qlik_der)
         if re.success!=True:
-            re = minimize(Qlik, old_theta_trans, args=(ker,w1,w2), method='Nelder-Mead')
+            re = minimize(Qlik, re.x, args=(ker,w1,w2), method='Nelder-Mead')
         new_theta_trans=re.x
         ker.update(new_theta_trans)
         

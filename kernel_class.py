@@ -63,19 +63,18 @@ class kernel:
 
     def k_fod(self,X):
         n=np.shape(X)[0]
-        d=np.shape(X)[1]
         X_l=X/self.length
         if self.name=='sexp':
             L=np.sum(X_l**2,1).reshape([-1,1])
             dis=L-2*X_l@X_l.T+L.T
             K=np.exp(-dis)
             K=np.expand_dims(K,axis=0)
-            X_li=X_l.reshape([d,n,1])
+            X_li=np.expand_dims(X_l.T,axis=2)
             Li=X_li**2
             disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
             fod=2*disi*K
         elif self.name=='matern2.5':
-            X_li=X_l.T.reshape([d,n,1])
+            X_li=np.expand_dims(X_l.T,axis=2)
             Li=X_li**2
             disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
             K_1=np.prod(1+np.sqrt(5*disi)+5/3*disi,0)
