@@ -47,7 +47,7 @@ class ess:
         return [t[burnin:] for t in self.sample]
 
     def one_sample(self,x,y,f,k1,k2):
-        mean=np.ones(len(y))
+        mean=np.zeros(len(y))
         f=f.flatten()
         y=y.flatten()
         

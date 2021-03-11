@@ -52,8 +52,8 @@ class dgp:
                 ker=copy.deepcopy(all_kernel_old[l])
                 w1=np.squeeze(samples[l],axis=0)
                 w2=np.squeeze(samples[l+1],axis=0)
-                self.all_kernel[l],res=self.optim(w1,w2,ker,method)
-                pgb.set_description('Iteration %i: Layer %i, %s' % (i,l+1,res))
+                self.all_kernel[l]=self.optim(w1,w2,ker,method)
+                pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
                 self.para_path[l]=np.vstack((self.para_path[l],self.all_kernel[l].collect_para()))
         pare_path_thinned=[t[burnin:] for t in self.para_path]
         final_kernel=copy.deepcopy(self.all_kernel)
@@ -84,8 +84,10 @@ class dgp:
         n=np.shape(w1)[0]
         old_theta_trans=ker.log_t()
         re = minimize(Qlik, old_theta_trans, args=(ker,w1,w2), method=method, jac=Qlik_der)
+        #res=method
         if re.success!=True:
             re = minimize(Qlik, re.x, args=(ker,w1,w2), method='Nelder-Mead')
+            #res='Nelder-Mead'
         new_theta_trans=re.x
         ker.update(new_theta_trans)
         
@@ -113,11 +115,11 @@ class dgp:
                     new_scale=YKinvY/n
                 ker.scale=new_scale.flatten()
 
-        if re.success==True:
-            res='Coverged!'
-        else:
-            res='NoConverge'
-        return ker,res
+        #if re.success==True:
+        #    res='Coverged!'
+        #else:
+        #    res='NoConverge'
+        return ker
 
     def predict(self, z, N, burnin=0, method='sampling',ini='sigmoid'):
         if N!=0:

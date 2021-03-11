@@ -63,7 +63,7 @@ def k_one_matrix(X,length,nugget,name):
 
 @jit(nopython=True,cache=True)
 def update_f(f,mean,nu,theta):
-    fp=(f - mean)*np.cos(theta) + nu*np.sin(theta) + mean
+    fp=(f - mean)*np.cos(theta) + (nu - mean)*np.sin(theta) + mean
     return fp
 
 def Qlik(x,ker,w1,w2):
