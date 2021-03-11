@@ -4,35 +4,19 @@ from math import erf, exp, sqrt, pi
 from numpy.random import randn
 
 @jit(nopython=True,cache=True)
-def log_likelihood_func(y,cov,scale,mean_prior,zero_mean):
-    if zero_mean==1:
-        cov=scale*cov
-        _,logdet=np.linalg.slogdet(cov)
-        quad=np.sum(y*np.linalg.solve(cov,y))
-        llik=-0.5*len(y)*np.log(2*np.pi)-0.5*(logdet+quad)
-    else:
-        cov=scale*(cov+mean_prior)
-        _,logdet=np.linalg.slogdet(cov)
-        quad=np.sum(y*np.linalg.solve(cov,y))
-        llik=-0.5*len(y)*np.log(2*np.pi)-0.5*(logdet+quad)
+def log_likelihood_func(y,cov,scale):
+    cov=scale*cov
+    _,logdet=np.linalg.slogdet(cov)
+    quad=np.sum(y*np.linalg.solve(cov,y))
+    llik=-0.5*len(y)*np.log(2*np.pi)-0.5*(logdet+quad)
     return llik
 
 @jit(nopython=True,cache=True)
-def mvn(cov,scale,mean_prior,zero_mean):
+def mvn(cov,scale):
     d=len(cov)
     sn=randn(d,1)
-    if zero_mean==1:
-        L=np.linalg.cholesky(scale*cov)
-        samp=(L@sn).flatten()
-    else:
-        #one_vec=np.ones(d)
-        #RinvOne=np.linalg.solve(cov,one_vec)
-        #coef=np.sum(RinvOne)+1/mean_prior
-        #mat=np.eye(d)-RinvOne/coef
-        #U=np.linalg.cholesky(np.linalg.solve(cov,mat)/scale).T
-        #samp=np.linalg.solve(U,sn)
-        L=np.linalg.cholesky(scale*(cov+mean_prior))
-        samp=(L@sn).flatten()
+    L=np.linalg.cholesky(scale*cov)
+    samp=(L@sn).flatten()
     return samp
 
 @jit(nopython=True,cache=True)
@@ -70,45 +54,18 @@ def Qlik(x,ker,w1,w2):
     ker.update(x)
     n=np.shape(w1)[0]
     K=ker.k_matrix(w1)
-    if ker.zero_mean==0:
-        _,logdet=np.linalg.slogdet(K+ker.mean_prior)
-        KvinvY=np.linalg.solve(K+ker.mean_prior,w2)
-        YKvinvY=w2.T@KvinvY
-        if ker.scale_est==1:
-            if ker.scale_prior_est==1:
-                scale=(YKvinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
-                neg_qlik=0.5*(logdet+(n+2+2*ker.scale_prior[0])*np.log(scale))
-            else:
-                scale=YKvinvY/n
-                neg_qlik=0.5*(logdet+n*np.log(scale))
+    _,logdet=np.linalg.slogdet(K)
+    KinvY=np.linalg.solve(K,w2)
+    YKinvY=w2.T@KinvY
+    if ker.scale_est==1:
+        if ker.scale_prior_est==1:
+            scale=(YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
+            neg_qlik=0.5*(logdet+(n+2+2*ker.scale_prior[0])*np.log(scale))
         else:
-            neg_qlik=0.5*(logdet+YKvinvY) 
-        #_,logdet=np.linalg.slogdet(K)
-        #KinvY=np.linalg.solve(K,w2)
-        #YKinvY=w2.T@KinvY
-        #H=np.ones(shape=[n,1])
-        #KinvH=np.linalg.solve(K,H)
-        #HKinvH=H.T@KinvH
-        #HKinvY=H.T@KinvY
-        #HKinvHv=HKinvH+1/ker.mean_prior
-        #if ker.scale_est==1:
-        #    scale=(YKinvY-HKinvY**2/HKinvHv)/n
-        #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+n*np.log(scale))
-        #else:
-        #    neg_qlik=0.5*(logdet+np.log(HKinvHv)+YKinvY-HKinvY**2/HKinvHv)
+            scale=YKinvY/n
+            neg_qlik=0.5*(logdet+n*np.log(scale))
     else:
-        _,logdet=np.linalg.slogdet(K)
-        KinvY=np.linalg.solve(K,w2)
-        YKinvY=w2.T@KinvY
-        if ker.scale_est==1:
-            if ker.scale_prior_est==1:
-                scale=(YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
-                neg_qlik=0.5*(logdet+(n+2+2*ker.scale_prior[0])*np.log(scale))
-            else:
-                scale=YKinvY/n
-                neg_qlik=0.5*(logdet+n*np.log(scale))
-        else:
-            neg_qlik=0.5*(logdet+YKinvY) 
+        neg_qlik=0.5*(logdet+YKinvY) 
     neg_qlik=neg_qlik.flatten()
 
     if ker.prior_est==1:
@@ -120,58 +77,21 @@ def Qlik_der(x,ker,w1,w2):
     n=np.shape(w1)[0]
     K=ker.k_matrix(w1)
     Kt=ker.k_fod(w1)
-    if ker.zero_mean==0:
-        KvinvKt=np.linalg.solve(K+ker.mean_prior,Kt)
-        tr_KvinvKt=np.trace(KvinvKt,axis1=1, axis2=2)
-        KvinvY=np.linalg.solve(K+ker.mean_prior,w2)
-        YKvinvKtKvinvY=(w2.T@KvinvKt@KvinvY).flatten()
-        P1=-0.5*tr_KvinvKt
-        P2=0.5*YKvinvKtKvinvY
-        if ker.scale_est==1:
-            YKvinvY=w2.T@KvinvY
-            if ker.scale_prior_est==1:
-                scale=((YKvinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])).flatten()
-            else:
-                scale=(YKvinvY/n).flatten()
-            neg_St=-P1-P2/scale
+    KinvKt=np.linalg.solve(K,Kt)
+    tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
+    KinvY=np.linalg.solve(K,w2)
+    YKinvKtKinvY=(w2.T@KinvKt@KinvY).flatten()
+    P1=-0.5*tr_KinvKt
+    P2=0.5*YKinvKtKinvY
+    if ker.scale_est==1:
+        YKinvY=w2.T@KinvY
+        if ker.scale_prior_est==1:
+            scale=((YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])).flatten()
         else:
-            neg_St=-P1-P2
-        #KinvKt=np.linalg.solve(K,Kt)
-        #tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-        #KinvY=np.linalg.solve(K,w2)
-        #H=np.ones(shape=[n,1])
-        #KinvH=np.linalg.solve(K,H)
-        #HKinvH=H.T@KinvH
-        #HKinvHv=HKinvH+1/ker.mean_prior
-        #HKinvY=H.T@KinvY
-        #HKinvKtKinvH=H.T@KinvKt@KinvH
-        #HKinvKtKinvY=H.T@KinvKt@KinvY
-        #YKinvKtKinvY=w2.T@KinvKt@KinvY
-        #b=HKinvY/HKinvHv
-        #P1=-0.5*tr_KinvKt+0.5*HKinvKtKinvH/HKinvHv
-        #P2=0.5*YKinvKtKinvY+0.5*b**2*HKinvKtKinvH-b*HKinvKtKinvY
-        #if ker.scale_est==1:
-        #    YKinvY=w2.T@KinvY
-        #    scale=(YKinvY-HKinvY**2/HKinvHv)/n
-        #    neg_St=-P1-P2/scale
-        #else:
-        #    neg_St=-P1-P2
+            scale=(YKinvY/n).flatten()
+        neg_St=-P1-P2/scale
     else:
-        KinvKt=np.linalg.solve(K,Kt)
-        tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-        KinvY=np.linalg.solve(K,w2)
-        YKinvKtKinvY=(w2.T@KinvKt@KinvY).flatten()
-        P1=-0.5*tr_KinvKt
-        P2=0.5*YKinvKtKinvY
-        if ker.scale_est==1:
-            YKinvY=w2.T@KinvY
-            if ker.scale_prior_est==1:
-                scale=((YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])).flatten()
-            else:
-                scale=(YKinvY/n).flatten()
-            neg_St=-P1-P2/scale
-        else:
-            neg_St=-P1-P2
+        neg_St=-P1-P2
     if ker.prior_est==1:
         neg_St=neg_St-ker.log_prior_fod()
     return neg_St
@@ -182,46 +102,31 @@ def linkgp(z,adj_sample,all_ker):
         w1=adj_sample[l]
         w2=adj_sample[l+1]
         if l==0:
-            m,v=gp(z,w1,w2,ker.scale,ker.length,ker.nugget,ker.name,ker.mean_prior,ker.zero_mean)
+            m,v=gp(z,w1,w2,ker.scale,ker.length,ker.nugget,ker.name)
         else:
-            m,v=link(m,v,w1,w2,ker.scale,ker.length,ker.nugget,ker.name,ker.mean_prior,ker.zero_mean)
+            m,v=link(m,v,w1,w2,ker.scale,ker.length,ker.nugget,ker.name)
     return m, v
 
 @jit(nopython=True,cache=True)
-def gp(z,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
+def gp(z,w1,w2,scale,length,nugget,name):
     N=len(w1)
     M=len(z)
     m=np.empty((N,M))
     X=w1[0]
     R=k_one_matrix(X,length,nugget,name)
     r=k_one_vec(X,z,length,name)
-    if zero_mean==1:
-        Rinv_r=np.linalg.solve(R,r)
-        r_Rinv_r=np.sum(r*Rinv_r,axis=0)
-        v=np.ones((N,1))*np.abs(scale*(1+nugget-r_Rinv_r))
-    else:
-        H=np.ones((len(R),1))
-        Rinv_r=np.linalg.solve(R,r)
-        Rinv_H=np.linalg.solve(R,H)
-        HRinvHv=np.sum(Rinv_H)+1/mean_prior
-        r_Rinv_r=np.sum(r*Rinv_r,axis=0)
-        r_Rinv_H=np.sum(r*Rinv_H,axis=0)
-        v=np.ones((N,1))*np.abs(scale*(1+nugget-r_Rinv_r+(1-r_Rinv_H)**2/HRinvHv))
+    Rinv_r=np.linalg.solve(R,r)
+    r_Rinv_r=np.sum(r*Rinv_r,axis=0)
+    v=np.ones((N,1))*np.abs(scale*(1+nugget-r_Rinv_r))
     for i in range(N):
         y=w2[i]
-        if zero_mean==1:
-            m[i,]=y.T@Rinv_r
-        else:
-            yRinvH=y.T@Rinv_H
-            b=yRinvH/HRinvHv
-            res=y-b
-            m[i,]=res.T@Rinv_r+b         
+        m[i,]=y.T@Rinv_r        
     m=np.expand_dims(m,axis=2)
     v=np.expand_dims(v,axis=2)
     return m, v
 
 @jit(nopython=True,cache=True)
-def link(m,v,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
+def link(m,v,w1,w2,scale,length,nugget,name):
     N=np.shape(m)[0]
     M=np.shape(m)[1]
     m_new=np.empty((N,M,1))
@@ -231,29 +136,14 @@ def link(m,v,w1,w2,scale,length,nugget,name,mean_prior,zero_mean):
         y=w2[i] 
         R=k_one_matrix(X,length,nugget,name)
         Rinv_y=np.linalg.solve(R,y)
-        if zero_mean==0:
-            H=np.ones((len(R),1))
-            Rinv_H=np.linalg.solve(R,H)
-            yRinvH=np.sum(y*Rinv_H)
-            HRinvHv=np.sum(Rinv_H)+1/mean_prior
-            b=yRinvH/HRinvHv
-            Rinv_res=Rinv_y-b*Rinv_H
         for j in range(M):
             z_m=m[i,j]
             z_v=v[i,j]
             I,J=IJ(X,z_m,z_v,length,name)
             tr_RinvJ=np.trace(np.linalg.solve(R,J))
-            if zero_mean==1:
-                IRinv_y=np.sum(I*Rinv_y)
-                m_new[i,j,]=IRinv_y
-                v_new[i,j,]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-            else:
-                HRinvI=np.sum(I*Rinv_H)
-                HRinvJRinvH=Rinv_H.T@J@Rinv_H
-                IRinv_res=np.sum(I*Rinv_res)
-                m_new[i,j,]=b+IRinv_res
-                v_new[i,j,]=np.abs(Rinv_res.T@J@Rinv_res-IRinv_res**2+scale*(1+nugget-tr_RinvJ+(1-2*HRinvI+HRinvJRinvH)/HRinvHv))
-    
+            IRinv_y=np.sum(I*Rinv_y)
+            m_new[i,j,]=IRinv_y
+            v_new[i,j,]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
     return m_new,v_new
 
 @jit(nopython=True,cache=True)

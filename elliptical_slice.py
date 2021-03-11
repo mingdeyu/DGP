@@ -54,10 +54,10 @@ class ess:
         covariance=k_one_matrix(x,k1.length,k1.nugget,k1.name)
         # Choose the ellipse for this sampling iteration.
         #nu = multivariate_normal(np.zeros(mean.shape), covariance)
-        nu = mvn(covariance,k1.scale,k1.mean_prior,k1.zero_mean)
+        nu = mvn(covariance,k1.scale)
         # Set the candidate acceptance threshold.
         cov_f=k_one_matrix(f.reshape([-1,1]),k2.length,k2.nugget,k2.name)
-        log_y = log_likelihood_func(y,cov_f,k2.scale,k2.mean_prior,k2.zero_mean) + np.log(uniform())
+        log_y = log_likelihood_func(y,cov_f,k2.scale) + np.log(uniform())
         # Set the bracket for selecting candidates on the ellipse.
         theta = np.random.uniform(0., 2.*np.pi)
         theta_min, theta_max = theta - 2.*np.pi, theta
@@ -69,7 +69,7 @@ class ess:
             # our threshold.
             fp = update_f(f,mean,nu,theta)
             cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length,k2.nugget,k2.name)
-            log_fp = log_likelihood_func(y,cov_fp,k2.scale,k2.mean_prior,k2.zero_mean)
+            log_fp = log_likelihood_func(y,cov_fp,k2.scale)
             if log_fp > log_y:
                 return fp.reshape([-1,1])
             else:

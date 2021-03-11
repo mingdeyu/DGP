@@ -93,32 +93,13 @@ class dgp:
         
         if ker.scale_est==1:
             K=ker.k_matrix(w1)
-            if ker.zero_mean==0:
-                H=np.ones(shape=[n,1])
-                KinvH=np.linalg.solve(K,H)
-                HKinvH=H.T@KinvH
-                KinvY=np.linalg.solve(K,w2)
-                HKinvY=H.T@KinvY
-                YKinvY=w2.T@KinvY
-                HKinvHv=HKinvH+1/ker.mean_prior
-                if ker.scale_prior_est==1:
-                    new_scale=(YKinvY-HKinvY**2/HKinvHv+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
-                else:
-                    new_scale=(YKinvY-HKinvY**2/HKinvHv)/n
-                ker.scale=new_scale.flatten()
+            KinvY=np.linalg.solve(K,w2)
+            YKinvY=w2.T@KinvY
+            if ker.scale_prior_est==1:
+                new_scale=(YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
             else:
-                KinvY=np.linalg.solve(K,w2)
-                YKinvY=w2.T@KinvY
-                if ker.scale_prior_est==1:
-                    new_scale=(YKinvY+2*ker.scale_prior[1])/(n+2+2*ker.scale_prior[0])
-                else:
-                    new_scale=YKinvY/n
-                ker.scale=new_scale.flatten()
-
-        #if re.success==True:
-        #    res='Coverged!'
-        #else:
-        #    res='NoConverge'
+                new_scale=YKinvY/n
+            ker.scale=new_scale.flatten()
         return ker
 
     def predict(self, z, N, burnin=0, method='sampling',ini='sigmoid'):

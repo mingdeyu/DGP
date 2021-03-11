@@ -13,10 +13,7 @@ class path:
         for i in range(N):
             x=self.X
             for kernel in self.all_kernel:
-                if kernel.zero_mean==0:
-                    cov=(kernel.k_matrix(x)+kernel.mean_prior)*kernel.scale
-                else:
-                    cov=kernel.k_matrix(x)*kernel.scale
+                cov=kernel.k_matrix(x)*kernel.scale
                 L=np.linalg.cholesky(cov)
                 randn=np.random.normal(size=[n,1])
                 x=L@randn
