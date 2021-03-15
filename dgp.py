@@ -15,6 +15,8 @@ class dgp:
         self.Y=Y
         self.layer=len(all_kernel)
         self.all_kernel=all_kernel
+        for kernel in self.all_kernel:
+            kernel.global_input=self.X
         self.para_path=[]
         self.burnin=[]
         for kernel in all_kernel:
@@ -102,7 +104,7 @@ class dgp:
             ker.scale=new_scale.flatten()
         return ker
 
-    def predict(self, z, N, burnin=0, method='sampling',ini='sigmoid'):
+    def predict(self, z, N, burnin=0, method='mean_var',ini='sigmoid'):
         if N!=0:
             if not self.lastmcmc:    
                 if np.shape(self.X)[1]==1:

@@ -1,7 +1,7 @@
 import numpy as np
 
 class kernel:
-    def __init__(self, length, scale=1., nugget=1e-6, prior=np.array([0.3338,0.0835]),scale_prior=np.array([1.,1.]),name='sexp',nugget_est=0, scale_est=0, prior_est=1, scale_prior_est=0):
+    def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior=np.array([0.3338,0.0835]),scale_prior=np.array([1.,1.]),nugget_est=0, scale_est=0, prior_est=1, scale_prior_est=0, connect=0):
         #0.3338,0.0835
         self.length=length
         self.scale=np.atleast_1d(scale)
@@ -16,6 +16,8 @@ class kernel:
         self.name=name
         if nugget_est==1:
             self.n_theta=self.n_theta+1
+        self.connect=connect
+        self.global_input=[]
 
     def collect_para(self):
         para=np.concatenate((self.scale,self.length,self.nugget))
@@ -44,16 +46,26 @@ class kernel:
         
     def k_matrix(self, X):
         n=np.shape(X)[0]
-        d=np.shape(X)[1]
-        X_l=X/self.length
+        if self.connect==1:
+            X_l=X/self.length[:-1]
+            global_input_l=self.global_input/self.length[-1]
+            global_L=np.sum(global_input_l**2,1).reshape([-1,1])
+            global_dis=np.abs(global_L-2*global_input_l@global_input_l.T+global_L.T)
+        else:
+            X_l=X/self.length
         if self.name=='sexp':
             L=np.sum(X_l**2,1).reshape([-1,1])
-            dis=L-2*X_l@X_l.T+L.T
+            dis=np.abs(L-2*X_l@X_l.T+L.T)
+            if self.connect==1:
+                dis=dis+global_dis
             K=np.exp(-dis)+self.nugget*np.eye(n)
         elif self.name=='matern2.5':
-            X_l=X_l.T.reshape([d,n,1])
+            X_l=np.expand_dims(X_l.T,axis=2)
             L=X_l**2
-            dis=L-2*X_l@X_l.transpose([0,2,1])+L.transpose([0,2,1])
+            dis=np.abs(L-2*X_l@X_l.transpose([0,2,1])+L.transpose([0,2,1]))
+            if self.connect==1:
+                global_dis=np.expand_dims(global_dis,axis=0)
+                dis=np.vstack((dis,global_dis))
             K_1=np.prod(1+np.sqrt(5*dis)+5/3*dis,0)
             K_2=np.exp(-np.sum(np.sqrt(5*dis),0))
             K=K_1*K_2+self.nugget*np.eye(n)
@@ -61,20 +73,24 @@ class kernel:
 
     def k_fod(self,X):
         n=np.shape(X)[0]
-        X_l=X/self.length
+        if self.connect==1:
+            X_l=X/self.length[:-1]
+            global_input_l=self.global_input/self.length[-1]
+            global_L=np.sum(global_input_l**2,1).reshape([-1,1])
+            global_dis=global_L-2*global_input_l@global_input_l.T+global_L.T
+        else:
+            X_l=X/self.length
+        X_li=np.expand_dims(X_l.T,axis=2)
+        Li=X_li**2
+        disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
+        if self.connect==1:
+            global_dis=np.expand_dims(global_dis,axis=0)
+            disi=np.vstack((disi,global_dis))
         if self.name=='sexp':
-            L=np.sum(X_l**2,1).reshape([-1,1])
-            dis=L-2*X_l@X_l.T+L.T
-            K=np.exp(-dis)
+            K=np.exp(-np.sum(disi,0))
             K=np.expand_dims(K,axis=0)
-            X_li=np.expand_dims(X_l.T,axis=2)
-            Li=X_li**2
-            disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
             fod=2*disi*K
         elif self.name=='matern2.5':
-            X_li=np.expand_dims(X_l.T,axis=2)
-            Li=X_li**2
-            disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
             K_1=np.prod(1+np.sqrt(5*disi)+5/3*disi,0)
             K_2=np.exp(-np.sum(np.sqrt(5*disi),0))
             K=K_1*K_2

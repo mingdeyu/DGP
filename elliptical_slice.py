@@ -1,6 +1,6 @@
 from numpy.random import uniform
 import numpy as np
-from functions import log_likelihood_func, mvn, k_one_matrix, update_f
+from functions import log_likelihood_func, mvn, k_one_matrix, update_f, isotropic
 
 class ess:
     def __init__(self, all_kernel,X,Y,ini):
@@ -50,13 +50,20 @@ class ess:
         mean=np.zeros(len(y))
         f=f.flatten()
         y=y.flatten()
-        
-        covariance=k_one_matrix(x,k1.length,k1.nugget,k1.name)
+        if k1.connect==1:
+            covariance=k_one_matrix(x,k1.length[:-1],k1.name)*isotropic(k1.global_input,k1.length[-1],k1.name)+k1.nugget*np.identity(len(x))
+        else:
+            covariance=k_one_matrix(x,k1.length,k1.name)+k1.nugget*np.identity(len(x))
+
         # Choose the ellipse for this sampling iteration.
         #nu = multivariate_normal(np.zeros(mean.shape), covariance)
         nu = mvn(covariance,k1.scale)
         # Set the candidate acceptance threshold.
-        cov_f=k_one_matrix(f.reshape([-1,1]),k2.length,k2.nugget,k2.name)
+        if k2.connect==1:
+            cov_global_input=isotropic(k2.global_input,k2.length[-1],k2.name)
+            cov_f=k_one_matrix(f.reshape([-1,1]),k2.length[:-1],k2.name)*cov_global_input+k2.nugget*np.identity(len(f))
+        else:
+            cov_f=k_one_matrix(f.reshape([-1,1]),k2.length,k2.name)+k2.nugget*np.identity(len(f))
         log_y = log_likelihood_func(y,cov_f,k2.scale) + np.log(uniform())
         # Set the bracket for selecting candidates on the ellipse.
         theta = np.random.uniform(0., 2.*np.pi)
@@ -68,7 +75,10 @@ class ess:
             # also compute the log-likelihood of the candidate and compare to
             # our threshold.
             fp = update_f(f,mean,nu,theta)
-            cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length,k2.nugget,k2.name)
+            if k2.connect==1:
+                cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length[:-1],k2.name)*cov_global_input+k2.nugget*np.identity(len(fp))
+            else:
+                cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length,k2.name)+k2.nugget*np.identity(len(fp))
             log_fp = log_likelihood_func(y,cov_fp,k2.scale)
             if log_fp > log_y:
                 return fp.reshape([-1,1])

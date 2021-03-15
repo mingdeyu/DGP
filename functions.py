@@ -20,13 +20,25 @@ def mvn(cov,scale):
     return samp
 
 @jit(nopython=True,cache=True)
-def k_one_matrix(X,length,nugget,name):
+def isotropic(X,length,name):
+    X_l=X/length
+    L=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
+    dis=np.abs(L-2*X_l@X_l.T+L.T)
     if name=='sexp':
-        n=len(X)
+        K=np.exp(-dis)
+    elif name=='matern2.5':
+        K1=(1+np.sqrt(5*dis)+5/3*dis)
+        K2=np.exp(-np.sqrt(5*dis))
+        K=K1*K2
+    return K
+
+@jit(nopython=True,cache=True)
+def k_one_matrix(X,length,name):
+    if name=='sexp':
         X_l=X/length
         L=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
         dis=L-2*X_l@X_l.T+L.T
-        K=np.exp(-dis)+nugget*np.identity(n)
+        K=np.exp(-dis)
     elif name=='matern2.5':
         n=np.shape(X)[0]
         d=np.shape(X)[1]
@@ -40,7 +52,7 @@ def k_one_matrix(X,length,nugget,name):
             K1*=(1+np.sqrt(5*dis)+5/3*dis)
             K2+=np.sqrt(5*dis)
         K2=np.exp(-K2)
-        K=K1*K2+nugget*np.identity(n)
+        K=K1*K2
             #K*=(1+np.sqrt(5*dis)+5/3*dis)*np.exp(-np.sqrt(5*dis))
         #K=K+nugget*np.identity(n)
     return K
@@ -104,7 +116,7 @@ def linkgp(z,adj_sample,all_ker):
         if l==0:
             m,v=gp(z,w1,w2,ker.scale,ker.length,ker.nugget,ker.name)
         else:
-            m,v=link(m,v,w1,w2,ker.scale,ker.length,ker.nugget,ker.name)
+            m,v=link(m,v,z,w1,ker.global_input,w2,ker.scale,ker.length,ker.nugget,ker.name,ker.connect)
     return m, v
 
 @jit(nopython=True,cache=True)
@@ -113,7 +125,7 @@ def gp(z,w1,w2,scale,length,nugget,name):
     M=len(z)
     m=np.empty((N,M))
     X=w1[0]
-    R=k_one_matrix(X,length,nugget,name)
+    R=k_one_matrix(X,length,name)+nugget*np.identity(len(X))
     r=k_one_vec(X,z,length,name)
     Rinv_r=np.linalg.solve(R,r)
     r_Rinv_r=np.sum(r*Rinv_r,axis=0)
@@ -126,20 +138,31 @@ def gp(z,w1,w2,scale,length,nugget,name):
     return m, v
 
 @jit(nopython=True,cache=True)
-def link(m,v,w1,w2,scale,length,nugget,name):
+def link(m,v,z,w1,global_input,w2,scale,length,nugget,name,connect):
     N=np.shape(m)[0]
     M=np.shape(m)[1]
     m_new=np.empty((N,M,1))
     v_new=np.empty((N,M,1))
+    global_input_k=isotropic(global_input,length[-1],name)
+    global_input_vector=global_input_vec(global_input,z,length[-1],name)
     for i in range(N):
         X=w1[i]
         y=w2[i] 
-        R=k_one_matrix(X,length,nugget,name)
+        if connect==1:
+            R=k_one_matrix(X,length[:-1],name)*global_input_k+nugget*np.identity(len(X))
+        else:
+            R=k_one_matrix(X,length,name)+nugget*np.identity(len(X))
         Rinv_y=np.linalg.solve(R,y)
         for j in range(M):
             z_m=m[i,j]
             z_v=v[i,j]
-            I,J=IJ(X,z_m,z_v,length,name)
+            if connect==1:
+                Ij=np.expand_dims(global_input_vector[:,j],axis=1)
+                I,J=IJ(X,z_m,z_v,length[:-1],name)
+                I=I*Ij
+                J=J*(Ij@Ij.T)
+            else:
+                I,J=IJ(X,z_m,z_v,length,name)
             tr_RinvJ=np.trace(np.linalg.solve(R,J))
             IRinv_y=np.sum(I*Rinv_y)
             m_new[i,j,]=IRinv_y
@@ -149,8 +172,6 @@ def link(m,v,w1,w2,scale,length,nugget,name):
 @jit(nopython=True,cache=True)
 def k_one_vec(X,z,length,name):
     if name=='sexp':
-        n=len(X)
-        m=len(z)
         X_l=X/length
         z_l=z/length
         L_X=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
@@ -161,8 +182,8 @@ def k_one_vec(X,z,length,name):
         n=np.shape(X)[0]
         d=np.shape(X)[1]
         m=len(z)
-        X_l=(X/length).T.reshape((d,n,1))
-        z_l=(z/length).T.reshape((d,m,1))
+        X_l=np.expand_dims((X/length).T,axis=2)
+        z_l=np.expand_dims((z/length).T,axis=2)
         L_X=X_l**2
         L_z=z_l**2
         k1=np.ones((n,m))
@@ -172,6 +193,21 @@ def k_one_vec(X,z,length,name):
             k1*=(1+np.sqrt(5*dis)+5/3*dis)
             k2+=np.sqrt(5*dis)
         k2=np.exp(-k2)
+        k=k1*k2
+    return k
+
+@jit(nopython=True,cache=True)
+def global_input_vec(X,z,length,name):
+    X_l=X/length
+    z_l=z/length
+    L_X=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
+    L_z=np.expand_dims(np.sum(z_l**2,axis=1,),axis=1)
+    dis=L_X-2*X_l@z_l.T+L_z.T
+    if name=='sexp':
+        k=np.exp(-dis)
+    elif name=='matern2.5':
+        k1=(1+np.sqrt(5*dis)+5/3*dis)
+        k2=np.exp(-np.sqrt(5*dis))
         k=k1*k2
     return k
 

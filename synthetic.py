@@ -6,6 +6,9 @@ class path:
         self.X=X
         self.layer=len(all_kernel)
         self.all_kernel=all_kernel
+        for kernel in self.all_kernel:
+            if kernel.connect==1:
+                kernel.global_input=self.X
 
     def generate(self,N):
         n=len(self.X)
