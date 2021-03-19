@@ -1,4 +1,5 @@
 import numpy as np
+from math import sqrt
 
 class kernel:
     def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior=np.array([0.3338,0.0835]),scale_prior=np.array([1.,1.]),nugget_est=0, scale_est=0, prior_est=1, scale_prior_est=0, connect=0):
@@ -61,13 +62,14 @@ class kernel:
             K=np.exp(-dis)+self.nugget*np.eye(n)
         elif self.name=='matern2.5':
             X_l=np.expand_dims(X_l.T,axis=2)
-            L=X_l**2
-            dis=np.abs(L-2*X_l@X_l.transpose([0,2,1])+L.transpose([0,2,1]))
+            #L=X_l**2
+            #dis=np.abs(L-2*X_l@X_l.transpose([0,2,1])+L.transpose([0,2,1]))
+            dis=np.abs(X_l-X_l.transpose([0,2,1]))
             if self.connect==1:
-                global_dis=np.expand_dims(global_dis,axis=0)
+                global_dis=np.expand_dims(np.sqrt(global_dis),axis=0)
                 dis=np.vstack((dis,global_dis))
-            K_1=np.prod(1+np.sqrt(5*dis)+5/3*dis,0)
-            K_2=np.exp(-np.sum(np.sqrt(5*dis),0))
+            K_1=np.prod(1+sqrt(5)*dis+5/3*dis**2,0)
+            K_2=np.exp(-sqrt(5)*np.sum(dis,0))
             K=K_1*K_2+self.nugget*np.eye(n)
         return K
 
@@ -77,25 +79,26 @@ class kernel:
             X_l=X/self.length[:-1]
             global_input_l=self.global_input/self.length[-1]
             global_L=np.sum(global_input_l**2,1).reshape([-1,1])
-            global_dis=global_L-2*global_input_l@global_input_l.T+global_L.T
+            global_dis=np.abs(global_L-2*global_input_l@global_input_l.T+global_L.T)
+            global_dis=np.expand_dims(np.sqrt(global_dis),axis=0)
         else:
             X_l=X/self.length
         X_li=np.expand_dims(X_l.T,axis=2)
-        Li=X_li**2
-        disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
+        #Li=X_li**2
+        #disi=Li-2*X_li@X_li.transpose([0,2,1])+Li.transpose([0,2,1])
+        disi=np.abs(X_li-X_li.transpose([0,2,1]))
         if self.connect==1:
-            global_dis=np.expand_dims(global_dis,axis=0)
             disi=np.vstack((disi,global_dis))
         if self.name=='sexp':
-            K=np.exp(-np.sum(disi,0))
+            K=np.exp(-np.sum(disi**2,0))
             K=np.expand_dims(K,axis=0)
-            fod=2*disi*K
+            fod=2*(disi**2)*K
         elif self.name=='matern2.5':
-            K_1=np.prod(1+np.sqrt(5*disi)+5/3*disi,0)
-            K_2=np.exp(-np.sum(np.sqrt(5*disi),0))
+            K_1=np.prod(1+sqrt(5)*disi+5/3*disi**2,0)
+            K_2=np.exp(-sqrt(5)*np.sum(disi,0))
             K=K_1*K_2
             K=np.expand_dims(K,axis=0)
-            coefi=disi*(1+np.sqrt(5*disi))/(1+np.sqrt(5*disi)+5/3*disi)
+            coefi=(disi**2)*(1+sqrt(5)*disi)/(1+sqrt(5)*disi+5/3*disi**2)
             fod=5/3*coefi*K
         if self.nugget_est==1:
             nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)

@@ -43,18 +43,16 @@ def k_one_matrix(X,length,name):
         n=np.shape(X)[0]
         d=np.shape(X)[1]
         X_l=np.expand_dims((X/length).T,axis=2)
-        L=X_l**2
-        #K=np.ones((n,n))
+        #L=X_l**2
         K1=np.ones((n,n))
         K2=np.zeros((n,n))
         for i in range(d):
-            dis=np.abs(L[i]-2*X_l[i]@X_l[i].T+L[i].T)
-            K1*=(1+np.sqrt(5*dis)+5/3*dis)
-            K2+=np.sqrt(5*dis)
-        K2=np.exp(-K2)
+            #dis=np.abs(L[i]-2*X_l[i]@X_l[i].T+L[i].T)
+            dis=np.abs(X_l[i]-X_l[i].T)
+            K1*=(1+sqrt(5)*dis+5/3*dis**2)
+            K2+=dis
+        K2=np.exp(-sqrt(5)*K2)
         K=K1*K2
-            #K*=(1+np.sqrt(5*dis)+5/3*dis)*np.exp(-np.sqrt(5*dis))
-        #K=K+nugget*np.identity(n)
     return K
 
 @jit(nopython=True,cache=True)
@@ -184,15 +182,16 @@ def k_one_vec(X,z,length,name):
         m=len(z)
         X_l=np.expand_dims((X/length).T,axis=2)
         z_l=np.expand_dims((z/length).T,axis=2)
-        L_X=X_l**2
-        L_z=z_l**2
+        #L_X=X_l**2
+        #L_z=z_l**2
         k1=np.ones((n,m))
         k2=np.zeros((n,m))
         for i in range(d):
-            dis=np.abs(L_X[i]-2*X_l[i]@z_l[i].T+L_z[i].T)
-            k1*=(1+np.sqrt(5*dis)+5/3*dis)
-            k2+=np.sqrt(5*dis)
-        k2=np.exp(-k2)
+            #dis=np.abs(L_X[i]-2*X_l[i]@z_l[i].T+L_z[i].T)
+            dis=np.abs(X_l[i]-z_l[i].T)
+            k1*=(1+sqrt(5)*dis+5/3*dis**2)
+            k2+=dis
+        k2=np.exp(-sqrt(5)*k2)
         k=k1*k2
     return k
 
@@ -202,7 +201,7 @@ def global_input_vec(X,z,length,name):
     z_l=z/length
     L_X=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
     L_z=np.expand_dims(np.sum(z_l**2,axis=1,),axis=1)
-    dis=L_X-2*X_l@z_l.T+L_z.T
+    dis=np.abs(L_X-2*X_l@z_l.T+L_z.T)
     if name=='sexp':
         k=np.exp(-dis)
     elif name=='matern2.5':
