@@ -1,70 +1,41 @@
 from numpy.random import uniform
 import numpy as np
-from functions import log_likelihood_func, mvn, k_one_matrix, update_f, isotropic
+from functions import log_likelihood_func, mvn, k_one_matrix, update_f
 
-class ess:
-    def __init__(self, all_kernel,X,Y,ini):
-        self.all_kernel=all_kernel
-        self.X=X
-        self.Y=Y
-        self.ini=ini
-        self.sample = []
+class imputer:
+    def __init__(self, all_layer):
+        self.all_layer=all_layer
 
-    def sample_ess(self,N,burnin):
-        n_layer=len(self.all_kernel)
-        if not self.sample:
-            total_samples = N + burnin
-            sample=[np.tile(self.X,(total_samples,1,1))]
-            for i in range(n_layer-1):
-                samp=np.zeros((total_samples,len(self.Y),1))
-                samp[0]=self.ini[i]
-                sample.append(samp)
-            sample.append(np.tile(self.Y,(total_samples,1,1)))
-
-            for t in range(1, total_samples):
-                for i in range(n_layer-1):
-                    if i==0:
-                        sample[i+1][t]=self.one_sample(x=sample[i][t-1],y=sample[i+2][t-1],f=sample[i+1][t-1],k1=self.all_kernel[i],k2=self.all_kernel[i+1])
-                    else:
-                        sample[i+1][t]=self.one_sample(x=sample[i][t],y=sample[i+2][t-1],f=sample[i+1][t-1],k1=self.all_kernel[i],k2=self.all_kernel[i+1])
-        else:
-            t0=len(self.sample[0])
-            add_samples = N
-            extra_sample=[np.tile(self.X,(add_samples,1,1))]
-            for i in range(n_layer-1):
-                extra_samp=np.zeros((add_samples,len(self.Y),1))
-                extra_sample.append(extra_samp)
-            extra_sample.append(np.tile(self.Y,(add_samples,1,1)))
-            sample=[np.concatenate((i,j),axis=0) for i,j in zip(self.sample,extra_sample)]
-            
-            for t in range(t0, t0+add_samples):
-                for i in range(n_layer-1):
-                    if i==0:
-                        sample[i+1][t]=self.one_sample(x=sample[i][t-1],y=sample[i+2][t-1],f=sample[i+1][t-1],k1=self.all_kernel[i],k2=self.all_kernel[i+1])
-                    else:
-                        sample[i+1][t]=self.one_sample(x=sample[i][t],y=sample[i+2][t-1],f=sample[i+1][t-1],k1=self.all_kernel[i],k2=self.all_kernel[i+1])
-        self.sample=sample
-        return [t[burnin:] for t in self.sample]
-
-    def one_sample(self,x,y,f,k1,k2):
-        mean=np.zeros(len(y))
-        f=f.flatten()
-        y=y.flatten()
-        if k1.connect==1:
-            covariance=k_one_matrix(x,k1.length[:-1],k1.name)*isotropic(k1.global_input,k1.length[-1],k1.name)+k1.nugget*np.identity(len(x))
-        else:
-            covariance=k_one_matrix(x,k1.length,k1.name)+k1.nugget*np.identity(len(x))
-
+    def sample(self,burnin=0):
+        n_layer=len(self.all_layer)
+        for _ in range(burnin+1):
+            for l in range(n_layer-1):
+                layer=self.all_layer[l]
+                n_kernel=len(layer)
+                for k in range(n_kernel):
+                    target_kernel=layer[k]
+                    linked_upper_kernels=[kernel for kernel in self.all_layer[l+1] if k in kernel.input_dim]
+                    self.one_sample(target_kernel,linked_upper_kernels,k)
+    
+    @staticmethod
+    def one_sample(target_kernel,linked_upper_kernels,k):
+        x=target_kernel.input
+        f=(target_kernel.output).flatten()
+        if np.any(target_kernel.connect!=None):
+            x=np.concatenate((x, target_kernel.global_input),1)
+        covariance=k_one_matrix(x,target_kernel.length,target_kernel.name)+target_kernel.nugget*np.identity(len(x))
         # Choose the ellipse for this sampling iteration.
-        #nu = multivariate_normal(np.zeros(mean.shape), covariance)
-        nu = mvn(covariance,k1.scale)
+        nu = mvn(covariance,target_kernel.scale)
         # Set the candidate acceptance threshold.
-        if k2.connect==1:
-            cov_global_input=isotropic(k2.global_input,k2.length[-1],k2.name)
-            cov_f=k_one_matrix(f.reshape([-1,1]),k2.length[:-1],k2.name)*cov_global_input+k2.nugget*np.identity(len(f))
-        else:
-            cov_f=k_one_matrix(f.reshape([-1,1]),k2.length,k2.name)+k2.nugget*np.identity(len(f))
-        log_y = log_likelihood_func(y,cov_f,k2.scale) + np.log(uniform())
+        log_y=0
+        for linked_kernel in linked_upper_kernels:
+            w=linked_kernel.input
+            y=(linked_kernel.output).flatten()
+            if np.any(linked_kernel.connect!=None):
+                w=np.concatenate((w, linked_kernel.global_input),1)       
+            cov_w=k_one_matrix(w,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(w))
+            log_y += log_likelihood_func(y,cov_w,linked_kernel.scale)
+        log_y += np.log(uniform())
         # Set the bracket for selecting candidates on the ellipse.
         theta = np.random.uniform(0., 2.*np.pi)
         theta_min, theta_max = theta - 2.*np.pi, theta
@@ -74,14 +45,19 @@ class ess:
             # Generates a point on the ellipse defines by `nu` and the input. We
             # also compute the log-likelihood of the candidate and compare to
             # our threshold.
-            fp = update_f(f,mean,nu,theta)
-            if k2.connect==1:
-                cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length[:-1],k2.name)*cov_global_input+k2.nugget*np.identity(len(fp))
-            else:
-                cov_fp=k_one_matrix(fp.reshape([-1,1]),k2.length,k2.name)+k2.nugget*np.identity(len(fp))
-            log_fp = log_likelihood_func(y,cov_fp,k2.scale)
-            if log_fp > log_y:
-                return fp.reshape([-1,1])
+            fp = update_f(f,nu,theta).reshape(-1,1)
+            log_yp=0
+            for linked_kernel in linked_upper_kernels:
+                linked_kernel.input[:,linked_kernel.input_dim==k]=fp
+                wp=linked_kernel.input
+                y=(linked_kernel.output).flatten()
+                if np.any(linked_kernel.connect!=None):
+                    wp=np.concatenate((wp,linked_kernel.global_input),1)
+                cov_wp=k_one_matrix(wp,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(wp))
+                log_yp += log_likelihood_func(y,cov_wp,linked_kernel.scale)
+            if log_yp > log_y:
+                target_kernel.output=fp
+                return
             else:
                 # If the candidate is not selected, shrink the bracket and
                 # generate a new `theta`, which will yield a new candidate
