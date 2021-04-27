@@ -6,6 +6,8 @@ from numpy.random import randn
 ######functions for imputor########
 @jit(nopython=True,cache=True)
 def log_likelihood_func(y,cov,scale):
+    """Compute Gaussian log-likelihood function.
+    """
     cov=scale*cov
     _,logdet=np.linalg.slogdet(cov)
     quad=np.sum(y*np.linalg.solve(cov,y))
@@ -14,6 +16,8 @@ def log_likelihood_func(y,cov,scale):
 
 @jit(nopython=True,cache=True)
 def mvn(cov,scale):
+    """Generate multivariate Gaussian random samples.
+    """
     d=len(cov)
     sn=randn(d,1)
     L=np.linalg.cholesky(scale*cov)
@@ -22,6 +26,8 @@ def mvn(cov,scale):
 
 @jit(nopython=True,cache=True)
 def k_one_matrix(X,length,name):
+    """Compute the correlation matrix without the nugget term.
+    """
     if name=='sexp':
         X_l=X/length
         L=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
@@ -43,12 +49,16 @@ def k_one_matrix(X,length,name):
 
 @jit(nopython=True,cache=True)
 def update_f(f,nu,theta):
+    """Update ESS proposal samples.
+    """
     fp=f*np.cos(theta) + nu*np.sin(theta)
     return fp
 
 ######functions for predictions########
 @jit(nopython=True,cache=True)
 def gp(x,z,w1,global_w1,w2,scale,length,nugget,name):
+    """Make GP predictions.
+    """
     if z!=None:
         x=np.concatenate((x, z),1)
         w1=np.concatenate((w1, global_w1),1)
@@ -62,6 +72,8 @@ def gp(x,z,w1,global_w1,w2,scale,length,nugget,name):
 
 @jit(nopython=True,cache=True)
 def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
+    """Make linked GP predictions.
+    """
     M=len(m)
     m_new=np.empty(M)
     v_new=np.empty(M)
@@ -98,6 +110,8 @@ def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
 
 @jit(nopython=True,cache=True)
 def k_one_vec(X,z,length,name):
+    """Compute cross-correlation matrix between the testing and training input data.
+    """
     if name=='sexp':
         X_l=X/length
         z_l=z/length
@@ -123,6 +137,8 @@ def k_one_vec(X,z,length,name):
 
 @jit(nopython=True,cache=True)
 def IJ(X,z_m,z_v,length,name):
+    """Compute I and J involved in linked GP predictions.
+    """
     n=np.shape(X)[0]
     d=np.shape(X)[1]
     if name=='sexp':
@@ -167,10 +183,14 @@ def IJ(X,z_m,z_v,length,name):
 
 @vectorize([float64(float64)],nopython=True,cache=True)
 def pnorm(x):
+    """Compute standard normal CDF.
+    """
     return 0.5*(1+erf(x/sqrt(2)))    
 
 @vectorize([float64(float64,float64,float64,float64,float64)],nopython=True,cache=True)
 def Jd(X1,X2,z_m,z_v,length):
+    """Compute J components in different input dimensions for Matern2.5 kernel.
+    """
     if X1<X2:
         x1=X1
         x2=X2

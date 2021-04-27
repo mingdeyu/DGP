@@ -3,10 +3,21 @@ import numpy as np
 from functions import log_likelihood_func, mvn, k_one_matrix, update_f
 
 class imputer:
+    """Class to implement imputation of latent variables.
+
+    Args:
+        all_layer (list): a list that contains the DGP model
+    """
     def __init__(self, all_layer):
         self.all_layer=all_layer
 
     def sample(self,burnin=0):
+        """Implement the imputation via the ESS-within-Gibbs.
+
+        Args:
+            burnin (int, optional): the number of burnin iterations for the ESS-within-Gibbs sampler
+            to generate one realisation of latent variables. Defaults to 0.
+        """
         n_layer=len(self.all_layer)
         for _ in range(burnin+1):
             for l in range(n_layer-1):
@@ -19,6 +30,15 @@ class imputer:
     
     @staticmethod
     def one_sample(target_kernel,linked_upper_kernels,k):
+        """Impute one latent variable produced by a particular GP.
+
+        Args:
+            target_kernel (class): the GP whose output is a latent variable that needs to be imputed.
+            linked_upper_kernels (list): a list of GPs (in the next layer) that link the output produced
+                by the GP defined by the argument 'target_kernel'.
+            k (int): the index indicating the position of the GP defined by the argument 'target_kernel' in
+                its layer.
+        """
         x=target_kernel.input
         f=(target_kernel.output).flatten()
         if np.any(target_kernel.connect!=None):

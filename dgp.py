@@ -2,12 +2,36 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm.notebook import trange, tqdm
 import copy
-from elliptical_slice import imputer
+from imputation import imputer
 from sklearn.decomposition import KernelPCA
-import time
 
 class dgp:
-    #main algorithm
+    """
+    Class that contains the deep GP hierarchy for stochastic imputation inference.
+
+    Args:
+        X (numpy.ndarray): a numpy 2d-array where each row is an input data point and 
+            each column is an input dimension. 
+        Y (numpy.ndarray): a numpy 2d-array where each row is an output data point and
+            each column is an output dimension. K must equal to the number of nodes (GPs)
+            in the final layer.
+        all_layer (list): a list contains L sub-lists, each of which contains the GPs defined 
+            by the kernel class in that layer. The sub-lists are placed in the list in the same 
+            order of the specified DGP model.
+
+    Examples:
+        To build a list that represents a three-layer DGP with three GPs in the first two layers and
+        one GP (i.e., only one dimensional output) in the final layer, do:
+        >>>from kernel_class import kernel, combine
+        >>>layer1, layer2, layer3=[],[],[]
+        >>>for _ in range(3):
+             layer1.append(kernel(length=np.array([1])))
+        >>>for _ in range(3):
+             layer2.append(kernel(length=np.array([1])))
+        >>>layer3.append(kernel(length=np.array([1])))
+        >>>all_layer=combine(layer1,layer2,layer3)       
+    """
+
     def __init__(self, X, Y, all_layer):
         self.X=X
         self.Y=Y
@@ -19,6 +43,8 @@ class dgp:
         self.N=0
 
     def initialize(self):
+        """Initialise all_layer list for training.
+        """
         global_in=self.X
         In=self.X
         for l in range(self.n_layer):
@@ -29,9 +55,11 @@ class dgp:
             else:
                 if np.shape(In)[1]==num_kernel:
                     Out=In
-                else:
+                elif np.shape(In)[1]>num_kernel:
                     pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
                     Out=pca.fit_transform(In)
+                else:
+                    Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if np.any(kernel.input_dim!=None):
@@ -45,7 +73,15 @@ class dgp:
             In=Out
 
     def train(self, N=500, ess_burn=10, disable=False):
-        #sub_burn>=1
+        """Train the DGP model.
+
+        Args:
+            N (int): number of iterations for stochastic EM. Defaults to 500.
+            ess_burn (int, optional): number of burnin steps for the ESS-within-Gibbs
+                at each I-step of the SEM. Defaults to 10.
+            disable (bool, optional): whether to disable the training progress bar. 
+                Defaults to False.
+        """
         pgb=trange(1,N+1,ncols='70%',disable=disable)
         for i in pgb:
             #I-step           
@@ -55,12 +91,22 @@ class dgp:
                 for kernel in self.all_layer[l]:
                     kernel.maximise()
                 pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
-            #time.sleep(0.1) 
         self.N += N
 
     def estimate(self,burnin=None):
+        """Compute the point estimates of model parameters and output the trained DGP.
+
+        Args:
+            burnin (int, optional): the number of SEM iterations to be discarded for
+                point estimate calculation. Must be smaller than the SEM iterations 
+                implemented. If this is not specified, only the last 25% of iterations
+                are used. Defaults to None.
+
+        Returns:
+            list: an updated list that represents the trained DGP hierarchy.
+        """
         if burnin==None:
-            burnin=int(self.N/3)
+            burnin=int(self.N*(3/4))
         final_struct=copy.deepcopy(self.all_layer)
         for l in range(len(final_struct)):
             for kernel in final_struct[l]:
@@ -70,7 +116,18 @@ class dgp:
                 kernel.nugget=point_est[-1]
         return final_struct
 
-    def plot(self,layer_no,ker_no,width=4,height=1,ticksize=5,labelsize=8,hspace=0.1):
+    def plot(self,layer_no,ker_no,width=4.,height=1.,ticksize=5.,labelsize=8.,hspace=0.1):
+        """Plot the traces of model paramters of a particular GP in the DGP hierarchy.
+
+        Args:
+            layer_no (int): the index of the interested layer
+            ker_no (int): the index of the interested GP in the layer specified by layer_no
+            width (float, optional): the overall plot width. Defaults to 4.
+            height (float, optional): the overall plot height. Defaults to 1.
+            ticksize (float, optional): the size of sub-plot ticks. Defaults to 5.
+            labelsize (float, optional): the font size of y labels. Defaults to 8.
+            hspace (float, optional): the space between sub-plots. Defaults to 0.1.
+        """
         kernel=self.all_layer[layer_no-1][ker_no-1]
         n_para=np.shape(kernel.para_path)[1]
         fig, axes = plt.subplots(n_para,figsize=(width,n_para*height), dpi= 100,sharex=True)

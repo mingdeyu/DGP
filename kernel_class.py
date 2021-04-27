@@ -1,11 +1,52 @@
 import numpy as np
 from math import sqrt
-from scipy.optimize import minimize
+from scipy.optimize import minimize, Bounds
 from functions import gp, link_gp
 
 class kernel:
+    """
+    Class that defines the GPs in the DGP hierarchy.
+
+        Args:
+            length (numpy.array): a numpy 1d-array, whose length equals to:
+                1. one if the lengthscales in the kernel function are assumed same across input dimensions;
+                2. the total number of input dimensions, which is the sum of the number of feeding GPs 
+                in the last layer (defined by the argument 'input_dim') and the number of connected global
+                input dimensions (defined by the argument 'connect'), if the lengthscales in the kernel function 
+                are assumed different across input dimensions.
+            scale (float, optional): the variance of a GP. Defaults to 1..
+            nugget (float, optional): the nugget term of a GP. Defaults to 1e-8.
+            name (str, optional): kernel function to be used. Either 'sexp' for squared exponential kernel or
+                'matern2.5' for Matern2.5 kernel. Defaults to 'sexp'.
+            prior (numpy.array, optional): a numpy 1d-array that contains two values specifying the priors specified
+                for the lengthscales and nugget. Defaults to np.array([0.3338,0.0835]).
+            nugget_est (int, optional): set to 1 to estimate nugget term or to 0 to fix the nugget term as specified
+                by the argument 'nugget'. If set to 1, the value set to the argument 'nugget' is used as the initial
+                value. Defaults to 0.
+            scale_est (int, optional): set to 1 to estimate the variance or to 0 to fix the variance as specified
+                by the argument 'scale'. Defaults to 0.
+            input_dim (numpy.array, optional): a numpy 1d-array that contains the indices of GPs in the last layer
+                   whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
+                   feed into the GP. When set to None, all outputs from GPs of last layer (or all global input 
+                   dimensions) feed into the GP. Defaults to None.
+            connect (numpy.array, optional): a numpy 1d-array that contains the indices of dimensions in the global
+                input connecting to the GP as additional input dimensions to the input obtained from the output of
+                GPs in the last layer (as determined by the argument 'input_dim'). When set to None, no global input
+                connection is implemented. Defaults to None.
+
+        Attributes:
+            para_path (numpy.array): a numpy 2d-array that contains the trace of model parameters. Each row is a 
+                parameter estimate produced by one SEM iteration. The model parameters in each row are ordered as 
+                follow: np.array([scale estimate, lengthscale estimate (whose length>=1), nugget estimate]).
+            global_input (numpy.array): a numpy 2d-array that contains the connect global input dimensions determined 
+                by the argument 'connect'. The value of attribute is assigned during the initialisation of 'dgp' class.
+                If 'connect' is set to None, this attribute is also None.
+            input (numpy.array): a numpy 2d-array (each row as a data point and each column as a data dimension) that 
+                contains the input training data (according to the argument 'input_dim') to the GP
+            output (numpy.array): a numpy 2d-array with only one column that contains the output training data to the GP.
+        """
+
     def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior=np.array([0.3338,0.0835]), nugget_est=0, scale_est=0, input_dim=None, connect=None):
-        #0.3338,0.0835
         self.length=length
         self.scale=np.atleast_1d(scale)
         self.nugget=np.atleast_1d(nugget)
@@ -21,6 +62,11 @@ class kernel:
         self.output=None
 
     def log_t(self):
+        """Log transform the model paramters (lengthscales and nugget).
+
+        Returns:
+            numpy.array: a numpy 1d-array of log-transformed model paramters
+        """
         if self.nugget_est==1:
             log_theta=np.log(np.concatenate((self.length,self.nugget)))
         else:
@@ -28,10 +74,15 @@ class kernel:
         return log_theta
 
     def update(self,log_theta):
+        """Update the model paramters (scale, lengthscales and nugget).
+
+        Args:
+            log_theta (numpy.array): optimised numpy 1d-array of log-transformed lengthscales and nugget.
+        """
         theta=np.exp(log_theta)
         if self.nugget_est==1:
             self.length=theta[0:-1]
-            self.nugget=theta[-1]
+            self.nugget=theta[[-1]]
         else:
             self.length=theta
         if self.scale_est==1:
@@ -42,7 +93,12 @@ class kernel:
             self.scale=new_scale.flatten()
             
     def k_matrix(self):
-        n=len(self.output)
+        """Compute the correlation matrix.
+
+        Returns:
+            numpy.array: a numpy 2d-array as the correlation matrix.
+        """
+        n=len(self.input)
         if np.any(self.connect!=None):
             X=np.concatenate((self.input, self.global_input),1)
         else:
@@ -61,7 +117,14 @@ class kernel:
         return K+self.nugget*np.eye(n)
 
     def k_fod(self):
-        n=len(self.output)
+        """Compute first order derivatives of the correlation matrix wrt log-transformed lengthscales and nugget.
+
+        Returns:
+            numpy.array: a numpy 3d-array that contains the first order derivatives of the correlation matrix 
+                wrt log-transformed lengthscales and nugget. The length of the array equals to the total number 
+                of model parameters (i.e., the total number of lengthscales and nugget). 
+        """
+        n=len(self.input)
         if np.any(self.connect!=None):
             X=np.concatenate((self.input, self.global_input),1)
         else:
@@ -92,16 +155,38 @@ class kernel:
         return fod
     
     def log_prior(self):
-        lp=2*self.prior[0]*np.log(self.length)-self.prior[1]*self.length**2
-        return np.sum(lp)
+        """Compute the value of log priors specified to the lengthscales and nugget. 
+
+        Returns:
+            numpy.array: a numpy 1d-array giving the sum of log priors of the lengthscales and nugget. 
+        """
+        lp=np.sum(2*self.prior[0]*np.log(self.length)-self.prior[1]*self.length**2,keepdims=True)
+        if self.nugget_est==1:
+            lp+=2*self.prior[0]*np.log(self.nugget)-self.prior[1]*self.nugget**2
+        return lp
 
     def log_prior_fod(self):
+        """Compute the first order derivatives of log priors wrt the log-tranformed lengthscales and nugget.
+
+        Returns:
+            numpy.array: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
+                giving the first order derivatives of log priors wrt the log-tranformed lengthscales and nugget.
+        """
         fod=2*(self.prior[0]-self.prior[1]*self.length**2)
         if self.nugget_est==1:
-            fod=np.concatenate((fod,np.array([0])))
+            fod=np.concatenate((fod,2*(self.prior[0]-self.prior[1]*self.nugget**2)))
         return fod
 
     def llik(self,x):
+        """Compute the negative log-likelihood function of the GP.
+
+        Args:
+            x (numpy.array): a numpy 1d-array that contains the values of log-transformed model paramters: 
+                log-transformed lengthscales followed by the log-transformed nugget. 
+
+        Returns:
+            numpy.array: a numpy 1d-array giving negative log-likelihood.
+        """
         self.update(x)
         n=len(self.output)
         K=self.k_matrix()
@@ -119,6 +204,17 @@ class kernel:
         return neg_llik
 
     def llik_der(self,x):
+        """Compute first order derivatives of the negative log-likelihood function wrt log-tranformed model parameters.
+
+        Args:
+            x (numpy.array): a numpy 1d-array that contains the values of log-transformed model paramters: 
+                log-transformed lengthscales followed by the log-transformed nugget.
+
+        Returns:
+            numpy.array: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
+                that contains first order derivatives of the negative log-likelihood function wrt log-tranformed 
+                lengthscales and nugget.
+        """
         self.update(x)
         n=len(self.output)
         K=self.k_matrix()
@@ -140,25 +236,74 @@ class kernel:
         return neg_St
 
     def maximise(self, method='L-BFGS-B'):
+        """Optimise and update model parameters by minimising the negative log-likelihood function.
+
+        Args:
+            method (str, optional): optimisation algorithm. Defaults to 'L-BFGS-B'.
+        """
         initial_theta_trans=self.log_t()
-        re = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der)
-        if re.success!=True:
-            re = minimize(self.llik, re.x, method='Nelder-Mead')
+        if self.nugget_est==1:
+            lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+            ub=np.inf*np.ones(len(initial_theta_trans))
+            bd=Bounds(lb, ub)
+            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd)
+        else:
+            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der)
         self.add_to_path()
         
     def add_to_path(self):
+        """Add updated model parameter estimates to the class attribute 'para_path'.
+        """
         para=np.concatenate((self.scale,self.length,self.nugget))
         self.para_path=np.vstack((self.para_path,para))
 
     def gp_prediction(self,x,z):
+        """Make GP predictions. 
+
+        Args:
+            x (numpy.array): a numpy 2d-array that contains the input testing data (whose rows correspond to testing
+                data points and columns correspond to testing data dimensions) with the number of columns same as 
+                the 'input' attribute.
+            z (numpy.array): a numpy 2d-array that contains additional input testing data (with the same number of 
+                columns of the 'global_input' attribute) from the global testing input if the argument 'connect' 
+                is not None. Set to None if the argument 'connect' is None. 
+
+        Returns:
+            list: a list of two 1d-arrays giving the means and variances at the testing input data positions. 
+        """
         m,v=gp(x,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
         return m,v
 
     def linkgp_prediction(self,m,v,z):
+        """Make linked GP predictions. 
+
+        Args:
+            m (numpy.array): a numpy 2d-array that contains predictive means of testing outputs from the GPs in the last 
+                layer. The number of rows equals to the number of testing positions and the number of columns equals to the 
+                length of the argument 'input_dim'. If the argument 'input_dim' is None, then the number of columns equals 
+                to the number of GPs in the last layer.
+            v (numpy.array): a numpy 2d-array that contains predictive variances of testing outputs from the GPs in the last 
+                layer. It has the same shape of 'm'.
+            z (numpy.array): a numpy 2d-array that contains additional input testing data (with the same number of 
+                columns of the 'global_input' attribute) from the global testing input if the argument 'connect' 
+                is not None. Set to None if the argument 'connect' is None. 
+
+        Returns:
+            list: a list of two 1d-arrays giving the means and variances at the testing input data positions (that are 
+                represented by predictive means and variances).
+        """
         m,v=link_gp(m,v,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
         return m,v
 
 def combine(*layers):
+    """Combine layers into one list as a DGP structure.
+
+    Args:
+        *layers (list): a sequence of lists, each of which contains the GPs (defined by the kernel class) in that layer.
+
+    Returns:
+        list: a list of layers defining the DGP structure.
+    """
     all_layer=[]
     for layer in layers:
         all_layer.append(layer)
