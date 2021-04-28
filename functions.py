@@ -14,14 +14,15 @@ def log_likelihood_func(y,cov,scale):
     llik=-0.5*(logdet+quad)
     return llik
 
+
 @jit(nopython=True,cache=True)
-def mvn(cov,scale):
-    """Generate multivariate Gaussian random samples.
+def fmvn(mu,cov):
+    """Generate multivariate Gaussian random samples with means.
     """
     d=len(cov)
     sn=randn(d,1)
-    L=np.linalg.cholesky(scale*cov)
-    samp=(L@sn).flatten()
+    L=np.linalg.cholesky(cov)
+    samp=(L@sn).flatten()+mu
     return samp
 
 @jit(nopython=True,cache=True)
@@ -48,11 +49,33 @@ def k_one_matrix(X,length,name):
     return K
 
 @jit(nopython=True,cache=True)
-def update_f(f,nu,theta):
+def update_f(f,nu,theta,mean):
     """Update ESS proposal samples.
     """
-    fp=f*np.cos(theta) + nu*np.sin(theta)
+    fp=(f-mean)*np.cos(theta) + (nu-mean)*np.sin(theta) + mean
     return fp
+
+######Multivariate Gaussian sampling######
+@jit(nopython=True,cache=True)
+def cmvn(local_input,global_input,output,scale,length,nugget,name,missingness):
+    """Sample from conditional multivariate normal distribution
+    """
+    x=local_input[missingness,]
+    w1=local_input[~missingness,]
+    if global_input!=None:
+        z=global_input[missingness,]
+        x=np.concatenate((x, z),1)
+        global_w1=global_input[~missingness,]
+        w1=np.concatenate((w1, global_w1),1)
+    w2=output[~missingness,]
+    R=k_one_matrix(w1,length,name)+nugget*np.identity(len(w1))
+    c=k_one_matrix(x,length,name)+nugget*np.identity(len(x))
+    r=k_one_vec(w1,x,length,name)
+    Rinv_r=np.linalg.solve(R,r)
+    r_Rinv_r=r.T@Rinv_r
+    v=np.abs(scale*(c-r_Rinv_r))
+    m=np.sum(w2*Rinv_r,axis=0) 
+    return m, v
 
 ######functions for predictions########
 @jit(nopython=True,cache=True)

@@ -17,14 +17,14 @@ class emulator:
         """Implement predictions from the trained DGP model.
 
         Args:
-            x (numpy.array): a numpy 2d-array where each row is an input testing data point and 
+            x (ndarray): a numpy 2d-array where each row is an input testing data point and 
                 each column is an input dimension.
             N (int): the number of imputation to produce the predictions.
             method (str, optional): the prediction approach: mean-variance ('mean_var') or sampling 
                 ('sampling') approach. Defaults to 'mean_var'.
 
         Returns:
-            numpy.array or list: if the argument method='mean_var', a list is produced and the list contains
+            Union[ndarray, list]: if the argument method='mean_var', a list is produced and the list contains
                 two numpy 2d-arrays, one for the predictive means and another for the predictive variances.
                 Each array has its rows corresponding to the DGP output dimensions and columns corresponding to
                 the testing positions. For example, when there are K GPs in the final layer the two arrays have
