@@ -98,8 +98,8 @@ def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
     """Make linked GP predictions.
     """
     M=len(m)
-    m_new=np.empty(M)
-    v_new=np.empty(M)
+    m_new=np.empty((M,1))
+    v_new=np.empty((M,1))
     if z!=None:
         Dw=np.shape(w1)[1]
         Dz=np.shape(z)[1]
@@ -129,7 +129,7 @@ def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
         IRinv_y=np.sum(I*Rinv_y)
         m_new[i]=IRinv_y
         v_new[i]=np.abs(np.sum(np.dot(Rinv_y.T,J)*Rinv_y.T)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-    return m_new,v_new
+    return m_new.flatten(),v_new.flatten()
 
 @jit(nopython=True,cache=True)
 def k_one_vec(X,z,length,name):

@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm.notebook import trange, tqdm
+from tqdm import trange, tqdm
 import copy
 from imputation import imputer
 from functions import cmvn, fmvn
@@ -17,7 +17,8 @@ class dgp:
             If only one numpy 2d-array is supplied in the list, then it is assumed that no observations 
             are available for latent variables. In all other cases, the list needs to contain numpy 
             2d-arrays, one for each layer. Each 2d-array has it rows being output data points and
-            columns being output dimensions. If there are missing values, those specific cells in the arrays 
+            columns being output dimensions (with the number of columns equals to the number of GP nodes
+            in the corresponding layer). If there are missing values, those specific cells in the arrays 
             need to be filled by nan. The last array must have its number of columns equal to the 
             number of nodes (GPs) in the final layer.
         all_layer (list): a list contains L (the number of layers) sub-lists, each of which contains 
@@ -118,7 +119,7 @@ class dgp:
             disable (bool, optional): whether to disable the training progress bar. 
                 Defaults to False.
         """
-        pgb=trange(1,N+1,ncols='70%',disable=disable)
+        pgb=trange(1,N+1,disable=disable)
         for i in pgb:
             #I-step           
             (self.imp).sample(burnin=ess_burn)

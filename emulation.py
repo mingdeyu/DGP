@@ -24,7 +24,7 @@ class emulator:
                 ('sampling') approach. Defaults to 'mean_var'.
 
         Returns:
-            Union[ndarray, list]: if the argument method='mean_var', a list is produced and the list contains
+            Union[ndarray, tuple]: if the argument method='mean_var', a tuple is produced and the tuple contains
                 two numpy 2d-arrays, one for the predictive means and another for the predictive variances.
                 Each array has its rows corresponding to the DGP output dimensions and columns corresponding to
                 the testing positions. For example, when there are K GPs in the final layer the two arrays have

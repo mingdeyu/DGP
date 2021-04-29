@@ -49,6 +49,22 @@ class kernel:
             missingness (ndarray): a numpy 1d-array of bool that indicates the missingness in the output attributes.
                 If a cell is True, then the corresponding cell in the output attribute needs to be imputed. The value 
                 of this attribute is assigned during the initialisation of 'dgp' class. 
+
+        Remarks:
+        For linked GP inference, when creating kernel classes for GP nodes in each layer, 
+            1. The 'connect' argument of the kernel class is set at its default None and not used because one needs 
+                to explicitly specify the external inputs to each GP using the Z argument of lgp class;
+            2. The 'global_input' attribute in the kernel class no longer contains dimensions of global input to the 
+                GPs in the first layer, as in DGP inference. Instead it contains external inputs 
+                provided in the Z argument;
+            3. The 'missingness' attribute in the kernel class is not set and used because in linked GP inference all
+                internal I/O are observable;
+            4. The 'input_dim' argument in the kernel class needs to be specified explicitly by the user to let the 
+                inference know which GPs in the last layer are feeding GPs. We do not implement the default setting, like 
+                in the DGP case, that a GP is connected to all GPs in the last layers. Thus, one has to supply the 'input_dim' 
+                argument a full GP node index in the last layer of all GPs in the last layer are feeding the GP that the kernel
+                class represent. For example, if one is creating a GP that has its local input produced by all 4 GPs in the 
+                last layer, then one needs to assign np.arange(4) to the 'input_dim' argument explicitly.
         """
 
     def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior=np.array([0.3338,0.0835]), nugget_est=0, scale_est=0, input_dim=None, connect=None):
@@ -275,7 +291,7 @@ class kernel:
                 is not None. Set to None if the argument 'connect' is None. 
 
         Returns:
-            list: a list of two 1d-arrays giving the means and variances at the testing input data positions. 
+            tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions. 
         """
         m,v=gp(x,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
         return m,v
@@ -295,7 +311,7 @@ class kernel:
                 is not None. Set to None if the argument 'connect' is None. 
 
         Returns:
-            list: a list of two 1d-arrays giving the means and variances at the testing input data positions (that are 
+            tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
                 represented by predictive means and variances).
         """
         m,v=link_gp(m,v,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
