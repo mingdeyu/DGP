@@ -17,7 +17,7 @@ The package `dgpsi` implements inference of deep Gaussian process emulation usin
     - linking GP emulators of individual computer models;
     - linking GP and DGP emulators of individual computer models.
 
-Please see [synthetic_examples](synthetic_examples/) for some illustrative examples of the method.
+Please see [synthetic_examples](synthetic_examples/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
 
 ## Installation
 After cloning the repo, type the following in the same directory of `setup.py`:
