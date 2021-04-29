@@ -28,7 +28,7 @@ class imputer:
                     if l==n_layer-1:
                         if np.any(target_kernel.missingness):
                             mean, covariance = cmvn(target_kernel.input,target_kernel.global_input,target_kernel.output,target_kernel.scale,target_kernel.length,target_kernel.nugget,target_kernel.name,target_kernel.missingness)
-                            target_kernel.output[target_kernel.missingness,0]=fmvn(mean,covariance)
+                            target_kernel.output[target_kernel.missingness,0]=np.random.multivariate_normal(mean,covariance)
                     else:
                         linked_upper_kernels=[kernel for kernel in self.all_layer[l+1] if k in kernel.input_dim]
                         if np.any(target_kernel.missingness):
@@ -54,10 +54,10 @@ class imputer:
             covariance=k_one_matrix(x,target_kernel.length,target_kernel.name)+target_kernel.nugget*np.identity(len(x))
             covariance=target_kernel.scale*covariance
             # Choose the ellipse for this sampling iteration.
-            nu = fmvn(mean, covariance)
+            nu = np.random.multivariate_normal(mean, covariance)
         else:
             mean, covariance = cmvn(x,target_kernel.global_input,target_kernel.output,target_kernel.scale,target_kernel.length,target_kernel.nugget,target_kernel.name,target_kernel.missingness)
-            nu = fmvn(mean, covariance)
+            nu = np.random.multivariate_normal(mean, covariance)
         # Set the candidate acceptance threshold.
         log_y=0
         for linked_kernel in linked_upper_kernels:

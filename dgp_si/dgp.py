@@ -92,7 +92,7 @@ class dgp:
                     if np.any(kernel.missingness):
                         m,v=cmvn(kernel.input,kernel.global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
                         samp=copy.deepcopy(self.Y[l][:,[k]])
-                        samp[kernel.missingness,0]=fmvn(m,v)
+                        samp[kernel.missingness,0]=np.random.multivariate_normal(m,v)
                         kernel.output=copy.deepcopy(samp)
                         Out[:,[k]]=samp
                     else:
