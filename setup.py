@@ -9,7 +9,7 @@ AUTHOR = 'Deyu Ming'
 AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
 URL = 'https://github.com/mingdeyu/DGP'
 
-LICENSE = 'Apache License 2.0'
+LICENSE = 'MIT'
 DESCRIPTION = 'Deep Gaussian Process Emulation using Stochastic Imputation'
 LONG_DESCRIPTION = (here / 'README.md').read_text(encoding='utf-8')
 
@@ -18,6 +18,7 @@ INSTALL_REQUIRES = [
       'numba>=0.51.2',
       'matplotlib>=3.2.1',
       'tqdm>=4.50.2',
+      'scipy>=1.4.1',
       'scikit-learn>=0.22.0',
       'jupyter'
 ]
