@@ -18,8 +18,10 @@ class kernel:
             nugget (float, optional): the nugget term of a GP. Defaults to 1e-8.
             name (str, optional): kernel function to be used. Either 'sexp' for squared exponential kernel or
                 'matern2.5' for Matern2.5 kernel. Defaults to 'sexp'.
-            prior (ndarray, optional): a numpy 1d-array that contains two values specifying the priors specified
-                for the lengthscales and nugget. Defaults to np.array([0.3338,0.0835]).
+            prior_name (str, optional): prior class. Either gamma ('ga') or inverse gamma ('inv_ga') distribution for 
+                the lengthscales and nugget term. Set None to disable the prior. Defaults to 'ga'.
+            prior_ceff (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
+                parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to np.array([1.6,0.3]).
             nugget_est (int, optional): set to 1 to estimate nugget term or to 0 to fix the nugget term as specified
                 by the argument 'nugget'. If set to 1, the value set to the argument 'nugget' is used as the initial
                 value. Defaults to 0.
@@ -35,6 +37,10 @@ class kernel:
                 connection is implemented. Defaults to None.
 
         Attributes:
+            g (function): a function giving the log probability density function of gamma or inverse gamma distribution 
+                ignoring the constant part.
+            gfod (function): a function giving the first order derivative of g with respect to the log-transformed 
+                lengthscales and nugget. 
             para_path (ndarray): a numpy 2d-array that contains the trace of model parameters. Each row is a 
                 parameter estimate produced by one SEM iteration. The model parameters in each row are ordered as 
                 follow: np.array([scale estimate, lengthscale estimate (whose length>=1), nugget estimate]).
@@ -67,12 +73,19 @@ class kernel:
                 last layer, then one needs to assign np.arange(4) to the 'input_dim' argument explicitly.
         """
 
-    def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior=np.array([0.3338,0.0835]), nugget_est=0, scale_est=0, input_dim=None, connect=None):
+    def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=0, scale_est=0, input_dim=None, connect=None):
         self.length=length
         self.scale=np.atleast_1d(scale)
         self.nugget=np.atleast_1d(nugget)
         self.name=name
-        self.prior=prior
+        self.prior_name=prior_name
+        self.prior_coef=prior_coef
+        if self.prior_name=='ga':
+            self.g=lambda x: (self.prior_coef[0]-1)*np.log(x)-self.prior_coef[1]*x
+            self.gfod=lambda x: (self.prior_coef[0]-1)-self.prior_coef[1]*x
+        elif self.prior_name=='inv_ga':
+            self.g=lambda x: -(self.prior_coef[0]+1)*np.log(x)-self.prior_coef[1]/x
+            self.gfod=lambda x: -(self.prior_coef[0]+1)+self.prior_coef[1]/x
         self.nugget_est=nugget_est
         self.scale_est=scale_est
         self.input_dim=input_dim
@@ -121,7 +134,7 @@ class kernel:
             ndarray: a numpy 2d-array as the correlation matrix.
         """
         n=len(self.input)
-        if np.any(self.connect!=None):
+        if np.any(self.global_input!=None):
             X=np.concatenate((self.input, self.global_input),1)
         else:
             X=self.input
@@ -147,7 +160,7 @@ class kernel:
                 of model parameters (i.e., the total number of lengthscales and nugget). 
         """
         n=len(self.input)
-        if np.any(self.connect!=None):
+        if np.any(self.global_input!=None):
             X=np.concatenate((self.input, self.global_input),1)
         else:
             X=self.input
@@ -182,9 +195,9 @@ class kernel:
         Returns:
             ndarray: a numpy 1d-array giving the sum of log priors of the lengthscales and nugget. 
         """
-        lp=np.sum(2*self.prior[0]*np.log(self.length)-self.prior[1]*self.length**2,keepdims=True)
+        lp=np.sum(self.g(self.length),keepdims=True)
         if self.nugget_est==1:
-            lp+=2*self.prior[0]*np.log(self.nugget)-self.prior[1]*self.nugget**2
+            lp+=self.g(self.nugget)
         return lp
 
     def log_prior_fod(self):
@@ -194,9 +207,9 @@ class kernel:
             ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
                 giving the first order derivatives of log priors wrt the log-tranformed lengthscales and nugget.
         """
-        fod=2*(self.prior[0]-self.prior[1]*self.length**2)
+        fod=self.gfod(self.length)
         if self.nugget_est==1:
-            fod=np.concatenate((fod,2*(self.prior[0]-self.prior[1]*self.nugget**2)))
+            fod=np.concatenate((fod,self.gfod(self.nugget)))
         return fod
 
     def llik(self,x):
@@ -221,7 +234,7 @@ class kernel:
         else:
             neg_llik=0.5*(logdet+YKinvY) 
         neg_llik=neg_llik.flatten()
-        if np.any(self.prior!=None):
+        if self.prior_name!=None:
             neg_llik=neg_llik-self.log_prior()
         return neg_llik
 
@@ -253,7 +266,7 @@ class kernel:
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2
-        if np.any(self.prior!=None):
+        if self.prior_name!=None:
             neg_St=neg_St-self.log_prior_fod()
         return neg_St
 

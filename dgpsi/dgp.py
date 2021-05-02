@@ -52,7 +52,7 @@ class dgp:
         self.all_layer=all_layer
         self.initialize()
         self.imp=imputer(self.all_layer)
-        (self.imp).sample(burnin=50)
+        (self.imp).sample(burnin=10)
         self.N=0
 
     def initialize(self):
