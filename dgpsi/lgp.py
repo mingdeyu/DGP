@@ -18,9 +18,9 @@ class lgp:
             the GPs defined by the kernel class in that layer. The sub-lists are placed in the list 
             in the same order of the specified linked GP structure. 
         Z (list): a list of sub-lists of numpy 2d-arrays and Nones. Each sub-list represents a layer and the first sub-list
-            should typically set to a number of Nones because GPs in the first layer have no feeding GPs. Each numpy 2d-array 
+            should typically be set to a number of Nones because GPs in the first layer have no feeding GPs. Each numpy 2d-array 
             in the sub-list provides the additional input dimensions (i.e., those not from the feeding GPs). If a GP has no 
-            external input, then set the corresponding cell in Z as None. The array has its rows being input data points and 
+            external input, then set the corresponding cell in Z to None. The array has its rows being input data points and 
             columns being input dimensions. Defaults to None, meaning that there are no external inputs to any GPs.
     """
 
@@ -60,9 +60,38 @@ class lgp:
                 pgb.set_description('Layer %i: Node %i' % (l,i))
                 i+=1
 
-    def predict(self,x,z=None):
+    def predict(self,x,z=None,full_layer=False):
+        """Implement predictions from the trained linked GP model.
+
+        Args:
+            x (ndarray): a numpy 2d-array where each row is an input testing data point and 
+                each column is an input dimension.
+            z (list): a list of sub-lists of numpy 2d-arrays and Nones. Each sub-list represents 
+                a layer and the first sub-list should typically be set to a number of Nones because 
+                GPs in the first layer have no feeding GPs. Each numpy 2d-array in the sub-list provides 
+                the testing positions of additional input dimensions (i.e., those not from the feeding GPs)
+                of the corresponding GP. If a GP has no external input, then set the corresponding cell and
+                sub-list in z to None. The numpy 2d-array has its rows being input testing positions and 
+                columns being input dimensions. Defaults to None, meaning that there are no external (testing) 
+                inputs to all GPs in the linked GP structure.
+            full_layer (bool, optional): whether to output the predictions of all layers. Defaults to False.
+
+        Returns:
+            tuple: a tuple is returned:
+                    1. If full_layer=False, the tuple contains two numpy 2d-arrays, one for the predictive means 
+                        and another for the predictive variances. Each array has its rows corresponding to testing 
+                        positions and columns corresponding to DGP output dimensions (i.e., GP nodes in the final 
+                        layer);
+                    2. If full_layer=True, the tuple contains two lists, one for the predictive means 
+                        and another for the predictive variances. Each list contains L (i.e., the number of layers) 
+                        numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns 
+                        corresponding to output dimensions (i.e., GP nodes from the associated layer).
+        """
         M=len(x)
         overall_global_test_input=x
+        if full_layer==True:
+            mu=[]
+            sigma2=[]
         for l in range(self.n_layer):
             layer=self.all_layer[l]
             n_kerenl=len(layer)
@@ -87,7 +116,11 @@ class lgp:
                         m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                     overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
             overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-        mu=overall_test_input_mean
-        sigma2=overall_test_input_var
-        return mu.T, sigma2.T
+            if full_layer==True:
+                mu.append(overall_test_input_mean)
+                sigma2.append(overall_test_input_var)
+        if full_layer==False:
+            mu=overall_test_input_mean
+            sigma2=overall_test_input_var
+        return mu, sigma2
 
