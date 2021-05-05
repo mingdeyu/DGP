@@ -80,20 +80,39 @@ class dgp:
             Out=copy.deepcopy(Out)
             for k in range(num_kernel):
                 kernel=layer[k]
-                if np.any(kernel.input_dim!=None):
-                    kernel.input=copy.deepcopy(In[:,kernel.input_dim])
-                else:
-                    kernel.input=copy.deepcopy(In)
-                    kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
-                if np.any(kernel.connect!=None):
-                    kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
                 kernel.missingness=copy.deepcopy(np.isnan(self.Y[l][:,k]))
+                if np.any(kernel.input_dim!=None):
+                    if l==self.n_layer-1:
+                        kernel.last_layer_input=copy.deepcopy(In[:,kernel.input_dim])
+                        kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                    else:
+                        kernel.input=copy.deepcopy(In[:,kernel.input_dim])
+                else:
+                    if l==self.n_layer-1:
+                        kernel.last_layer_input=copy.deepcopy(In)
+                        kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
+                    else:
+                        kernel.input=copy.deepcopy(In)
+                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
+                if np.any(kernel.connect!=None):
+                    if l==self.n_layer-1:
+                        kernel.last_layer_global_input=copy.deepcopy(global_in[:,kernel.connect])
+                        kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[~kernel.missingness,:])
+                    else:
+                        kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
                 if not np.all(kernel.missingness):
                     if np.any(kernel.missingness):
-                        m,v=cmvn(kernel.input,kernel.global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
+                        if l==self.n_layer-1:
+                            m,v=cmvn(kernel.last_layer_input,kernel.last_layer_global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
+                        else:
+                            m,v=cmvn(kernel.input,kernel.global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
                         samp=copy.deepcopy(self.Y[l][:,[k]])
                         samp[kernel.missingness,0]=np.random.default_rng().multivariate_normal(mean=m,cov=v,check_valid='ignore')
-                        kernel.output=copy.deepcopy(samp)
+                        if l==self.n_layer-1:
+                            kernel.output=copy.deepcopy(samp[~kernel.missingness,:])
+                        else:
+                            kernel.output=copy.deepcopy(samp)
                         Out[:,[k]]=samp
                     else:
                         kernel.output=copy.deepcopy(self.Y[l][:,[k]])

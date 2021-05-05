@@ -1,6 +1,7 @@
 from numpy.random import uniform
 import numpy as np
 from .functions import log_likelihood_func, cmvn, fmvn, k_one_matrix, update_f
+import copy
 
 class imputer:
     """Class to implement imputation of latent variables.
@@ -20,22 +21,21 @@ class imputer:
         """
         n_layer=len(self.all_layer)
         for _ in range(burnin+1):
-            for l in range(n_layer):
+            for l in range(n_layer-1):
+                if l==n_layer-2:
+                    last_layer=True
+                else:
+                    last_layer=False
                 layer=self.all_layer[l]
                 n_kernel=len(layer)
                 for k in range(n_kernel):
                     target_kernel=layer[k]
-                    if l==n_layer-1:
-                        if np.any(target_kernel.missingness):
-                            mean, covariance = cmvn(target_kernel.input,target_kernel.global_input,target_kernel.output,target_kernel.scale,target_kernel.length,target_kernel.nugget,target_kernel.name,target_kernel.missingness)
-                            target_kernel.output[target_kernel.missingness,0]=np.random.default_rng().multivariate_normal(mean=mean,cov=covariance,check_valid='ignore')
-                    else:
-                        linked_upper_kernels=[kernel for kernel in self.all_layer[l+1] if k in kernel.input_dim]
-                        if np.any(target_kernel.missingness):
-                            self.one_sample(target_kernel,linked_upper_kernels,k)
+                    linked_upper_kernels=[kernel for kernel in self.all_layer[l+1] if k in kernel.input_dim]
+                    if np.any(target_kernel.missingness):
+                        self.one_sample(target_kernel,linked_upper_kernels,k,last_layer)
     
     @staticmethod
-    def one_sample(target_kernel,linked_upper_kernels,k):
+    def one_sample(target_kernel,linked_upper_kernels,k,last_layer):
         """Impute one latent variable produced by a particular GP.
 
         Args:
@@ -44,6 +44,7 @@ class imputer:
                 by the GP defined by the argument 'target_kernel'.
             k (int): the index indicating the position of the GP defined by the argument 'target_kernel' in
                 its layer.
+            last_layer (bool): indicating if it is currently imputing the last hidden layer.
         """
         x=target_kernel.input
         f=target_kernel.output[target_kernel.missingness,0]
@@ -80,7 +81,11 @@ class imputer:
             fp = update_f(f,nu,theta,mean)
             log_yp=0
             for linked_kernel in linked_upper_kernels:
-                linked_kernel.input[target_kernel.missingness,linked_kernel.input_dim==k]=fp
+                if last_layer==True:
+                    linked_kernel.last_layer_input[target_kernel.missingness,linked_kernel.input_dim==k]=fp
+                    linked_kernel.input=copy.deepcopy(linked_kernel.last_layer_input[~linked_kernel.missingness,:])
+                else: 
+                    linked_kernel.input[target_kernel.missingness,linked_kernel.input_dim==k]=fp
                 wp=linked_kernel.input
                 y=(linked_kernel.output).flatten()
                 if np.any(linked_kernel.connect!=None):
