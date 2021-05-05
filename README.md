@@ -9,8 +9,8 @@ The package `dgpsi` implements inference of deep Gaussian process emulation usin
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
-* Multiple emulations with missingness:
-    - emulation with multiple output dimensions and some dimensions have partially missing output data points;
+* Multiple emulations:
+    - emulation with multiple output dimensions;
 * Partially observed I/O of internal GP nodes:
     - internal GP nodes can have partially observed outputs to incorporate some prior knowledge about the DGP structure;
 * Emulation of feed-forward systems of computer models:
