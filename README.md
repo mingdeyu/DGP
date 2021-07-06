@@ -9,15 +9,12 @@ The package `dgpsi` implements inference of deep Gaussian process emulation usin
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
-* Multiple emulations:
-    - emulation with multiple output dimensions;
-* Partially observed I/O of internal GP nodes:
-    - internal GP nodes can have partially observed outputs to incorporate some prior knowledge about the DGP structure;
 * Emulation of feed-forward systems of computer models:
     - linking GP emulators of individual computer models;
-    - linking GP and DGP emulators of individual computer models.
+    - linking GP and DGP emulators of individual computer models;
+* More features coming soon.
 
-Please see [synthetic_examples](synthetic_examples/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
+Please see [docs](docs/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
 
 ## Installation
 After cloning the repo, type the following in the same directory of `setup.py`:
@@ -43,6 +40,5 @@ Please feel free to email me with any questions and feedbacks:
 Deyu Ming <[deyu.ming.16@ucl.ac.uk](mailto:deyu.ming.16@ucl.ac.uk)>.
 
 ## References
-The code implements the methods in the following paper for linked GP emulation:
-
-> [Ming, D. and Guillas, S. Linked Gaussian process emulation for systems of computer models using Mat&eacute;rn kernels and adaptive design, 2021.](https://arxiv.org/abs/1912.09468)
+> [Ming, D. and Guillas, S. (2021) Linked Gaussian process emulation for systems of computer models using Mat&eacute;rn kernels and adaptive design, <i>SIAM/ASA Journal on Uncertainty Quantification</i>. In press.](https://arxiv.org/abs/1912.09468)
+> [Ming, D., Williamson, D., and Guillas, S. (2021) Deep Gaussian process emulation using stochastic imputation.](https://arxiv.org/abs/2107.01590)
