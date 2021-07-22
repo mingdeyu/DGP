@@ -1,5 +1,5 @@
-# Deep Gaussian Process Emulation using Stochastic Imputation
-The package `dgpsi` implements inference of deep Gaussian process emulation using stochastic imputation. 
+# Deep and Linked Gaussian Process Emulation using Stochastic Imputation
+The package `dgpsi` implements inference of both deep and linked Gaussian process emulation using stochastic imputation. 
 
 ## Key features
 `dgpsi` currently has the following features:
