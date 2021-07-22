@@ -4,12 +4,12 @@ The package `dgpsi` implements inference of both deep and linked Gaussian proces
 ## Key features
 `dgpsi` currently has the following features:
 
-* Flexible deep Gaussian process architecture construction: 
+* Deep Gaussian process emulation with flexible architecture construction: 
     - multiple layers;
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
-* Emulation of feed-forward systems of computer models:
+* Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of individual computer models;
     - linking GP and DGP emulators of individual computer models;
 * More features coming soon.
