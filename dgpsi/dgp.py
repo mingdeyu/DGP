@@ -1,10 +1,17 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import trange, tqdm
 import copy
-from .imputation import imputer
-from .functions import cmvn, fmvn
+from typing import List, Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.decomposition import KernelPCA
+from tqdm import trange
+
+from .functions import cmvn
+from .imputation import imputer
+from .kernel_class import kernel
+
+__all__ = ["dgp"]
+
 
 class dgp:
     """
@@ -45,90 +52,98 @@ class dgp:
         >>>all_layer=combine(layer1,layer2,layer3)       
     """
 
-    def __init__(self, X, Y, all_layer):
-        self.X=X
-        self.Y=Y
-        self.n_layer=len(all_layer)
-        self.all_layer=all_layer
+    def __init__(self, X: np.ndarray, Y: List[np.ndarray], all_layer: List[List[kernel]]):
+        self.X = X
+        self.Y = Y
+        self.n_layer = len(all_layer)
+        self.all_layer = all_layer
         self.initialize()
-        self.imp=imputer(self.all_layer)
-        (self.imp).sample(burnin=10)
-        self.N=0
+        self.imp = imputer(self.all_layer)
+        self.imp.sample(burnin=10)
+        self.N = 0
 
     def initialize(self):
         """Initialise all_layer attribute for training.
         """
-        if len(self.Y)==1:
-            new_Y=[]
-            for l in range(self.n_layer-1):
-                num_kernel=len(self.all_layer[l])
-                new_Y.append(np.full((len(self.X),num_kernel),np.nan))
+        if len(self.Y) == 1:
+            new_Y = []
+            for l in range(self.n_layer - 1):
+                num_kernel = len(self.all_layer[l])
+                new_Y.append(np.full((len(self.X), num_kernel), np.nan))
             new_Y.append(self.Y[0])
-            self.Y=copy.deepcopy(new_Y)
-        global_in=self.X
-        In=self.X
+            self.Y = copy.deepcopy(new_Y)
+        global_in = self.X
+        In = self.X
         for l in range(self.n_layer):
-            layer=self.all_layer[l]
-            num_kernel=len(layer)
-            if np.shape(In)[1]==num_kernel:
-                Out=In
-            elif np.shape(In)[1]>num_kernel:
-                pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
-                Out=pca.fit_transform(In)
+            layer = self.all_layer[l]
+            num_kernel = len(layer)
+            if np.shape(In)[1] == num_kernel:
+                Out = In
+            elif np.shape(In)[1] > num_kernel:
+                pca = KernelPCA(n_components=num_kernel, kernel='sigmoid')
+                Out = pca.fit_transform(In)
             else:
-                Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
-            Out=copy.deepcopy(Out)
+                Out = np.concatenate((In, In[:, np.random.choice(np.shape(In)[1], num_kernel - np.shape(In)[1])]), 1)
+            Out = copy.deepcopy(Out)
             for k in range(num_kernel):
-                kernel=layer[k]
-                kernel.missingness=copy.deepcopy(np.isnan(self.Y[l][:,k]))
-                if np.any(kernel.input_dim!=None):
-                    if l==self.n_layer-1:
-                        kernel.last_layer_input=copy.deepcopy(In[:,kernel.input_dim])
-                        kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                kernel = layer[k]
+                kernel.missingness = np.isnan(self.Y[l][:, k])
+                if np.any(kernel.input_dim is not None):
+                    if l == self.n_layer - 1:
+                        kernel.last_layer_input = copy.deepcopy(In[:, kernel.input_dim])
+                        kernel.input = copy.deepcopy(kernel.last_layer_input[~kernel.missingness, :])
                     else:
-                        kernel.input=copy.deepcopy(In[:,kernel.input_dim])
+                        kernel.input = copy.deepcopy(In[:, kernel.input_dim])
                 else:
-                    if l==self.n_layer-1:
-                        kernel.last_layer_input=copy.deepcopy(In)
-                        kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
-                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
+                    if l == self.n_layer - 1:
+                        kernel.last_layer_input = copy.deepcopy(In)
+                        kernel.input = copy.deepcopy(kernel.last_layer_input[~kernel.missingness, :])
+                        kernel.input_dim = copy.deepcopy(np.arange(np.shape(In)[1]))
                     else:
-                        kernel.input=copy.deepcopy(In)
-                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
-                if np.any(kernel.connect!=None):
-                    if l==self.n_layer-1:
-                        kernel.last_layer_global_input=copy.deepcopy(global_in[:,kernel.connect])
-                        kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[~kernel.missingness,:])
+                        kernel.input = copy.deepcopy(In)
+                        kernel.input_dim = copy.deepcopy(np.arange(np.shape(In)[1]))
+                # TODO: This check doesn't make sense, either it's an ndarray or None, elements shouldn't be None
+                if np.any(kernel.connect is not None):
+                    if l == self.n_layer - 1:
+                        kernel.last_layer_global_input = copy.deepcopy(global_in[:, kernel.connect])
+                        kernel.global_input = copy.deepcopy(kernel.last_layer_global_input[~kernel.missingness, :])
                     else:
-                        kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                        kernel.global_input = copy.deepcopy(global_in[:, kernel.connect])
                 if not np.all(kernel.missingness):
                     if np.any(kernel.missingness):
-                        if l==self.n_layer-1:
-                            m,v=cmvn(kernel.last_layer_input,kernel.last_layer_global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
+                        if l == self.n_layer - 1:
+                            m, v = cmvn(kernel.last_layer_input, kernel.last_layer_global_input, self.Y[l][:, [k]],
+                                        kernel.scale, kernel.length, kernel.nugget, kernel.name, kernel.missingness)
                         else:
-                            m,v=cmvn(kernel.input,kernel.global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
-                        samp=copy.deepcopy(self.Y[l][:,[k]])
-                        samp[kernel.missingness,0]=np.random.default_rng().multivariate_normal(mean=m,cov=v,check_valid='ignore')
-                        if l==self.n_layer-1:
-                            kernel.output=copy.deepcopy(samp[~kernel.missingness,:])
+                            m, v = cmvn(kernel.input, kernel.global_input, self.Y[l][:, [k]], kernel.scale,
+                                        kernel.length, kernel.nugget, kernel.name, kernel.missingness)
+                        samp = copy.deepcopy(self.Y[l][:, [k]])
+                        samp[kernel.missingness, 0] = np.random.default_rng().multivariate_normal(mean=m, cov=v,
+                                                                                                  check_valid='ignore')
+                        if l == self.n_layer - 1:
+                            kernel.output = copy.deepcopy(samp[~kernel.missingness, :])
                         else:
-                            kernel.output=copy.deepcopy(samp)
-                        Out[:,[k]]=samp
+                            kernel.output = copy.deepcopy(samp)
+                        Out[:, [k]] = samp
                     else:
-                        kernel.output=copy.deepcopy(self.Y[l][:,[k]])
-                        Out[:,[k]]=self.Y[l][:,[k]]      
+                        kernel.output = copy.deepcopy(self.Y[l][:, [k]])
+                        Out[:, [k]] = self.Y[l][:, [k]]
                 else:
-                    kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
-            In=copy.deepcopy(Out)
-        k=0
+                    kernel.output = copy.deepcopy(Out[:, k].reshape((-1, 1)))
+            In = copy.deepcopy(Out)
+        k = 0
         for kernel in self.all_layer[-1]:
             if np.all(kernel.missingness):
                 self.all_layer[-1].remove(kernel)
-                k+=1
-                print('The output dimension %i has no observations, the GP node %i in the last layer is deleted...' % (k,k))
-            k+=1
+                k += 1
+                print('The output dimension %i has no observations, the GP node %i in the last layer is deleted...' % (
+                    k, k))
+            k += 1
 
-    def train(self, N=500, ess_burn=10, disable=False):
+        # Allow method chaining
+        return self
+
+    def train(self, N: int = 500, ess_burn: int = 10, disable: bool = False):
         """Train the DGP model.
 
         Args:
@@ -138,18 +153,18 @@ class dgp:
             disable (bool, optional): whether to disable the training progress bar. 
                 Defaults to False.
         """
-        pgb=trange(1,N+1,disable=disable)
+        pgb = trange(1, N + 1, disable=disable)
         for i in pgb:
-            #I-step           
-            (self.imp).sample(burnin=ess_burn)
-            #M-step
+            # I-step
+            self.imp.sample(burnin=ess_burn)
+            # M-step
             for l in range(self.n_layer):
                 for kernel in self.all_layer[l]:
                     kernel.maximise()
-                pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
+                pgb.set_description('Iteration %i: Layer %i' % (i, l + 1))
         self.N += N
 
-    def estimate(self,burnin=None):
+    def estimate(self, burnin: Optional[int] = None):
         """Compute the point estimates of model parameters and output the trained DGP.
 
         Args:
@@ -161,18 +176,18 @@ class dgp:
         Returns:
             list: an updated list that represents the trained DGP hierarchy.
         """
-        if burnin==None:
-            burnin=int(self.N*(3/4))
-        final_struct=copy.deepcopy(self.all_layer)
+        if burnin is None:
+            burnin = int(self.N * (3 / 4))
+        final_struct = copy.deepcopy(self.all_layer)
         for l in range(len(final_struct)):
             for kernel in final_struct[l]:
-                point_est=np.mean(kernel.para_path[burnin:,:],axis=0)
-                kernel.scale=point_est[0]
-                kernel.length=point_est[1:-1]
-                kernel.nugget=point_est[-1]
+                point_est = np.mean(kernel.para_path[burnin:, :], axis=0)
+                kernel.scale = point_est[0]
+                kernel.length = point_est[1:-1]
+                kernel.nugget = point_est[-1]
         return final_struct
 
-    def plot(self,layer_no,ker_no,width=4.,height=1.,ticksize=5.,labelsize=8.,hspace=0.1):
+    def plot(self, layer_no, ker_no, width=4., height=1., ticksize=5., labelsize=8., hspace=0.1):
         """Plot the traces of model paramters of a particular GP in the DGP hierarchy.
 
         Args:
@@ -184,20 +199,18 @@ class dgp:
             labelsize (float, optional): the font size of y labels. Defaults to 8.
             hspace (float, optional): the space between sub-plots. Defaults to 0.1.
         """
-        kernel=self.all_layer[layer_no-1][ker_no-1]
-        n_para=np.shape(kernel.para_path)[1]
-        fig, axes = plt.subplots(n_para,figsize=(width,n_para*height), dpi= 100,sharex=True)
+        kernel = self.all_layer[layer_no - 1][ker_no - 1]
+        n_para = np.shape(kernel.para_path)[1]
+        fig, axes = plt.subplots(n_para, figsize=(width, n_para * height), dpi=100, sharex="all")
         fig.tight_layout()
-        fig.subplots_adjust(hspace = hspace)
+        fig.subplots_adjust(hspace=hspace)
         for p in range(n_para):
-            axes[p].plot(kernel.para_path[:,p])
-            axes[p].tick_params(axis = 'both', which = 'major', labelsize = ticksize)
-            if p==0:
-                axes[p].set_ylabel(r'$\sigma^2$',fontsize = labelsize)
-            elif p==n_para-1:
-                axes[p].set_ylabel(r'$\eta$',fontsize = labelsize)
+            axes[p].plot(kernel.para_path[:, p])
+            axes[p].tick_params(axis='both', which='major', labelsize=ticksize)
+            if p == 0:
+                axes[p].set_ylabel(r'$\sigma^2$', fontsize=labelsize)
+            elif p == n_para - 1:
+                axes[p].set_ylabel(r'$\eta$', fontsize=labelsize)
             else:
-                axes[p].set_ylabel(r'$\gamma_{%i}$' %p, fontsize = labelsize)
+                axes[p].set_ylabel(r'$\gamma_{%i}$' % p, fontsize=labelsize)
         plt.show()
-
-    

@@ -14,13 +14,13 @@ DESCRIPTION = 'Deep Gaussian Process Emulation using Stochastic Imputation'
 LONG_DESCRIPTION = (here / 'README.md').read_text(encoding='utf-8')
 
 INSTALL_REQUIRES = [
-      'numpy>=1.18.2',
-      'numba>=0.51.2',
-      'matplotlib>=3.2.1',
-      'tqdm>=4.50.2',
-      'scipy>=1.4.1',
-      'scikit-learn>=0.22.0',
-      'jupyter'
+    'numpy>=1.18.2',
+    'numba>=0.51.2',
+    'matplotlib>=3.2.1',
+    'tqdm>=4.50.2',
+    'scipy>=1.4.1',
+    'scikit-learn>=0.22.0',
+    'jupyter'
 ]
 
 setup(name=PACKAGE_NAME,
