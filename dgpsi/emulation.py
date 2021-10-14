@@ -1,6 +1,9 @@
 import numpy as np
 from .imputation import imputer
 
+__all__ = ["emulator"]
+
+
 class emulator:
     """Class to make predictions from the trained DGP model.
 
@@ -8,12 +11,13 @@ class emulator:
         all_layer (list): a list that contains the trained DGP model produced by the method 'estimate'
             of the 'dgp' class. 
     """
-    def __init__(self, all_layer):
-        self.all_layer=all_layer
-        self.n_layer=len(all_layer)
-        self.imp=imputer(self.all_layer)
-    
-    def predict(self,x,N=50,method='mean_var',full_layer=False):
+
+    def __init__(self, all_layer: list):
+        self.all_layer = all_layer
+        self.n_layer = len(all_layer)
+        self.imp = imputer(self.all_layer)
+
+    def predict(self, x, N: int = 50, method: str = 'mean_var', full_layer: bool = False):
         """Implement predictions from the trained DGP model.
 
         Args:
@@ -43,76 +47,77 @@ class emulator:
                         output from one of D GPs at the testing positions, and has its rows corresponding to testing 
                         positions and columns corresponding to N imputations.
         """
-        #warm up
-        M=len(x)
-        (self.imp).sample(burnin=50)
-        #start predictions
-        mean_pred=[]
-        variance_pred=[]
+        # warm up
+        M = len(x)
+        self.imp.sample(burnin=50)
+        # start predictions
+        mean_pred = []
+        variance_pred = []
         for _ in range(N):
-            overall_global_test_input=x
-            (self.imp).sample()
-            if full_layer==True:
-                mean_pred_oneN=[]
-                variance_pred_oneN=[]
+            overall_global_test_input = x
+            self.imp.sample()
+            if full_layer:
+                mean_pred_oneN = []
+                variance_pred_oneN = []
             for l in range(self.n_layer):
-                layer=self.all_layer[l]
-                n_kerenl=len(layer)
-                overall_test_output_mean=np.empty((M,n_kerenl))
-                overall_test_output_var=np.empty((M,n_kerenl))
-                if l==0:
+                layer = self.all_layer[l]
+                n_kerenl = len(layer)
+                overall_test_output_mean = np.empty((M, n_kerenl))
+                overall_test_output_var = np.empty((M, n_kerenl))
+                if l == 0:
                     for k in range(n_kerenl):
-                        kernel=layer[k]
-                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=None)
-                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                        kernel = layer[k]
+                        m_k, v_k = kernel.gp_prediction(x=overall_global_test_input[:, kernel.input_dim], z=None)
+                        overall_test_output_mean[:, k], overall_test_output_var[:, k] = m_k, v_k
                 else:
                     for k in range(n_kerenl):
-                        kernel=layer[k]
-                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
-                        if np.any(kernel.connect!=None):
-                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        kernel = layer[k]
+                        m_k_in, v_k_in = overall_test_input_mean[:, kernel.input_dim], overall_test_input_var[:,
+                                                                                       kernel.input_dim]
+                        if np.any(kernel.connect is not None):
+                            z_k_in = overall_global_test_input[:, kernel.connect]
                         else:
-                            z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
-                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
-                overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-                if full_layer==True:
+                            z_k_in = None
+                        m_k, v_k = kernel.linkgp_prediction(m=m_k_in, v=v_k_in, z=z_k_in)
+                        overall_test_output_mean[:, k], overall_test_output_var[:, k] = m_k, v_k
+                overall_test_input_mean, overall_test_input_var = overall_test_output_mean, overall_test_output_var
+                if full_layer:
                     mean_pred_oneN.append(overall_test_input_mean)
                     variance_pred_oneN.append(overall_test_input_var)
-            if full_layer==True:
+            if full_layer:
                 mean_pred.append(mean_pred_oneN)
                 variance_pred.append(variance_pred_oneN)
             else:
                 mean_pred.append(overall_test_input_mean)
                 variance_pred.append(overall_test_input_var)
-        if method=='sampling':
-            if full_layer==True:
-                mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
-                var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
-                samples=[]
+        if method == 'sampling':
+            if full_layer:
+                mu_layerwise = [list(mean_n) for mean_n in zip(*mean_pred)]
+                var_layerwise = [list(var_n) for var_n in zip(*variance_pred)]
+                samples = []
                 for l in range(self.n_layer):
-                    samples_layerwise=[]
+                    samples_layerwise = []
                     for mu, sigma2 in zip(mu_layerwise[l], var_layerwise[l]):
-                        realisation=np.random.normal(mu,np.sqrt(sigma2))
+                        realisation = np.random.normal(mu, np.sqrt(sigma2))
                         samples_layerwise.append(realisation)
-                    samples_layerwise=np.asarray(samples_layerwise).transpose(2,1,0)
+                    samples_layerwise = np.asarray(samples_layerwise).transpose(2, 1, 0)
                     samples.append(list(samples_layerwise))
             else:
-                samples=[]
+                samples = []
                 for mu, sigma2 in zip(mean_pred, variance_pred):
-                    realisation=np.random.normal(mu,np.sqrt(sigma2))
+                    realisation = np.random.normal(mu, np.sqrt(sigma2))
                     samples.append(realisation)
-                samples=list(np.asarray(samples).transpose(2,1,0))
+                samples = list(np.asarray(samples).transpose(2, 1, 0))
             return samples
-        elif method=='mean_var':
-            if full_layer==True:
-                mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
-                var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
-                mu=[np.mean(mu_l,axis=0) for mu_l in mu_layerwise]
-                mu2_mean=[np.mean(np.square(mu_l),axis=0) for mu_l in mu_layerwise]
-                var_mean=[np.mean(var_l,axis=0) for var_l in var_layerwise]
-                sigma2=[i+j-k**2 for i,j,k in zip(mu2_mean,var_mean,mu)]
+        elif method == 'mean_var':
+            if full_layer:
+                mu_layerwise = [list(mean_n) for mean_n in zip(*mean_pred)]
+                var_layerwise = [list(var_n) for var_n in zip(*variance_pred)]
+                mu = [np.mean(mu_l, axis=0) for mu_l in mu_layerwise]
+                mu2_mean = [np.mean(np.square(mu_l), axis=0) for mu_l in mu_layerwise]
+                var_mean = [np.mean(var_l, axis=0) for var_l in var_layerwise]
+                sigma2 = [i + j - k ** 2 for i, j, k in zip(mu2_mean, var_mean, mu)]
             else:
-                mu=np.mean(mean_pred,axis=0)
-                sigma2=np.mean((np.square(mean_pred)+variance_pred),axis=0)-mu**2
+                mu = np.mean(mean_pred, axis=0)
+                sigma2 = np.mean((np.square(mean_pred) + variance_pred), axis=0) - mu ** 2
             return mu, sigma2

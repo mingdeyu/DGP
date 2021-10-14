@@ -1,6 +1,10 @@
-import numpy as np
-from tqdm import trange, tqdm
 import copy
+
+import numpy as np
+from tqdm import trange
+
+__all__ = ["lgp"]
+
 
 class lgp:
     """
@@ -25,42 +29,45 @@ class lgp:
     """
 
     def __init__(self, X, Y, all_layer, Z=None):
-        self.X=X
-        self.Y=Y
-        self.all_layer=all_layer
-        self.Z=Z
-        self.n_layer=len(all_layer)
+        self.X = X
+        self.Y = Y
+        self.all_layer = all_layer
+        self.Z = Z
+        self.n_layer = len(all_layer)
         self.initialize()
 
     def initialize(self):
         """Assign input/output data to all_layer attribute for training.
         """
         for l in range(self.n_layer):
-            layer=self.all_layer[l]
-            num_kernel=len(layer)
+            layer = self.all_layer[l]
+            num_kernel = len(layer)
             for k in range(num_kernel):
-                kernel=layer[k]
-                kernel.input=copy.deepcopy(self.X[l][k])
-                if self.Z!=None:
-                    kernel.global_input=copy.deepcopy(self.Z[l][k])
-                kernel.output=copy.deepcopy(self.Y[l][k])
+                kernel = layer[k]
+                kernel.input = copy.deepcopy(self.X[l][k])
+                if self.Z != None:
+                    kernel.global_input = copy.deepcopy(self.Z[l][k])
+                kernel.output = copy.deepcopy(self.Y[l][k])
 
-    def train(self, disable=False):
+        # Allow method chaining
+        return self
+
+    def train(self, disable: bool = False) -> None:
         """Train the linked GP model.
 
         Args:
             disable (bool, optional): whether to disable the training progress bar. 
                 Defaults to False.
         """
-        pgb=trange(1,self.n_layer+1,disable=disable)
+        pgb = trange(1, self.n_layer + 1, disable=disable)
         for l in pgb:
-            i=1
-            for kernel in self.all_layer[l-1]:
+            i = 1
+            for kernel in self.all_layer[l - 1]:
                 kernel.maximise()
-                pgb.set_description('Layer %i: Node %i' % (l,i))
-                i+=1
+                pgb.set_description('Layer %i: Node %i' % (l, i))
+                i += 1
 
-    def predict(self,x,z=None,full_layer=False):
+    def predict(self, x: np.ndarray, z=None, full_layer: bool = False):
         """Implement predictions from the trained linked GP model.
 
         Args:
@@ -87,40 +94,40 @@ class lgp:
                         numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns 
                         corresponding to output dimensions (i.e., GP nodes from the associated layer).
         """
-        M=len(x)
-        overall_global_test_input=x
-        if full_layer==True:
-            mu=[]
-            sigma2=[]
+        M = len(x)
+        overall_global_test_input = x
+        if full_layer:
+            mu = []
+            sigma2 = []
         for l in range(self.n_layer):
-            layer=self.all_layer[l]
-            n_kerenl=len(layer)
-            overall_test_output_mean=np.empty((M,n_kerenl))
-            overall_test_output_var=np.empty((M,n_kerenl))
-            if l==0:
+            layer = self.all_layer[l]
+            n_kerenl = len(layer)
+            overall_test_output_mean = np.empty((M, n_kerenl))
+            overall_test_output_var = np.empty((M, n_kerenl))
+            if l == 0:
                 for k in range(n_kerenl):
-                    kernel=layer[k]
-                    if z==None:
-                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=None)
+                    kernel = layer[k]
+                    if z is None:
+                        m_k, v_k = kernel.gp_prediction(x=overall_global_test_input[:, kernel.input_dim], z=None)
                     else:
-                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z[l][k])
-                    overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                        m_k, v_k = kernel.gp_prediction(x=overall_global_test_input[:, kernel.input_dim], z=z[l][k])
+                    overall_test_output_mean[:, k], overall_test_output_var[:, k] = m_k, v_k
             else:
                 for k in range(n_kerenl):
-                    kernel=layer[k]
-                    m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
-                    if z==None:
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=None)
+                    kernel = layer[k]
+                    m_k_in, v_k_in = overall_test_input_mean[:, kernel.input_dim], overall_test_input_var[:,
+                                                                                   kernel.input_dim]
+                    if z is None:
+                        m_k, v_k = kernel.linkgp_prediction(m=m_k_in, v=v_k_in, z=None)
                     else:
-                        z_k_in=z[l][k]
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
-                    overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
-            overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-            if full_layer==True:
+                        z_k_in = z[l][k]
+                        m_k, v_k = kernel.linkgp_prediction(m=m_k_in, v=v_k_in, z=z_k_in)
+                    overall_test_output_mean[:, k], overall_test_output_var[:, k] = m_k, v_k
+            overall_test_input_mean, overall_test_input_var = overall_test_output_mean, overall_test_output_var
+            if full_layer:
                 mu.append(overall_test_input_mean)
                 sigma2.append(overall_test_input_var)
-        if full_layer==False:
-            mu=overall_test_input_mean
-            sigma2=overall_test_input_var
+        if not full_layer:
+            mu = overall_test_input_mean
+            sigma2 = overall_test_input_var
         return mu, sigma2
-
