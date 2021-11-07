@@ -1,6 +1,6 @@
 from numpy.random import uniform
 import numpy as np
-from .functions import log_likelihood_func, cmvn, fmvn, k_one_matrix, update_f
+from .functions import log_likelihood_func, cmvn, k_one_matrix, update_f
 import copy
 
 class imputer:
@@ -49,25 +49,41 @@ class imputer:
         x=target_kernel.input
         f=target_kernel.output[target_kernel.missingness,0]
         if np.all(target_kernel.missingness):
-            if np.any(target_kernel.connect!=None):
+            if target_kernel.connect is not None:
                 x=np.concatenate((x, target_kernel.global_input),1)
             mean = np.zeros(len(f))
             covariance=k_one_matrix(x,target_kernel.length,target_kernel.name)+target_kernel.nugget*np.identity(len(x))
             covariance=target_kernel.scale*covariance
-            # Choose the ellipse for this sampling iteration.
-            nu = np.random.default_rng().multivariate_normal(mean=mean,cov=covariance,check_valid='ignore')
         else:
             mean, covariance = cmvn(x,target_kernel.global_input,target_kernel.output,target_kernel.scale,target_kernel.length,target_kernel.nugget,target_kernel.name,target_kernel.missingness)
-            nu = np.random.default_rng().multivariate_normal(mean=mean,cov=covariance,check_valid='ignore')
+                  
+        if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+            idx=np.where(linked_upper_kernels[0].input_dim == k)[0]
+            if idx in linked_upper_kernels[0].exact_post_idx:
+                mask=target_kernel.missingness
+                f=linked_upper_kernels[0].posterior(idx=idx,mask=mask,m=mean,v=covariance)
+                linked_upper_kernels[0].last_layer_input[target_kernel.missingness,idx]=f
+                if linked_upper_kernels[0].rep is None:
+                    linked_upper_kernels[0].input=copy.deepcopy(linked_upper_kernels[0].last_layer_input[~linked_upper_kernels[0].missingness,:])
+                else:
+                    linked_upper_kernels[0].input=copy.deepcopy(linked_upper_kernels[0].last_layer_input[linked_upper_kernels[0].rep,:][~linked_upper_kernels[0].missingness,:])
+                target_kernel.output[target_kernel.missingness,0]=f
+                return
+
+        # Choose the ellipse for this sampling iteration.
+        nu = np.random.default_rng().multivariate_normal(mean=mean,cov=covariance,check_valid='ignore')                       
         # Set the candidate acceptance threshold.
         log_y=0
         for linked_kernel in linked_upper_kernels:
-            w=linked_kernel.input
-            y=(linked_kernel.output).flatten()
-            if np.any(linked_kernel.connect!=None):
-                w=np.concatenate((w, linked_kernel.global_input),1)       
-            cov_w=k_one_matrix(w,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(w))
-            log_y += log_likelihood_func(y,cov_w,linked_kernel.scale)
+            if linked_kernel.type=='gp':
+                w=linked_kernel.input
+                y=(linked_kernel.output).flatten()
+                if linked_kernel.connect is not None:
+                    w=np.concatenate((w, linked_kernel.global_input),1)       
+                cov_w=k_one_matrix(w,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(w))
+                log_y += log_likelihood_func(y,cov_w,linked_kernel.scale)
+            elif linked_kernel.type=='likelihood': 
+                log_y += linked_kernel.llik()
         log_y += np.log(uniform())
         # Set the bracket for selecting candidates on the ellipse.
         theta = np.random.uniform(0., 2.*np.pi)
@@ -81,17 +97,23 @@ class imputer:
             fp = update_f(f,nu,theta,mean)
             log_yp=0
             for linked_kernel in linked_upper_kernels:
-                if last_layer==True:
+                if last_layer:
                     linked_kernel.last_layer_input[target_kernel.missingness,linked_kernel.input_dim==k]=fp
-                    linked_kernel.input=copy.deepcopy(linked_kernel.last_layer_input[~linked_kernel.missingness,:])
+                    if linked_kernel.rep is None:
+                        linked_kernel.input=copy.deepcopy(linked_kernel.last_layer_input[~linked_kernel.missingness,:])
+                    else:
+                        linked_kernel.input=copy.deepcopy(linked_kernel.last_layer_input[linked_kernel.rep,:][~linked_kernel.missingness,:])
                 else: 
                     linked_kernel.input[target_kernel.missingness,linked_kernel.input_dim==k]=fp
-                wp=linked_kernel.input
-                y=(linked_kernel.output).flatten()
-                if np.any(linked_kernel.connect!=None):
-                    wp=np.concatenate((wp,linked_kernel.global_input),1)
-                cov_wp=k_one_matrix(wp,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(wp))
-                log_yp += log_likelihood_func(y,cov_wp,linked_kernel.scale)
+                if linked_kernel.type=='gp':
+                    wp=linked_kernel.input
+                    y=(linked_kernel.output).flatten()
+                    if linked_kernel.connect is not None:
+                        wp=np.concatenate((wp,linked_kernel.global_input),1)
+                    cov_wp=k_one_matrix(wp,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(wp))
+                    log_yp += log_likelihood_func(y,cov_wp,linked_kernel.scale)
+                elif linked_kernel.type=='likelihood': 
+                    log_yp += linked_kernel.llik()
             if log_yp > log_y:
                 target_kernel.output[target_kernel.missingness,0]=fp
                 return

@@ -24,6 +24,8 @@ class dgp:
         all_layer (list): a list contains L (the number of layers) sub-lists, each of which contains 
             the GPs defined by the kernel class in that layer. The sub-lists are placed in the list 
             in the same order of the specified DGP model.
+        check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
+            position has multiple outputs. Defaults to True.
 
     Remark:
         This class is used for general DGP structures, which at least have some portions of internal I/O
@@ -45,9 +47,21 @@ class dgp:
         >>>all_layer=combine(layer1,layer2,layer3)       
     """
 
-    def __init__(self, X, Y, all_layer):
-        self.X=X
+    def __init__(self, X, Y, all_layer, check_rep=True):
         self.Y=Y
+        self.indices=None
+        if check_rep:
+            X0, indices = np.unique(X, return_inverse=True,axis=0)
+            if len(X0) != len(X):
+                if len(self.Y)!=1:
+                    self.X=X
+                else:
+                    self.X = X0.reshape(-1,1)
+                    self.indices=indices
+            else:  
+                self.X=X
+        else:
+            self.X=X
         self.n_layer=len(all_layer)
         self.all_layer=all_layer
         self.initialize()
@@ -70,64 +84,80 @@ class dgp:
         for l in range(self.n_layer):
             layer=self.all_layer[l]
             num_kernel=len(layer)
-            if np.shape(In)[1]==num_kernel:
-                Out=In
-            elif np.shape(In)[1]>num_kernel:
-                pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
-                Out=pca.fit_transform(In)
-            else:
-                Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
-            Out=copy.deepcopy(Out)
+            if l!=self.n_layer-1:
+                if np.shape(In)[1]==num_kernel:
+                    Out=In
+                elif np.shape(In)[1]>num_kernel:
+                    pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
+                    Out=pca.fit_transform(In)
+                else:
+                    Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
+                Out=copy.deepcopy(Out)
             for k in range(num_kernel):
                 kernel=layer[k]
                 kernel.missingness=copy.deepcopy(np.isnan(self.Y[l][:,k]))
-                if np.any(kernel.input_dim!=None):
+                if l==self.n_layer-1 and self.indices is not None:
+                    kernel.rep=self.indices
+                if kernel.input_dim is not None:
                     if l==self.n_layer-1:
                         kernel.last_layer_input=copy.deepcopy(In[:,kernel.input_dim])
-                        kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                        if kernel.rep is None:
+                            kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                        else:
+                            kernel.input=copy.deepcopy(kernel.last_layer_input[kernel.rep,:][~kernel.missingness,:])
                     else:
                         kernel.input=copy.deepcopy(In[:,kernel.input_dim])
                 else:
                     if l==self.n_layer-1:
                         kernel.last_layer_input=copy.deepcopy(In)
-                        kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                        if kernel.rep is None:
+                            kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                        else:
+                            kernel.input=copy.deepcopy(kernel.last_layer_input[kernel.rep,:][~kernel.missingness,:])
                         kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
                     else:
                         kernel.input=copy.deepcopy(In)
                         kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
-                if np.any(kernel.connect!=None):
-                    if l==self.n_layer-1:
-                        kernel.last_layer_global_input=copy.deepcopy(global_in[:,kernel.connect])
-                        kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[~kernel.missingness,:])
-                    else:
-                        kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                if kernel.type=='gp':
+                    if kernel.connect is not None:
+                        if l==self.n_layer-1:
+                            kernel.last_layer_global_input=copy.deepcopy(global_in[:,kernel.connect])
+                            if kernel.rep is None:
+                                kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[~kernel.missingness,:])
+                            else:
+                                kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[kernel.rep,:][~kernel.missingness,:])
+                        else:
+                            kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
                 if not np.all(kernel.missingness):
                     if np.any(kernel.missingness):
+                        if kernel.type=='likelihood':
+                            print('The output of a likelihood node has to be fully observed. The training output of %i-th likelihood node in the final layer is partially missing.' % (k+1))
+                            return
                         if l==self.n_layer-1:
-                            m,v=cmvn(kernel.last_layer_input,kernel.last_layer_global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
+                            samp=copy.deepcopy(self.Y[l][:,[k]])
+                            kernel.output=copy.deepcopy(samp[~kernel.missingness,:])
+                            #Out[~kernel.missingness,[k]]=copy.deepcopy(samp[~kernel.missingness,:].flatten())
                         else:
                             m,v=cmvn(kernel.input,kernel.global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
-                        samp=copy.deepcopy(self.Y[l][:,[k]])
-                        samp[kernel.missingness,0]=np.random.default_rng().multivariate_normal(mean=m,cov=v,check_valid='ignore')
-                        if l==self.n_layer-1:
-                            kernel.output=copy.deepcopy(samp[~kernel.missingness,:])
-                        else:
+                            samp=copy.deepcopy(self.Y[l][:,[k]])
+                            samp[kernel.missingness,0]=np.random.default_rng().multivariate_normal(mean=m,cov=v,check_valid='ignore')
                             kernel.output=copy.deepcopy(samp)
-                        Out[:,[k]]=samp
+                            Out[:,[k]]=samp
                     else:
                         kernel.output=copy.deepcopy(self.Y[l][:,[k]])
-                        Out[:,[k]]=self.Y[l][:,[k]]      
+                        if l!=self.n_layer-1:
+                            Out[:,[k]]=self.Y[l][:,[k]]      
                 else:
+                    if kernel.type=='likelihood':
+                        print('The output of a likelihood node has to be fully observed. The training output of %i-th likelihood node in the final layer is missing.' % (k+1))
+                        return
+                    if l==self.n_layer-1:
+                        print('The output of GP nodes in the final layer cannot be completely missing. The training output of %i-th node in the final layer is fully missing.' % (k+1))
+                        return
                     kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
-            In=copy.deepcopy(Out)
-        k=0
-        for kernel in self.all_layer[-1]:
-            if np.all(kernel.missingness):
-                self.all_layer[-1].remove(kernel)
-                k+=1
-                print('The output dimension %i has no observations, the GP node %i in the last layer is deleted...' % (k,k))
-            k+=1
-
+            if l!=self.n_layer-1:
+                In=copy.deepcopy(Out)
+       
     def train(self, N=500, ess_burn=10, disable=False):
         """Train the DGP model.
 
@@ -145,7 +175,8 @@ class dgp:
             #M-step
             for l in range(self.n_layer):
                 for kernel in self.all_layer[l]:
-                    kernel.maximise()
+                    if kernel.type=='gp':
+                        kernel.maximise()
                 pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
         self.N += N
 
@@ -166,14 +197,15 @@ class dgp:
         final_struct=copy.deepcopy(self.all_layer)
         for l in range(len(final_struct)):
             for kernel in final_struct[l]:
-                point_est=np.mean(kernel.para_path[burnin:,:],axis=0)
-                kernel.scale=point_est[0]
-                kernel.length=point_est[1:-1]
-                kernel.nugget=point_est[-1]
+                if kernel.type=='gp':
+                    point_est=np.mean(kernel.para_path[burnin:,:],axis=0)
+                    kernel.scale=point_est[0]
+                    kernel.length=point_est[1:-1]
+                    kernel.nugget=point_est[-1]
         return final_struct
 
     def plot(self,layer_no,ker_no,width=4.,height=1.,ticksize=5.,labelsize=8.,hspace=0.1):
-        """Plot the traces of model paramters of a particular GP in the DGP hierarchy.
+        """Plot the traces of model paramters of a particular GP node in the DGP hierarchy.
 
         Args:
             layer_no (int): the index of the interested layer

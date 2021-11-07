@@ -3,7 +3,7 @@ import numpy as np
 from math import erf, exp, sqrt, pi
 from numpy.random import randn
 
-######functions for imputor########
+######functions for imputer########
 @jit(nopython=True,cache=True)
 def log_likelihood_func(y,cov,scale):
     """Compute Gaussian log-likelihood function.
@@ -54,6 +54,26 @@ def update_f(f,nu,theta,mean):
     """
     fp=(f-mean)*np.cos(theta) + (nu-mean)*np.sin(theta) + mean
     return fp
+
+@jit(nopython=True,cache=True)
+def post_het1(m,v,Gamma,y_mask):
+    """Calculate the conditional posterior mean and covariance of the mean 
+       of the heteroskedastic Gaussian likelihood when there are no repetitions
+       in the training data.
+    """
+    mu=m+np.sum(v*np.linalg.solve(Gamma+v,y_mask-m),axis=1)
+    cov=v@np.linalg.solve(Gamma+v,Gamma)
+    return mu, cov
+
+@jit(nopython=True,cache=True)
+def post_het2(m,v,Gamma,v_mask,V_mask,m_mask,y_mask):
+    """Calculate the conditional posterior mean and covariance of the mean 
+       of the heteroskedastic Gaussian likelihood when there are repetitions
+       in the training data.
+    """
+    mu=m+np.sum(v_mask.T*np.linalg.solve(Gamma+V_mask,y_mask-m_mask),axis=1)
+    cov=v-v_mask.T@np.linalg.solve(Gamma+V_mask,v_mask)
+    return mu, cov    
 
 ######Multivariate Gaussian sampling######
 @jit(nopython=True,cache=True)
@@ -183,7 +203,7 @@ def IJ(X,z_m,z_v,length,name):
         zX=zX.T.reshape((d,n,1))
         X=X.T.reshape((d,n,1))
         I=np.ones((n,1))
-        J=np.ones((n**2,1))
+        J=np.ones((n,n))
         for i in range(d):    
             if z_v[i]!=0:
                 I*=np.exp((5*z_v[i]-2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
@@ -192,16 +212,18 @@ def IJ(X,z_m,z_v,length,name):
                    np.exp((5*z_v[i]+2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
                     ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
                     (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muB[i]**2/z_v[i]))
-                X1_rep=np.ones((1,n))*X[i]
-                X1_vec=X1_rep.reshape((n**2,1))
-                X2_rep=np.ones((n,1))*X[i].T
-                X2_vec=X2_rep.reshape((n**2,1))
-                J*=Jd(X1_vec,X2_vec,z_m[i],z_v[i],length[i])
+                for k in range(n):
+                    for l in range(k+1):
+                        J_lk=Jd(X[i][l][0],X[i][k][0],z_m[i],z_v[i],length[i])
+                        if l==k:
+                           J[l,k]*=J_lk
+                        else:
+                           J[l,k]*=J_lk
+                           J[k,l]*=J_lk
             else:
                 Id=(1+sqrt(5)*np.abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*np.exp(-sqrt(5)*np.abs(zX[i])/length[i])
                 I*=Id
-                J*=np.dot(Id,Id.T).reshape((n**2,1))
-        J=J.reshape((n,n))
+                J*=np.dot(Id,Id.T)
     return I,J
 
 @vectorize([float64(float64)],nopython=True,cache=True)
@@ -210,7 +232,7 @@ def pnorm(x):
     """
     return 0.5*(1+erf(x/sqrt(2)))    
 
-@vectorize([float64(float64,float64,float64,float64,float64)],nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def Jd(X1,X2,z_m,z_v,length):
     """Compute J components in different input dimensions for Matern2.5 kernel.
     """

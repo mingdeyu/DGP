@@ -20,7 +20,7 @@ class kernel:
                 'matern2.5' for Matern2.5 kernel. Defaults to 'sexp'.
             prior_name (str, optional): prior class. Either gamma ('ga') or inverse gamma ('inv_ga') distribution for 
                 the lengthscales and nugget term. Set None to disable the prior. Defaults to 'ga'.
-            prior_ceff (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
+            prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
                 parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to np.array([1.6,0.3]).
             nugget_est (int, optional): set to 1 to estimate nugget term or to 0 to fix the nugget term as specified
                 by the argument 'nugget'. If set to 1, the value set to the argument 'nugget' is used as the initial
@@ -37,6 +37,7 @@ class kernel:
                 connection is implemented. Defaults to None.
 
         Attributes:
+            type (str): identifies that the kernel is a GP.
             g (function): a function giving the log probability density function of gamma or inverse gamma distribution 
                 ignoring the constant part.
             gfod (function): a function giving the first order derivative of g with respect to the log-transformed 
@@ -63,6 +64,9 @@ class kernel:
             missingness (ndarray): a numpy 1d-array of bool that indicates the missingness in the output attributes.
                 If a cell is True, then the corresponding cell in the output attribute needs to be imputed. The value 
                 of this attribute is assigned during the initialisation of 'dgp' class. 
+            rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions 
+                in the global input, i.e., rep is assigned during the initialisation of 'dgp' class if one input position 
+                has multiple outputs. Otherwise, it is None. Defaults to None. 
 
         Remarks:
         For linked GP inference, when creating kernel classes for GP nodes in each layer, 
@@ -82,6 +86,7 @@ class kernel:
         """
 
     def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=0, scale_est=0, input_dim=None, connect=None):
+        self.type='gp'
         self.length=length
         self.scale=np.atleast_1d(scale)
         self.nugget=np.atleast_1d(nugget)
@@ -105,6 +110,7 @@ class kernel:
         self.input=None
         self.output=None
         self.missingness=None
+        self.rep=None
 
     def log_t(self):
         """Log transform the model paramters (lengthscales and nugget).
@@ -144,7 +150,7 @@ class kernel:
             ndarray: a numpy 2d-array as the correlation matrix.
         """
         n=len(self.input)
-        if np.any(self.global_input!=None):
+        if self.global_input is not None:
             X=np.concatenate((self.input, self.global_input),1)
         else:
             X=self.input
@@ -170,7 +176,7 @@ class kernel:
                 of model parameters (i.e., the total number of lengthscales and nugget). 
         """
         n=len(self.input)
-        if np.any(self.global_input!=None):
+        if self.global_input is not None:
             X=np.concatenate((self.input, self.global_input),1)
         else:
             X=self.input
@@ -242,7 +248,7 @@ class kernel:
             scale=YKinvY/n
             neg_llik=0.5*(logdet+n*np.log(scale))
         else:
-            neg_llik=0.5*(logdet+YKinvY) 
+            neg_llik=0.5*(logdet+YKinvY/self.scale) 
         neg_llik=neg_llik.flatten()
         if self.prior_name!=None:
             neg_llik=neg_llik-self.log_prior()
@@ -275,7 +281,7 @@ class kernel:
             scale=(YKinvY/n).flatten()
             neg_St=-P1-P2/scale
         else:
-            neg_St=-P1-P2
+            neg_St=-P1-P2/self.scale
         if self.prior_name!=None:
             neg_St=neg_St-self.log_prior_fod()
         return neg_St

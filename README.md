@@ -9,9 +9,10 @@ The package `dgpsi` implements inference of both deep and linked Gaussian proces
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
+    - **(New feature)** non-Gaussian likelihoods (Poisson, Negative-Binomial, heteroskedastic Gaussian, and more to come);
 * Linked emulation of feed-forward systems of computer models:
-    - linking GP emulators of individual computer models;
-    - linking GP and DGP emulators of individual computer models;
+    - linking GP emulators of deterministic individual computer models;
+    - linking GP and DGP emulators of deterministic individual computer models;
 * More features coming soon.
 
 Please see [demo](demo/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
@@ -24,6 +25,10 @@ pip install .
 ```
 
 to install the code and its required dependencies.
+
+## Some tips
+* Since SI is a stochastic inference, in case of unsatisfactory results, you may want to try to restart the training multiple times even with initial values of hyperparameters unchanged;
+* The recommend DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns).
 
 ## Built with
 The package is built under `Python 3.7.3` with following packages:
