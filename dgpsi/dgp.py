@@ -56,7 +56,7 @@ class dgp:
                 if len(self.Y)!=1:
                     self.X=X
                 else:
-                    self.X = X0.reshape(-1,1)
+                    self.X = X0
                     self.indices=indices
             else:  
                 self.X=X
