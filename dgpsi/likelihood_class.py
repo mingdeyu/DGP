@@ -26,6 +26,7 @@ class Poisson:
     """
     def __init__(self, input_dim=None):
         self.type='likelihood'
+        self.name='Poisson'
         self.input=None
         self.output=None
         self.input_dim=input_dim
@@ -75,6 +76,7 @@ class Poisson:
 class Hetero:
     def __init__(self, input_dim=None):
         self.type='likelihood'
+        self.name='Hetero'
         self.input=None
         self.output=None
         self.input_dim=input_dim
@@ -120,6 +122,7 @@ class Hetero:
 class NegBin:
     def __init__(self, input_dim=None):
         self.type='likelihood'
+        self.name='NegBin'
         self.input=None
         self.output=None
         self.input_dim=input_dim

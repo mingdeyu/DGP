@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import trange, tqdm
+from tqdm import trange
 import copy
 from .imputation import imputer
-from .functions import cmvn, fmvn
+from .functions import cmvn
 from sklearn.decomposition import KernelPCA
 
 class dgp:
@@ -100,6 +100,11 @@ class dgp:
                     kernel.rep=self.indices
                 if kernel.input_dim is not None:
                     if l==self.n_layer-1:
+                        if kernel.type=='likelihood':
+                            if kernel.name=='Poisson' and len(kernel.input_dim)!=1:
+                                raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
+                            elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
+                                raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
                         kernel.last_layer_input=copy.deepcopy(In[:,kernel.input_dim])
                         if kernel.rep is None:
                             kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
@@ -109,12 +114,17 @@ class dgp:
                         kernel.input=copy.deepcopy(In[:,kernel.input_dim])
                 else:
                     if l==self.n_layer-1:
+                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
+                        if kernel.type=='likelihood':
+                            if kernel.name=='Poisson' and len(kernel.input_dim)!=1:
+                                raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
+                            elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
+                                raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
                         kernel.last_layer_input=copy.deepcopy(In)
                         if kernel.rep is None:
                             kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
                         else:
                             kernel.input=copy.deepcopy(kernel.last_layer_input[kernel.rep,:][~kernel.missingness,:])
-                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
                     else:
                         kernel.input=copy.deepcopy(In)
                         kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
@@ -149,11 +159,9 @@ class dgp:
                             Out[:,[k]]=self.Y[l][:,[k]]      
                 else:
                     if kernel.type=='likelihood':
-                        print('The output of a likelihood node has to be fully observed. The training output of %i-th likelihood node in the final layer is missing.' % (k+1))
-                        return
+                        raise Exception('The output of a likelihood node has to be fully observed. The training output of %i-th likelihood node in the final layer is missing.' % (k+1))
                     if l==self.n_layer-1:
-                        print('The output of GP nodes in the final layer cannot be completely missing. The training output of %i-th node in the final layer is fully missing.' % (k+1))
-                        return
+                        raise Exception('The output of GP nodes in the final layer cannot be completely missing. The training output of %i-th node in the final layer is fully missing.' % (k+1))
                     kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
             if l!=self.n_layer-1:
                 In=copy.deepcopy(Out)
