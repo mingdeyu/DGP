@@ -1,6 +1,7 @@
 import numpy as np
 from .imputation import imputer
 import copy
+from .functions import ghdiag
 
 class emulator:
     """Class to make predictions from the trained DGP or DGP+likelihood model.
@@ -172,3 +173,56 @@ class emulator:
                 mu=np.mean(likelihood_mean,axis=0)
                 sigma2=np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-mu**2
             return mu, sigma2
+
+    def nllik(self,x,y):
+        """Compute the negative predicted log-likelihood from the trained DGP model with likelihood layer.
+
+        Args:
+            x (ndarray): a numpy 2d-array where each row is an input testing data point and 
+                each column is an input dimension.
+            y (ndarray): a numpy 2d-array where each row is a scalar-valued testing output data point.
+
+        Returns:
+            tuple: a tuple of two 1d-arrays. The first one is the average negative predicted log-likelihood across
+                   all testing data points. The second ones is the negative predicted log-likelihood for each testing data point.
+        """
+        if len(self.all_layer[-1])!=1:
+            raise Exception('The method is only applicable to DGP with the final layer formed by only ONE node, which must be a likelihood node.')
+        else:
+            if self.all_layer[-1][0].type!='likelihood':
+                raise Exception('The method is only applicable to DGP with the final layer formed by only ONE likelihood node, which must be a likelihood node.')
+        M=len(x)
+        #start predictions
+        predicted_lik=[]
+        for s in range(len(self.all_layer_set)):
+            overall_global_test_input=x
+            one_imputed_all_layer=self.all_layer_set[s]
+            for l in range(self.n_layer-1):
+                layer=one_imputed_all_layer[l]
+                n_kerenl=len(layer)
+                overall_test_output_mean=np.empty((M,n_kerenl))
+                overall_test_output_var=np.empty((M,n_kerenl))
+                if l==0:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=None)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+                else:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+            predicted_lik.append(ghdiag(one_imputed_all_layer[-1][0].pllik,overall_test_input_mean,overall_test_input_var,y))
+        nllik=-np.log(np.mean(predicted_lik,axis=0)).flatten()
+        average_nllik=np.mean(nllik)
+        return average_nllik, nllik
+
+        
+      

@@ -44,6 +44,21 @@ class Poisson:
         llik=self.output*self.input-np.exp(self.input)-loggamma(self.output+1)
         llik=np.sum(llik)
         return llik
+    
+    @staticmethod
+    def pllik(y,f):
+        """The predicted log-likelihood function of Poisson distribution.
+
+        Args:
+            y (ndarray): a numpy 3d-array of output data with shape (N,1,1), where N is the number of output data points.
+            f (ndarray): a numpy 3d-array of sample points with shape (N,S,Q), where S is the number of sample points and 
+                         Q is the number of parameters in the distribution (e.g., Q=1 for Poisson distribution).
+
+        Returns:
+            ndarray: a numpy 3d-array of log-likelihood for given f.
+        """
+        pllik=y*f-np.exp(f)-loggamma(y+1)
+        return pllik
         
     def prediction(self,m,v):
         """Compute mean and variance of the DGP+Poisson model given the predictive
@@ -90,6 +105,12 @@ class Hetero:
         llik=-0.5*(np.log(2*np.pi*var)+((self.output).flatten()-mu)**2/var)
         llik=np.sum(llik)
         return llik
+
+    @staticmethod
+    def pllik(y,f):
+        mu,var=f[:,:,[0]],np.exp(f[:,:,[1]])
+        pllik=-0.5*(np.log(2*np.pi*var)+(y-mu)**2/var)
+        return pllik
         
     def prediction(self,m,v):
         y_mean=m[:,0]
@@ -136,6 +157,12 @@ class NegBin:
         llik=loggamma(y+1/sigma)-loggamma(1/sigma)-loggamma(y+1)+y*np.log(sigma*mu)-(y+1/sigma)*np.log(1+sigma*mu)
         llik=np.sum(llik)
         return llik
+
+    @staticmethod
+    def pllik(y,f):
+        mu,sigma=np.exp(f[:,:,[0]]),np.exp(f[:,:,[1]])
+        pllik=loggamma(y+1/sigma)-loggamma(1/sigma)-loggamma(y+1)+y*np.log(sigma*mu)-(y+1/sigma)*np.log(1+sigma*mu)
+        return pllik
     
     def prediction(self,m,v):
         y_mean=np.exp(m[:,0]+v[:,0]/2)

@@ -2,6 +2,7 @@ from numba import jit, vectorize, float64
 import numpy as np
 from math import erf, exp, sqrt, pi
 from numpy.random import randn
+import itertools
 
 ######functions for imputer########
 @jit(nopython=True,cache=True)
@@ -74,6 +75,17 @@ def post_het2(m,v,Gamma,v_mask,V_mask,m_mask,y_mask):
     mu=m+np.sum(v_mask.T*np.linalg.solve(Gamma+V_mask,y_mask-m_mask),axis=1)
     cov=v-v_mask.T@np.linalg.solve(Gamma+V_mask,v_mask)
     return mu, cov    
+
+######Gauss-Hermite quadrature######
+def ghdiag(fct,mu,var,y):
+    x, w = np.polynomial.hermite.hermgauss(10)
+    N = np.shape(mu)[1]
+    const = np.pi**(-0.5*N)
+    xn = np.array(list(itertools.product(*(x,)*N)))
+    wn = np.prod(np.array(list(itertools.product(*(w,)*N))), 1)[:, None]
+    fn = sqrt(2.0)*(np.sqrt(var[:,None])*xn) + mu[:,None]
+    llik=fct(y[:,None],fn)
+    return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
 
 ######Multivariate Gaussian sampling######
 @jit(nopython=True,cache=True)
@@ -216,10 +228,10 @@ def IJ(X,z_m,z_v,length,name):
                     for l in range(k+1):
                         J_lk=Jd(X[i][l][0],X[i][k][0],z_m[i],z_v[i],length[i])
                         if l==k:
-                           J[l,k]*=J_lk
+                            J[l,k]*=J_lk
                         else:
-                           J[l,k]*=J_lk
-                           J[k,l]*=J_lk
+                            J[l,k]*=J_lk
+                            J[k,l]*=J_lk
             else:
                 Id=(1+sqrt(5)*np.abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*np.exp(-sqrt(5)*np.abs(zX[i])/length[i])
                 I*=Id
