@@ -31,7 +31,8 @@ class emulator:
             method (str, optional): the prediction approach: mean-variance ('mean_var') or sampling 
                 ('sampling') approach. Defaults to 'mean_var'.
             full_layer (bool, optional): whether to output the predictions of all layers. Defaults to False.
-            sample_size (int, optional): the number of samples to draw for each given imputation. Defaults to 50.
+            sample_size (int, optional): the number of samples to draw for each given imputation in 'sampling' method.
+                 Defaults to 50.
             
         Returns:
             Union[tuple, list]: if the argument method='mean_var', a tuple is returned:
@@ -45,13 +46,14 @@ class emulator:
                         it may be the number of the likelihood nodes).
                 if the argument method='sampling', a list is returned:
                     1. If full_layer=False, the list contains D (i.e., the number of GP/likelihood nodes in the final layer) numpy 
-                        2d-arrays. Each array has its rows corresponding to testing positions and columns corresponding to
-                        N imputations * sample_size;
+                        2d-arrays. Each array has its rows corresponding to testing positions and columns corresponding to samples of
+                        size 'N' imputations * 'sample_size';
                     2. If full_layer=True, the list contains L (i.e., the number of layers) sub-lists. Each sub-list 
                         represents the samples draw from the GPs/likelihoods in the corresponding layers, and contains 
                         D (i.e., the number of GP nodes in the corresponding layer or likelihood nodes in the final layer) 
                         numpy 2d-arrays. Each array gives samples of the output from one of D GPs/likelihoods at the 
-                        testing positions, and has its rows corresponding to testing positions and columns corresponding to N imputations * sample_size.
+                        testing positions, and has its rows corresponding to testing positions and columns corresponding to samples
+                        of size 'N' imputations * 'sample_size'.
         """
         M=len(x)
         if method=='mean_var':
@@ -64,7 +66,7 @@ class emulator:
         for s in range(len(self.all_layer_set)):
             overall_global_test_input=x
             one_imputed_all_layer=self.all_layer_set[s]
-            if full_layer==True:
+            if full_layer:
                 mean_pred_oneN=[]
                 variance_pred_oneN=[]
             for l in range(self.n_layer):
@@ -79,10 +81,14 @@ class emulator:
                 if l==0:
                     for k in range(n_kerenl):
                         kernel=layer[k]
-                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=None)
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-                    if full_layer==True:
+                    if full_layer:
                         mean_pred_oneN.append(overall_test_input_mean)
                         variance_pred_oneN.append(overall_test_input_var)
                 elif l==self.n_layer-1:
@@ -110,11 +116,11 @@ class emulator:
                         m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-                    if full_layer==True:
+                    if full_layer:
                         mean_pred_oneN.append(overall_test_input_mean)
                         variance_pred_oneN.append(overall_test_input_var)
             for _ in range(sample_size):
-                if full_layer==True:
+                if full_layer:
                     mean_pred.append(mean_pred_oneN)
                     variance_pred.append(variance_pred_oneN)
                 else:
@@ -123,7 +129,7 @@ class emulator:
                 likelihood_mean.append(likelihood_gp_mean)
                 likelihood_variance.append(likelihood_gp_var)
         if method=='sampling':
-            if full_layer==True:
+            if full_layer:
                 mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
                 var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
                 samples=[]
@@ -160,7 +166,7 @@ class emulator:
                 samples=list(np.asarray(samples).transpose(2,1,0))
             return samples
         elif method=='mean_var':
-            if full_layer==True:
+            if full_layer:
                 mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
                 var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
                 mu=[np.mean(mu_l,axis=0) for mu_l in mu_layerwise]
@@ -205,7 +211,11 @@ class emulator:
                 if l==0:
                     for k in range(n_kerenl):
                         kernel=layer[k]
-                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=None)
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
                 else:

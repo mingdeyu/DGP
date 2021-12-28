@@ -137,6 +137,8 @@ class dgp:
                             else:
                                 kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[kernel.rep,:][~kernel.missingness,:])
                         else:
+                            if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
+                                raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
                 if not np.all(kernel.missingness):
                     if np.any(kernel.missingness):

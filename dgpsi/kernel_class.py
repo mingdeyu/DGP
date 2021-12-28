@@ -22,11 +22,11 @@ class kernel:
                 the lengthscales and nugget term. Set None to disable the prior. Defaults to 'ga'.
             prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
                 parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to np.array([1.6,0.3]).
-            nugget_est (int, optional): set to 1 to estimate nugget term or to 0 to fix the nugget term as specified
+            nugget_est (int, optional): set to True to estimate nugget term or to False to fix the nugget term as specified
                 by the argument 'nugget'. If set to 1, the value set to the argument 'nugget' is used as the initial
-                value. Defaults to 0.
-            scale_est (int, optional): set to 1 to estimate the variance or to 0 to fix the variance as specified
-                by the argument 'scale'. Defaults to 0.
+                value. Defaults to False.
+            scale_est (int, optional): set to True to estimate the variance or to False to fix the variance as specified
+                by the argument 'scale'. Defaults to False.
             input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last layer
                    whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
                    feed into the GP. When set to None, all outputs from GPs of last layer (or all global input 
@@ -34,7 +34,11 @@ class kernel:
             connect (ndarray, optional): a numpy 1d-array that contains the indices of dimensions in the global
                 input connecting to the GP as additional input dimensions to the input obtained from the output of
                 GPs in the last layer (as determined by the argument 'input_dim'). When set to None, no global input
-                connection is implemented. Defaults to None.
+                connection is implemented. Defaults to None. When the kernel class is used in GP/DGP emulators for linked
+                emulation and some input dimensions to the computer models are not connected to some feeding computer models, 
+                set 'connect' to a 1d-arrray of indices of these external global input dimensions, and accordingly, set 
+                'input_dim' to a 1d-arrray of indices of the remaining input dimensions that are connected to the feeding 
+                computer models.                   
 
         Attributes:
             type (str): identifies that the kernel is a GP.
@@ -85,7 +89,7 @@ class kernel:
                 last layer, then one needs to assign np.arange(4) to the 'input_dim' argument explicitly.
         """
 
-    def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=0, scale_est=0, input_dim=None, connect=None):
+    def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=False, scale_est=False, input_dim=None, connect=None):
         self.type='gp'
         self.length=length
         self.scale=np.atleast_1d(scale)
@@ -118,7 +122,7 @@ class kernel:
         Returns:
             ndarray: a numpy 1d-array of log-transformed model paramters
         """
-        if self.nugget_est==1:
+        if self.nugget_est:
             log_theta=np.log(np.concatenate((self.length,self.nugget)))
         else:
             log_theta=np.log(self.length)
@@ -131,12 +135,12 @@ class kernel:
             log_theta (ndarray): optimised numpy 1d-array of log-transformed lengthscales and nugget.
         """
         theta=np.exp(log_theta)
-        if self.nugget_est==1:
+        if self.nugget_est:
             self.length=theta[0:-1]
             self.nugget=theta[[-1]]
         else:
             self.length=theta
-        if self.scale_est==1:
+        if self.scale_est:
             K=self.k_matrix()
             KinvY=np.linalg.solve(K,self.output)
             YKinvY=(self.output).T@KinvY
@@ -200,7 +204,7 @@ class kernel:
                 fod=5/3*np.sum(coefi,axis=0,keepdims=True)*K
             else:
                 fod=5/3*coefi*K
-        if self.nugget_est==1:
+        if self.nugget_est:
             nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)
             fod=np.concatenate((fod,nugget_fod),axis=0)
         return fod
@@ -212,7 +216,7 @@ class kernel:
             ndarray: a numpy 1d-array giving the sum of log priors of the lengthscales and nugget. 
         """
         lp=np.sum(self.g(self.length),keepdims=True)
-        if self.nugget_est==1:
+        if self.nugget_est:
             lp+=self.g(self.nugget)
         return lp
 
@@ -224,7 +228,7 @@ class kernel:
                 giving the first order derivatives of log priors wrt the log-tranformed lengthscales and nugget.
         """
         fod=self.gfod(self.length)
-        if self.nugget_est==1:
+        if self.nugget_est:
             fod=np.concatenate((fod,self.gfod(self.nugget)))
         return fod
 
@@ -244,7 +248,7 @@ class kernel:
         _,logdet=np.linalg.slogdet(K)
         KinvY=np.linalg.solve(K,self.output)
         YKinvY=(self.output).T@KinvY
-        if self.scale_est==1:
+        if self.scale_est:
             scale=YKinvY/n
             neg_llik=0.5*(logdet+n*np.log(scale))
         else:
@@ -276,7 +280,7 @@ class kernel:
         YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
         P1=-0.5*tr_KinvKt
         P2=0.5*YKinvKtKinvY
-        if self.scale_est==1:
+        if self.scale_est:
             YKinvY=(self.output).T@KinvY
             scale=(YKinvY/n).flatten()
             neg_St=-P1-P2/scale
@@ -293,7 +297,7 @@ class kernel:
             method (str, optional): optimisation algorithm. Defaults to 'L-BFGS-B'.
         """
         initial_theta_trans=self.log_t()
-        if self.nugget_est==1:
+        if self.nugget_est:
             lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
             ub=np.inf*np.ones(len(initial_theta_trans))
             bd=Bounds(lb, ub)
@@ -344,6 +348,33 @@ class kernel:
                 represented by predictive means and variances).
         """
         m,v=link_gp(m,v,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
+        return m,v
+
+    def linkgp_prediction_full(self,m,v,m_z,v_z,z):
+        """Make linked GP predictions with additional input also generated by GPs/DGPs. 
+
+        Args:
+            m (ndarray): a numpy 2d-array that contains predictive means of testing outputs from the GPs in the last 
+                layer. The number of rows equals to the number of testing positions and the number of columns equals to the 
+                length of the argument 'input_dim'. If the argument 'input_dim' is None, then the number of columns equals 
+                to the number of GPs in the last layer.
+            v (ndarray): a numpy 2d-array that contains predictive variances of testing outputs from the GPs in the last 
+                layer. It has the same shape of 'm'.
+            m_z (ndarray): a numpy 2d-array that contains predictive means of additional input testing data from GPs.
+            v_z (ndarray): a numpy 2d-array that contains predictive variances of additional input testing data from GPs.
+            z (ndarray): a numpy 2d-array that contains additional input testing data from the global testing input that are
+                not from GPs. Set to None if the argument 'connect' is None. 
+
+        Returns:
+            tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
+                represented by predictive means and variances).
+        """
+        m=np.concatenate((m,m_z),axis=1)
+        v=np.concatenate((v,v_z),axis=1)
+        idx1=np.arange(np.shape(m_z)[1])
+        idx2=np.arange(np.shape(m_z)[1],np.shape(self.global_input)[1])
+        overall_input=np.concatenate((self.input,self.global_input[:,idx1]),axis=1)
+        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.output,self.scale,self.length,self.nugget,self.name)
         return m,v
 
 def combine(*layers):
