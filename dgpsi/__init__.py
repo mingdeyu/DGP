@@ -5,4 +5,5 @@ from .kernel_class import kernel, combine
 from .likelihood_class import Poisson, Hetero, NegBin
 from .linkgp import container, lgp
 from .synthetic import path
+from .functions import write, read
 

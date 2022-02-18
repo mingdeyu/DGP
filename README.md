@@ -37,7 +37,8 @@ The package is built under `Python 3.7.3` with following packages:
 * `matplotlib 3.2.1`;
 * `tqdm 4.50.2`;
 * `scikit-learn 0.22.0`;
-* `scipy 1.4.1`.
+* `scipy 1.4.1`;
+* `dill 0.3.2`.
 
 ## Contact
 Please feel free to email me with any questions and feedbacks: 

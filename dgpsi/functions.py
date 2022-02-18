@@ -3,6 +3,34 @@ import numpy as np
 from math import erf, exp, sqrt, pi
 from numpy.random import randn
 import itertools
+from dill import dump, load
+
+######Save and Load Emulators#######
+def write(emu, pkl_file):
+    """Save the constructed emulator to a pkl file.
+    
+    Args:
+        emu (class): an emulator class. For GP, it is the 'gp' class after training. 
+            For DGP, it is the 'emulator' class. For linked GP/DGP, it is the 'lgp' class.
+        pkl_file (strings): specifies the path to and the name of the pkl file to which
+            the emulator is saved.
+    """
+    dump(emu, open(pkl_file+".pkl","wb"))
+
+
+def read(pkl_file):
+    """Load the pkl file that stores the emulator.
+    
+    Args:
+        pkl_file (strings): specifies the path to and the name of the pkl file where
+            the emulator is stored.
+    
+    Returns:
+        class: an emulator class. For GP, it is the 'gp' class. For DGP, it is the 'emulator' class. 
+            For linked GP/DGP, it is the 'lgp' class.
+    """
+    emu = load(open(pkl_file+".pkl", "rb"))
+    return emu
 
 ######functions for imputer########
 @jit(nopython=True,cache=True)
