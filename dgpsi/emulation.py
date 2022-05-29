@@ -1,4 +1,6 @@
 import numpy as np
+from pathos.multiprocessing import ProcessingPool as Pool
+import psutil   
 from .imputation import imputer
 import copy
 from .functions import ghdiag
@@ -20,7 +22,47 @@ class emulator:
         self.all_layer_set=[]
         for _ in range(N):
             (self.imp).sample()
+            (self.imp).key_stats()
             (self.all_layer_set).append(copy.deepcopy(self.all_layer))
+
+    def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
+        """Implement parallel predictions from the trained DGP model.
+
+        Args:
+            x, method, full_layer, sample_size: see descriptions of the method `predict`.
+            chunk_num (int, optional): the number of chunks that the testing input array 'x' will be divided into. 
+                Defaults to None. If not specified, the number of chunks will be determined by dividing the input
+                array into chunks with max 200 input positions. 
+            core_num (int, optional): the number of cores/workers to be used. Defaults to None. If not specified, 
+                the number of cores is set to (max physical cores available - 1).
+
+        Returns:
+            Same as the method `predict`.
+        """
+        if core_num==None:
+            core_num=psutil.cpu_count(logical = False)-1
+        if chunk_num==None:
+            chunk_num=int(np.ceil(len(x)/200))
+        f=lambda x: self.predict(*x) 
+        z=np.array_split(x,chunk_num)
+        with Pool(core_num) as pool:
+            res = pool.map(f, [[x, method, full_layer, sample_size] for x in z])
+        if method == 'mean_var':
+            if full_layer:
+                combined_res=[]
+                for layer in zip(*res):
+                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(layer))))
+                return tuple(combined_res)
+            else:
+                return tuple(np.concatenate(worker) for worker in zip(*res))
+        elif method == 'sampling':
+            if full_layer:
+                combined_res=[]
+                for layer in zip(*res):
+                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(layer))))
+                return combined_res
+            else:
+                return list(np.concatenate(worker) for worker in zip(*res))
 
     def predict(self,x,method='mean_var',full_layer=False,sample_size=50):
         """Implement predictions from the trained DGP model.

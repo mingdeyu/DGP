@@ -139,22 +139,33 @@ def cmvn(local_input,global_input,output,scale,length,nugget,name,missingness):
 
 ######functions for predictions########
 @jit(nopython=True,cache=True)
-def gp(x,z,w1,global_w1,w2,scale,length,nugget,name):
+def gp_stats(w1,global_w1,w2,length,nugget,name):
+    """Compute key statistics for GP node predictions 
+    """
+    if global_w1!=None:
+        w1=np.concatenate((w1, global_w1),1)
+    R=k_one_matrix(w1,length,name)+nugget*np.identity(len(w1))
+    U, s, Vh = np.linalg.svd(R)
+    Rinv=Vh.T@np.diag(s**-1)@U.T
+    Rinv_y=np.linalg.solve(R,w2)
+    return Rinv, Rinv_y
+
+@jit(nopython=True,cache=True,fastmath=True)
+def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     """Make GP predictions.
     """
     if z!=None:
         x=np.concatenate((x, z),1)
         w1=np.concatenate((w1, global_w1),1)
-    R=k_one_matrix(w1,length,name)+nugget*np.identity(len(w1))
     r=k_one_vec(w1,x,length,name)
-    Rinv_r=np.linalg.solve(R,r)
+    Rinv_r=np.dot(Rinv,r)
     r_Rinv_r=np.sum(r*Rinv_r,axis=0)
     v=np.abs(scale*(1+nugget-r_Rinv_r))
-    m=np.sum(w2*Rinv_r,axis=0) 
+    m=np.sum(r*Rinv_y,axis=0) 
     return m, v
 
-@jit(nopython=True,cache=True)
-def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
+@jit(nopython=True,cache=True,fastmath=True)
+def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     """Make linked GP predictions.
     """
     M=len(m)
@@ -165,15 +176,10 @@ def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
         Dz=np.shape(z)[1]
         if len(length)==1:
             length=length*np.ones(Dw+Dz)
-        w=np.concatenate((w1, global_w1),1)
-        R=k_one_matrix(w,length,name)+nugget*np.identity(len(w))
-        Rinv_y=np.linalg.solve(R,w2)
     else:
         Dw=np.shape(w1)[1]
         if len(length)==1:
             length=length*np.ones(Dw)
-        R=k_one_matrix(w1,length,name)+nugget*np.identity(len(w1))
-        Rinv_y=np.linalg.solve(R,w2)
     for i in range(M):
         mi=m[i,:]
         vi=v[i,:]
@@ -185,13 +191,13 @@ def link_gp(m,v,z,w1,global_w1,w2,scale,length,nugget,name):
             I,J=I*Iz,J*Jz
         else:
             I,J=IJ(w1,mi,vi,length,name)
-        tr_RinvJ=np.trace(np.linalg.solve(R,J))
+        tr_RinvJ=np.trace(np.dot(Rinv,J))
         IRinv_y=np.sum(I*Rinv_y)
         m_new[i]=IRinv_y
         v_new[i]=np.abs(np.sum(np.dot(Rinv_y.T,J)*Rinv_y.T)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
     return m_new.flatten(),v_new.flatten()
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def k_one_vec(X,z,length,name):
     """Compute cross-correlation matrix between the testing and training input data.
     """
@@ -218,7 +224,7 @@ def k_one_vec(X,z,length,name):
         k=k1*k2
     return k
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def IJ(X,z_m,z_v,length,name):
     """Compute I and J involved in linked GP predictions.
     """
@@ -228,7 +234,7 @@ def IJ(X,z_m,z_v,length,name):
         X_z=X-z_m
         I=np.ones((n,1))
         J=np.ones((n,n))
-        X_z=X_z.T.reshape((d,n,1))
+        X_z=np.ascontiguousarray(X_z.T.reshape((d,n,1)))
         for i in range(d):
             I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-X_z[i]**2/(2*z_v[i]+length[i]**2))
             L_X_z=X_z[i]**2
@@ -266,7 +272,7 @@ def IJ(X,z_m,z_v,length,name):
                 J*=np.dot(Id,Id.T)
     return I,J
 
-@vectorize([float64(float64)],nopython=True,cache=True)
+@vectorize([float64(float64)],nopython=True,cache=True,fastmath=True)
 def pnorm(x):
     """Compute standard normal CDF.
     """

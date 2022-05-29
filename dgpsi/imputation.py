@@ -126,3 +126,13 @@ class imputer:
                 else:
                     theta_max = theta
                 theta = uniform(theta_min, theta_max)
+    
+    def key_stats(self):
+        """Compute and store key statistics used in predictions
+        """
+        n_layer=len(self.all_layer)
+        for l in range(n_layer):
+            layer=self.all_layer[l]
+            for kernel in layer:
+                if kernel.type == 'gp':
+                    kernel.compute_stats()

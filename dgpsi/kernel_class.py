@@ -1,7 +1,7 @@
 import numpy as np
 from math import sqrt
 from scipy.optimize import minimize, Bounds
-from .functions import gp, link_gp
+from .functions import gp, link_gp, gp_stats
 
 class kernel:
     """
@@ -36,8 +36,8 @@ class kernel:
                 GPs in the last layer (as determined by the argument 'input_dim'). When set to None, no global input
                 connection is implemented. Defaults to None. When the kernel class is used in GP/DGP emulators for linked
                 emulation and some input dimensions to the computer models are not connected to some feeding computer models, 
-                set 'connect' to a 1d-arrray of indices of these external global input dimensions, and accordingly, set 
-                'input_dim' to a 1d-arrray of indices of the remaining input dimensions that are connected to the feeding 
+                set 'connect' to a 1d-array of indices of these external global input dimensions, and accordingly, set 
+                'input_dim' to a 1d-array of indices of the remaining input dimensions that are connected to the feeding 
                 computer models.                   
 
         Attributes:
@@ -107,7 +107,7 @@ class kernel:
         self.scale_est=scale_est
         self.input_dim=input_dim
         self.connect=connect
-        self.para_path=np.concatenate((self.scale,self.length,self.nugget))
+        self.para_path=np.atleast_2d(np.concatenate((self.scale,self.length,self.nugget)))
         self.last_layer_global_input=None
         self.global_input=None
         self.last_layer_input=None
@@ -115,6 +115,8 @@ class kernel:
         self.output=None
         self.missingness=None
         self.rep=None
+        self.Rinv=None
+        self.Rinv_y=None
 
     def log_t(self):
         """Log transform the model paramters (lengthscales and nugget).
@@ -326,7 +328,7 @@ class kernel:
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions. 
         """
-        m,v=gp(x,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
+        m,v=gp(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
         return m,v
 
     def linkgp_prediction(self,m,v,z):
@@ -347,7 +349,7 @@ class kernel:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
                 represented by predictive means and variances).
         """
-        m,v=link_gp(m,v,z,self.input,self.global_input,self.output,self.scale,self.length,self.nugget,self.name)
+        m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
         return m,v
 
     def linkgp_prediction_full(self,m,v,m_z,v_z,z):
@@ -374,8 +376,13 @@ class kernel:
         idx1=np.arange(np.shape(m_z)[1])
         idx2=np.arange(np.shape(m_z)[1],np.shape(self.global_input)[1])
         overall_input=np.concatenate((self.input,self.global_input[:,idx1]),axis=1)
-        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.output,self.scale,self.length,self.nugget,self.name)
+        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
         return m,v
+
+    def compute_stats(self):
+        """Compute and store key statistics for the GP predictions
+        """
+        self.Rinv,self.Rinv_y = gp_stats(self.input,self.global_input,self.output,self.length,self.nugget,self.name)
 
 def combine(*layers):
     """Combine layers into one list as a DGP structure.

@@ -36,6 +36,7 @@ class gp:
         """Train the GP model.
         """
         self.kernel.maximise()
+        self.kernel.compute_stats()
 
     def export(self):
         """Export the trained GP.

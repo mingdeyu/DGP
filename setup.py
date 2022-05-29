@@ -21,7 +21,9 @@ INSTALL_REQUIRES = [
       'scipy>=1.4.1',
       'scikit-learn>=0.22.0',
       'jupyter',
-      'dill>=0.3.2'
+      'dill>=0.3.2',
+      'pathos>=0.2.9',
+      'psutil>=5.9.1'
 ]
 
 setup(name=PACKAGE_NAME,
