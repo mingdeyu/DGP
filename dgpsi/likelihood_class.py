@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import loggamma
-from .functions import post_het1, post_het2
+from .functions import post_het1, post_het2, fmvn_mu
 
 class Poisson:
     """Class to implement Poisson likelihood. It (and all likelihoods below) can only be added as the final
@@ -30,8 +30,6 @@ class Poisson:
         self.input=None
         self.output=None
         self.input_dim=input_dim
-        self.last_layer_input=None
-        self.missingness=None
         self.exact_post_idx=None
         self.rep=None
 
@@ -95,8 +93,6 @@ class Hetero:
         self.input=None
         self.output=None
         self.input_dim=input_dim
-        self.last_layer_input=None
-        self.missingness=None
         self.exact_post_idx=np.array([0])
         self.rep=None
 
@@ -121,23 +117,23 @@ class Hetero:
         y_sample=np.random.normal(f_sample[:,0],np.sqrt(np.exp(f_sample[:,1])))
         return y_sample.flatten()
 
-    def posterior(self,idx,mask,m,v):
+    def posterior(self,idx,v):
         """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood.
         """
         if idx==0:
             if self.rep is None:
-                Gamma=np.diag(np.exp(self.input[mask,1]))
-                y_mask=self.output[mask,0]
-                mu,cov=post_het1(m,v,Gamma,y_mask)
+                Gamma=np.diag(np.exp(self.input[:,1]))
+                y=(self.output).flatten()
+                mu,cov=post_het1(v,Gamma,y)
             else:
                 Gamma=np.diag(np.exp(self.input[:,1]))
                 y_mask=self.output[:,0]
                 mask_f=self.rep
                 v_mask=v[mask_f,:]
                 V_mask=v[mask_f,:][:,mask_f]
-                m_mask=m[mask_f]
-                mu,cov=post_het2(m,v,Gamma,v_mask,V_mask,m_mask,y_mask)
-            f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
+                mu,cov=post_het2(v,Gamma,v_mask,V_mask,y_mask)
+            #f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
+            f_mu=fmvn_mu(mu,cov)
             return f_mu
 
 class NegBin:
@@ -147,8 +143,6 @@ class NegBin:
         self.input=None
         self.output=None
         self.input_dim=input_dim
-        self.last_layer_input=None
-        self.missingness=None
         self.exact_post_idx=None
         self.rep=None
     

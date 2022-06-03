@@ -49,25 +49,14 @@ class kernel:
             para_path (ndarray): a numpy 2d-array that contains the trace of model parameters. Each row is a 
                 parameter estimate produced by one SEM iteration. The model parameters in each row are ordered as 
                 follow: np.array([scale estimate, lengthscale estimate (whose length>=1), nugget estimate]).
-            last_layer_global_input (ndarray): a numpy 2d-array that contains the connect global input dimensions for
-                GPs in the last layer (without missingness masks). The value of this attribute is assigned during the 
-                initialisation of 'dgp' class.
             global_input (ndarray): a numpy 2d-array that contains the connect global input dimensions determined 
                 by the argument 'connect'. The value of the attribute is assigned during the initialisation of 
-                'dgp' class. If 'connect' is set to None, this attribute is also None. If it is for the GP in the last
-                layer, it is a masked (according to missingness attribute) version of last_layer_global_input.
-            last_layer_input (ndarray): a numpy 2d-array that contains the input training data (without missingness
-                masks) of the GPs in the final layer. The value of this attribute is assigned during the initialisation 
-                of 'dgp' class.
+                'dgp' class. If 'connect' is set to None, this attribute is also None. 
             input (ndarray): a numpy 2d-array (each row as a data point and each column as a data dimension) that 
                 contains the input training data (according to the argument 'input_dim') to the GP. The value of 
-                this attribute is assigned during the initialisation of 'dgp' class. If it is for the GP in the last
-                layer, it is a masked (according to missingness attribute) version of last_layer_input.
+                this attribute is assigned during the initialisation of 'dgp' class. 
             output (ndarray): a numpy 2d-array with only one column that contains the output training data to the GP.
                 The value of this attribute is assigned during the initialisation of 'dgp' class.
-            missingness (ndarray): a numpy 1d-array of bool that indicates the missingness in the output attributes.
-                If a cell is True, then the corresponding cell in the output attribute needs to be imputed. The value 
-                of this attribute is assigned during the initialisation of 'dgp' class. 
             rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions 
                 in the global input, i.e., rep is assigned during the initialisation of 'dgp' class if one input position 
                 has multiple outputs. Otherwise, it is None. Defaults to None. 
@@ -79,9 +68,7 @@ class kernel:
             2. The 'global_input' attribute in the kernel class no longer contains dimensions of global input to the 
                 GPs in the first layer, as in DGP inference. Instead it contains external inputs 
                 provided in the Z argument;
-            3. The 'missingness' attribute in the kernel class is not set and used because in linked GP inference all
-                internal I/O are observable;
-            4. The 'input_dim' argument in the kernel class needs to be specified explicitly by the user to let the 
+            3. The 'input_dim' argument in the kernel class needs to be specified explicitly by the user to let the 
                 inference know which GPs in the last layer are feeding GPs. We do not implement the default setting, like 
                 in the DGP case, that a GP is connected to all GPs in the last layers. Thus, one has to supply the 'input_dim' 
                 argument a full GP node index in the last layer of all GPs in the last layer are feeding the GP that the kernel
@@ -108,12 +95,9 @@ class kernel:
         self.input_dim=input_dim
         self.connect=connect
         self.para_path=np.atleast_2d(np.concatenate((self.scale,self.length,self.nugget)))
-        self.last_layer_global_input=None
         self.global_input=None
-        self.last_layer_input=None
         self.input=None
         self.output=None
-        self.missingness=None
         self.rep=None
         self.Rinv=None
         self.Rinv_y=None

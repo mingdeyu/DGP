@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 import copy
 from .imputation import imputer
-from .functions import cmvn
 from sklearn.decomposition import KernelPCA
 
 class dgp:
@@ -13,14 +12,9 @@ class dgp:
     Args:
         X (ndarray): a numpy 2d-array where each row is an input data point and 
             each column is an input dimension. 
-        Y (list): a list of numpy 2d-arrays containing observed output data across the DGP structure. 
-            If only one numpy 2d-array is supplied in the list, then it is assumed that no observations 
-            are available for latent variables. In all other cases, the list needs to contain numpy 
-            2d-arrays, one for each layer. Each 2d-array has it rows being output data points and
-            columns being output dimensions (with the number of columns equals to the number of GP nodes
-            in the corresponding layer). If there are missing values, those specific cells in the arrays 
-            need to be filled by nan. The last array must have its number of columns equal to the 
-            number of nodes (GPs) in the final layer.
+        Y (ndarray): a numpy 2d-arrays containing observed output data across the DGP structure. 
+            The 2d-array has it rows being output data points and columns being output dimensions 
+            (with the number of columns equals to the number of GP nodes in the final layer). 
         all_layer (list): a list contains L (the number of layers) sub-lists, each of which contains 
             the GPs defined by the kernel class in that layer. The sub-lists are placed in the list 
             in the same order of the specified DGP model.
@@ -72,13 +66,11 @@ class dgp:
     def initialize(self):
         """Initialise all_layer attribute for training.
         """
-        if len(self.Y)==1:
-            new_Y=[]
-            for l in range(self.n_layer-1):
-                num_kernel=len(self.all_layer[l])
-                new_Y.append(np.full((len(self.X),num_kernel),np.nan))
-            new_Y.append(self.Y[0])
-            self.Y=copy.deepcopy(new_Y)
+        if isinstance(self.Y, list):
+            if len(self.Y)==1:
+                self.Y=self.Y[0]
+            else:
+                raise Exception('Y has to be a numpy 2d-array rather than a list. The list version of Y (for linked emulation) has been reduced. Please use the dedicated lgp class for linked emulation.')
         global_in=self.X
         In=self.X
         for l in range(self.n_layer):
@@ -95,7 +87,6 @@ class dgp:
                 Out=copy.deepcopy(Out)
             for k in range(num_kernel):
                 kernel=layer[k]
-                kernel.missingness=copy.deepcopy(np.isnan(self.Y[l][:,k]))
                 if l==self.n_layer-1 and self.indices is not None:
                     kernel.rep=self.indices
                 if kernel.input_dim is not None:
@@ -105,11 +96,10 @@ class dgp:
                                 raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
                             elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
                                 raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
-                        kernel.last_layer_input=copy.deepcopy(In[:,kernel.input_dim])
                         if kernel.rep is None:
-                            kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                            kernel.input=copy.deepcopy(In[:,kernel.input_dim])
                         else:
-                            kernel.input=copy.deepcopy(kernel.last_layer_input[kernel.rep,:][~kernel.missingness,:])
+                            kernel.input=copy.deepcopy(In[kernel.rep,:][:,kernel.input_dim])
                     else:
                         kernel.input=copy.deepcopy(In[:,kernel.input_dim])
                 else:
@@ -120,50 +110,27 @@ class dgp:
                                 raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
                             elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
                                 raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
-                        kernel.last_layer_input=copy.deepcopy(In)
                         if kernel.rep is None:
-                            kernel.input=copy.deepcopy(kernel.last_layer_input[~kernel.missingness,:])
+                            kernel.input=copy.deepcopy(In)
                         else:
-                            kernel.input=copy.deepcopy(kernel.last_layer_input[kernel.rep,:][~kernel.missingness,:])
+                            kernel.input=copy.deepcopy(In[kernel.rep,:])
                     else:
                         kernel.input=copy.deepcopy(In)
                         kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
                 if kernel.type=='gp':
                     if kernel.connect is not None:
                         if l==self.n_layer-1:
-                            kernel.last_layer_global_input=copy.deepcopy(global_in[:,kernel.connect])
                             if kernel.rep is None:
-                                kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[~kernel.missingness,:])
+                                kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
                             else:
-                                kernel.global_input=copy.deepcopy(kernel.last_layer_global_input[kernel.rep,:][~kernel.missingness,:])
+                                kernel.global_input=copy.deepcopy(global_in[kernel.rep,:][:,kernel.connect])
                         else:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
-                if not np.all(kernel.missingness):
-                    if np.any(kernel.missingness):
-                        if kernel.type=='likelihood':
-                            print('The output of a likelihood node has to be fully observed. The training output of %i-th likelihood node in the final layer is partially missing.' % (k+1))
-                            return
-                        if l==self.n_layer-1:
-                            samp=copy.deepcopy(self.Y[l][:,[k]])
-                            kernel.output=copy.deepcopy(samp[~kernel.missingness,:])
-                            #Out[~kernel.missingness,[k]]=copy.deepcopy(samp[~kernel.missingness,:].flatten())
-                        else:
-                            m,v=cmvn(kernel.input,kernel.global_input,self.Y[l][:,[k]],kernel.scale,kernel.length,kernel.nugget,kernel.name,kernel.missingness)
-                            samp=copy.deepcopy(self.Y[l][:,[k]])
-                            samp[kernel.missingness,0]=np.random.default_rng().multivariate_normal(mean=m,cov=v,check_valid='ignore')
-                            kernel.output=copy.deepcopy(samp)
-                            Out[:,[k]]=samp
-                    else:
-                        kernel.output=copy.deepcopy(self.Y[l][:,[k]])
-                        if l!=self.n_layer-1:
-                            Out[:,[k]]=self.Y[l][:,[k]]      
+                if l==self.n_layer-1:
+                    kernel.output=copy.deepcopy(self.Y[:,[k]])
                 else:
-                    if kernel.type=='likelihood':
-                        raise Exception('The output of a likelihood node has to be fully observed. The training output of %i-th likelihood node in the final layer is missing.' % (k+1))
-                    if l==self.n_layer-1:
-                        raise Exception('The output of GP nodes in the final layer cannot be completely missing. The training output of %i-th node in the final layer is fully missing.' % (k+1))
                     kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
             if l!=self.n_layer-1:
                 In=copy.deepcopy(Out)

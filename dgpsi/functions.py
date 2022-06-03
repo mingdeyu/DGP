@@ -44,14 +44,34 @@ def log_likelihood_func(y,cov,scale):
     return llik
 
 
+#@jit(nopython=True,cache=True)
+#def fmvn(mu,cov):
+#    """Generate multivariate Gaussian random samples with means.
+#    """
+#    d=len(cov)
+#    sn=randn(d,1)
+#    L=np.linalg.cholesky(cov)
+#    samp=(L@sn).flatten()+mu
+#    return samp
+
 @jit(nopython=True,cache=True)
-def fmvn(mu,cov):
+def fmvn_mu(mu,cov):
     """Generate multivariate Gaussian random samples with means.
     """
     d=len(cov)
     sn=randn(d,1)
-    L=np.linalg.cholesky(cov)
-    samp=(L@sn).flatten()+mu
+    U, s, _ = np.linalg.svd(cov)
+    samp=((U*np.sqrt(s))@sn).flatten() + mu
+    return samp
+
+@jit(nopython=True,cache=True)
+def fmvn(cov):
+    """Generate multivariate Gaussian random samples without means.
+    """
+    d=len(cov)
+    sn=randn(d,1)
+    U, s, _ = np.linalg.svd(cov)
+    samp=((U*np.sqrt(s))@sn).flatten()
     return samp
 
 @jit(nopython=True,cache=True)
@@ -78,29 +98,29 @@ def k_one_matrix(X,length,name):
     return K
 
 @jit(nopython=True,cache=True)
-def update_f(f,nu,theta,mean):
+def update_f(f,nu,theta):
     """Update ESS proposal samples.
     """
-    fp=(f-mean)*np.cos(theta) + (nu-mean)*np.sin(theta) + mean
+    fp=f*np.cos(theta) + nu*np.sin(theta)
     return fp
 
 @jit(nopython=True,cache=True)
-def post_het1(m,v,Gamma,y_mask):
+def post_het1(v,Gamma,y_mask):
     """Calculate the conditional posterior mean and covariance of the mean 
        of the heteroskedastic Gaussian likelihood when there are no repetitions
        in the training data.
     """
-    mu=m+np.sum(v*np.linalg.solve(Gamma+v,y_mask-m),axis=1)
+    mu=np.sum(v*np.linalg.solve(Gamma+v,y_mask),axis=1)
     cov=v@np.linalg.solve(Gamma+v,Gamma)
     return mu, cov
 
 @jit(nopython=True,cache=True)
-def post_het2(m,v,Gamma,v_mask,V_mask,m_mask,y_mask):
+def post_het2(v,Gamma,v_mask,V_mask,y_mask):
     """Calculate the conditional posterior mean and covariance of the mean 
        of the heteroskedastic Gaussian likelihood when there are repetitions
        in the training data.
     """
-    mu=m+np.sum(v_mask.T*np.linalg.solve(Gamma+V_mask,y_mask-m_mask),axis=1)
+    mu=np.sum(v_mask.T*np.linalg.solve(Gamma+V_mask,y_mask),axis=1)
     cov=v-v_mask.T@np.linalg.solve(Gamma+V_mask,v_mask)
     return mu, cov    
 
