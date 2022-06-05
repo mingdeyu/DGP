@@ -44,24 +44,14 @@ def log_likelihood_func(y,cov,scale):
     return llik
 
 
-#@jit(nopython=True,cache=True)
-#def fmvn(mu,cov):
-#    """Generate multivariate Gaussian random samples with means.
-#    """
-#    d=len(cov)
-#    sn=randn(d,1)
-#    L=np.linalg.cholesky(cov)
-#    samp=(L@sn).flatten()+mu
-#    return samp
-
 @jit(nopython=True,cache=True)
 def fmvn_mu(mu,cov):
     """Generate multivariate Gaussian random samples with means.
     """
     d=len(cov)
     sn=randn(d,1)
-    U, s, _ = np.linalg.svd(cov)
-    samp=((U*np.sqrt(s))@sn).flatten() + mu
+    L=np.linalg.cholesky(cov)
+    samp=(L@sn).flatten()+mu
     return samp
 
 @jit(nopython=True,cache=True)
@@ -70,9 +60,29 @@ def fmvn(cov):
     """
     d=len(cov)
     sn=randn(d,1)
-    U, s, _ = np.linalg.svd(cov)
-    samp=((U*np.sqrt(s))@sn).flatten()
+    L=np.linalg.cholesky(cov)
+    samp=(L@sn).flatten()
     return samp
+
+#@jit(nopython=True,cache=True)
+#def fmvn_mu(mu,cov):
+#    """Generate multivariate Gaussian random samples with means.
+#    """
+#    d=len(cov)
+#    sn=randn(d,1)
+#    U, s, _ = np.linalg.svd(cov)
+#    samp=((U*np.sqrt(s))@sn).flatten() + mu
+#    return samp
+
+#@jit(nopython=True,cache=True)
+#def fmvn(cov):
+#    """Generate multivariate Gaussian random samples without means.
+#    """
+#    d=len(cov)
+#    sn=randn(d,1)
+#    U, s, _ = np.linalg.svd(cov)
+#    samp=((U*np.sqrt(s))@sn).flatten()
+#    return samp
 
 @jit(nopython=True,cache=True)
 def k_one_matrix(X,length,name):

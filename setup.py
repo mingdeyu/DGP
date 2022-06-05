@@ -3,7 +3,7 @@ import pathlib
 
 here = pathlib.Path(__file__).parent.resolve()
 
-VERSION = '2.0-beta2'
+VERSION = '2.0-beta3'
 PACKAGE_NAME = 'dgpsi'
 AUTHOR = 'Deyu Ming'
 AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
@@ -14,7 +14,7 @@ DESCRIPTION = 'Deep Gaussian Process Emulation using Stochastic Imputation'
 LONG_DESCRIPTION = (here / 'README.md').read_text(encoding='utf-8')
 
 INSTALL_REQUIRES = [
-      'numpy>=1.18.2, <1.21',
+      'numpy>=1.18.2',
       'numba>=0.51.2',
       'matplotlib>=3.2.1',
       'tqdm>=4.50.2',
