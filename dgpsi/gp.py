@@ -1,4 +1,6 @@
 import numpy as np
+from pathos.multiprocessing import ProcessingPool as Pool
+import psutil 
 import copy
 
 class gp:
@@ -43,6 +45,33 @@ class gp:
         """
         final_struct=copy.deepcopy(self.kernel)
         return [final_struct]
+
+    def ppredict(self,x,method='mean_var',sample_size=50,chunk_num=None,core_num=None):
+        """Implement parallel predictions from the trained GP model.
+
+        Args:
+            x, method, sample_size: see descriptions of the method `predict`.
+            chunk_num (int, optional): the number of chunks that the testing input array 'x' will be divided into. 
+                Defaults to None. If not specified, the number of chunks will be determined by dividing the input
+                array into chunks with max 200 input positions. 
+            core_num (int, optional): the number of cores/workers to be used. Defaults to None. If not specified, 
+                the number of cores is set to min(max physical cores available - 1, chunk_num).
+
+        Returns:
+            Same as the method `predict`.
+        """
+        if chunk_num==None:
+            chunk_num=int(np.ceil(len(x)/200))
+        if core_num==None:
+            core_num=min(psutil.cpu_count(logical = False)-1,chunk_num)
+        f=lambda x: self.predict(*x) 
+        z=np.array_split(x,chunk_num)
+        with Pool(core_num) as pool:
+            res = pool.map(f, [[x, method, sample_size] for x in z])
+        if method == 'mean_var':
+            return tuple(np.concatenate(worker) for worker in zip(*res))
+        elif method == 'sampling':
+            return np.concatenate(res)
 
     def predict(self,x,method='mean_var',sample_size=50):
         """Implement predictions from the trained GP model.

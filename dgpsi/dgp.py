@@ -22,11 +22,10 @@ class dgp:
             position has multiple outputs. Defaults to True.
 
     Remark:
-        This class is used for general DGP structures, which at least have some portions of internal I/O
-            unobservable (i.e., there are latent variables contained in the structure). If you have fully
-            observed internal I/O (i.e., the argument Y contains no nan), the DGP model reduces to linked
-            GP model. In such a case, use lgp class for inference where one can have separate input/output
-            training data for each GP. See lgp class for implementation details. 
+        This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
+            are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use lgp class for 
+            inference where one can have separate input/output training data for each (D)GP. See lgp class for 
+            implementation details. 
 
     Examples:
         To build a list that represents a three-layer DGP with three GPs in the first two layers and

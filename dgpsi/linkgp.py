@@ -81,13 +81,11 @@ class lgp:
                 Defaults to None. If not specified, the number of chunks will be determined by dividing the input
                 array into chunks with max 200 input positions. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to None. If not specified, 
-                the number of cores is set to (max physical cores available - 1).
+                the number of cores is set to min(max physical cores available - 1, chunk_num).
 
         Returns:
             Same as the method `predict`.
         """
-        if core_num==None:
-            core_num=psutil.cpu_count(logical = False)-1
         f=lambda x: self.predict(*x) 
         if isinstance(x, list):
             if len(x)!=self.L:
@@ -111,6 +109,8 @@ class lgp:
             if chunk_num==None:
                 chunk_num=int(np.ceil(len(x)/200))
             z=np.array_split(x,chunk_num)
+        if core_num==None:
+            core_num=min(psutil.cpu_count(logical = False)-1,chunk_num)
         with Pool(core_num) as pool:
             res = pool.map(f, [[x, method, full_layer, sample_size] for x in z])
         if method == 'mean_var':

@@ -57,8 +57,9 @@ class Poisson:
         """
         pllik=y*f-np.exp(f)-loggamma(y+1)
         return pllik
-        
-    def prediction(self,m,v):
+
+    @staticmethod    
+    def prediction(m,v):
         """Compute mean and variance of the DGP+Poisson model given the predictive
            mean and variance of DGP model for Poisson parameter.
         
@@ -107,13 +108,15 @@ class Hetero:
         mu,var=f[:,:,[0]],np.exp(f[:,:,[1]])
         pllik=-0.5*(np.log(2*np.pi*var)+(y-mu)**2/var)
         return pllik
-        
-    def prediction(self,m,v):
+
+    @staticmethod    
+    def prediction(m,v):
         y_mean=m[:,0]
         y_var=np.exp(m[:,1]+v[:,1]/2)+v[:,0]
         return y_mean.flatten(),y_var.flatten()
     
-    def sampling(self,f_sample):
+    @staticmethod
+    def sampling(f_sample):
         y_sample=np.random.normal(f_sample[:,0],np.sqrt(np.exp(f_sample[:,1])))
         return y_sample.flatten()
 
@@ -158,12 +161,14 @@ class NegBin:
         pllik=loggamma(y+1/sigma)-loggamma(1/sigma)-loggamma(y+1)+y*np.log(sigma*mu)-(y+1/sigma)*np.log(1+sigma*mu)
         return pllik
     
-    def prediction(self,m,v):
+    @staticmethod
+    def prediction(m,v):
         y_mean=np.exp(m[:,0]+v[:,0]/2)
         y_var=np.exp(2*m[:,0]+v[:,0])*(np.exp(v[:,0])-1)+np.exp(m[:,0]+v[:,0]/2)+np.exp(m[:,1]+v[:,1]/2)*np.exp(2*m[:,0]+2*v[:,0])
         return y_mean.flatten(),y_var.flatten()
     
-    def sampling(self,f_sample):
+    @staticmethod
+    def sampling(f_sample):
         p, k=1/(1+np.exp(f_sample[:,0]+f_sample[:,1])), np.exp(-f_sample[:,1])
         y_sample=np.random.negative_binomial(k,p)
         return y_sample.flatten()
