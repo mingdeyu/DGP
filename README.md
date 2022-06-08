@@ -9,10 +9,11 @@ The package `dgpsi` implements inference of both deep and linked Gaussian proces
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
-    - **(New feature)** non-Gaussian likelihoods (Poisson, Negative-Binomial, heteroskedastic Gaussian, and more to come);
+    - non-Gaussian likelihoods (Poisson, Negative-Binomial, heteroskedastic Gaussian, and more to come);
 * Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of deterministic individual computer models;
     - linking GP and DGP emulators of deterministic individual computer models;
+* **(New Feature)** Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
 * More features coming soon.
 
 Please see [demo](demo/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
@@ -38,7 +39,9 @@ The package is built under `Python 3.7.3` with following packages:
 * `tqdm 4.50.2`;
 * `scikit-learn 0.22.0`;
 * `scipy 1.4.1`;
-* `dill 0.3.2`.
+* `dill 0.3.2`;
+* `pathos 0.2.9`;
+* `psutil 5.9.1`.
 
 ## Contact
 Please feel free to email me with any questions and feedbacks: 
