@@ -3,7 +3,7 @@ import pathlib
 
 here = pathlib.Path(__file__).parent.resolve()
 
-VERSION = '2.0-beta3'
+VERSION = '2.0-beta4'
 PACKAGE_NAME = 'dgpsi'
 AUTHOR = 'Deyu Ming'
 AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
@@ -23,7 +23,7 @@ INSTALL_REQUIRES = [
       'jupyter',
       'dill>=0.3.2',
       'pathos>=0.2.9',
-      'psutil>=5.9.1'
+      'psutil>=5.8.0'
 ]
 
 setup(name=PACKAGE_NAME,

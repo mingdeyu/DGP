@@ -217,14 +217,15 @@ def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
             zi=np.expand_dims(z[i,:],axis=0)
             I,J=IJ(w1,mi,vi,length[:-Dz],name)
             Iz=k_one_vec(global_w1,zi,length[-Dz::],name)
-            Jz=np.dot(Iz,Iz.T)
+            Iz_T=np.expand_dims(Iz.flatten(),axis=0)
+            Jz=np.dot(Iz,Iz_T)
             I,J=I*Iz,J*Jz
         else:
             I,J=IJ(w1,mi,vi,length,name)
-        tr_RinvJ=np.trace(np.dot(Rinv,J))
+        tr_RinvJ=np.sum(Rinv*J.T)
         IRinv_y=np.sum(I*Rinv_y)
         m_new[i]=IRinv_y
-        v_new[i]=np.abs(np.sum(np.dot(Rinv_y.T,J)*Rinv_y.T)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+        v_new[i]=np.abs(np.sum(np.sum(Rinv_y*J,axis=0)*Rinv_y.flatten())-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
     return m_new.flatten(),v_new.flatten()
 
 @jit(nopython=True,cache=True,fastmath=True)
@@ -264,13 +265,15 @@ def IJ(X,z_m,z_v,length,name):
         X_z=X-z_m
         I=np.ones((n,1))
         J=np.ones((n,n))
-        X_z=np.ascontiguousarray(X_z.T.reshape((d,n,1)))
         for i in range(d):
-            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-X_z[i]**2/(2*z_v[i]+length[i]**2))
-            L_X_z=X_z[i]**2
-            cross_L_X_z=np.dot(X_z[i],X_z[i].T)
-            dis1=L_X_z+2*cross_L_X_z+L_X_z.T
-            dis2=L_X_z-2*cross_L_X_z+L_X_z.T
+            X_zi=np.expand_dims(X_z[:,i],axis=1)
+            X_zi_T=np.expand_dims(X_z[:,i],axis=0)
+            L_X_z=X_zi**2
+            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-L_X_z/(2*z_v[i]+length[i]**2))
+            L_X_z_T=X_zi_T**2
+            cross_L_X_z=np.dot(X_zi,X_zi_T)
+            dis1=L_X_z+2*cross_L_X_z+L_X_z_T
+            dis2=L_X_z-2*cross_L_X_z+L_X_z_T
             J*=1/np.sqrt(1+4*z_v[i]/length[i]**2)*np.exp(-dis1/(2*length[i]**2+8*z_v[i])-dis2/(2*length[i]**2))
     elif name=='matern2.5':
         zX=z_m-X
