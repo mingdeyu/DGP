@@ -266,8 +266,8 @@ def IJ(X,z_m,z_v,length,name):
         I=np.ones((n,1))
         J=np.ones((n,n))
         for i in range(d):
-            X_zi=np.expand_dims(X_z[:,i],axis=1)
-            X_zi_T=np.expand_dims(X_z[:,i],axis=0)
+            X_zi=np.ascontiguousarray(np.expand_dims(X_z[:,i],axis=1))
+            X_zi_T=np.ascontiguousarray(np.expand_dims(X_z[:,i],axis=0))
             L_X_z=X_zi**2
             I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-L_X_z/(2*z_v[i]+length[i]**2))
             L_X_z_T=X_zi_T**2
