@@ -41,7 +41,7 @@ The package is built under `Python 3.7.3` with following packages:
 * `scipy 1.4.1`;
 * `dill 0.3.2`;
 * `pathos 0.2.9`;
-* `psutil 5.9.1`.
+* `psutil 5.8.0`.
 
 ## Contact
 Please feel free to email me with any questions and feedbacks: 
