@@ -11,12 +11,20 @@ class emulator:
     Args:
         all_layer (list): a list that contains the trained DGP model produced by the method 'estimate'
             of the 'dgp' class. 
-        N (int): the number of imputation to produce the predictions. Increase the value to account for
+        N (int, optional): the number of imputation to produce the predictions. Increase the value to account for
             more imputation uncertainties. Defaults to 50.
+        rff (bool, optional): indicates if random Fourier features will be used to approximate the correlation
+            matrices during the imputation for predictions. Defaults to False.
     """
-    def __init__(self, all_layer,N=50):
+    def __init__(self, all_layer, N=50, rff=False):
         self.all_layer=all_layer
         self.n_layer=len(all_layer)
+        for l in range(self.n_layer):
+            for kernel in self.all_layer[l]:
+                if kernel.type == 'gp':
+                    kernel.rff = rff
+                    if not kernel.rff and rff:
+                        kernel.sample_basis()
         self.imp=imputer(self.all_layer)
         (self.imp).sample(burnin=50)
         self.all_layer_set=[]

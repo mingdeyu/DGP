@@ -1,6 +1,6 @@
 from numpy.random import uniform
 import numpy as np
-from .functions import log_likelihood_func, k_one_matrix, update_f, fmvn
+from .functions import log_likelihood_func, k_one_matrix, update_f, fmvn, log_likelihood_func_rff
 
 class imputer:
     """Class to implement imputation of latent variables.
@@ -67,9 +67,12 @@ class imputer:
                 w=linked_kernel.input
                 y=(linked_kernel.output).flatten()
                 if linked_kernel.connect is not None:
-                    w=np.concatenate((w, linked_kernel.global_input),1)       
-                cov_w=k_one_matrix(w,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(w))
-                log_y += log_likelihood_func(y,cov_w,linked_kernel.scale)
+                    w=np.concatenate((w, linked_kernel.global_input),1) 
+                if linked_kernel.rff:
+                    log_y += log_likelihood_func_rff(w,y,linked_kernel.W,linked_kernel.b,linked_kernel.length,linked_kernel.nugget,linked_kernel.scale,linked_kernel.M)
+                else:      
+                    cov_w=k_one_matrix(w,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(w))
+                    log_y += log_likelihood_func(y,cov_w,linked_kernel.scale)
             elif linked_kernel.type=='likelihood': 
                 log_y += linked_kernel.llik()
         log_y += np.log(uniform())
@@ -94,8 +97,11 @@ class imputer:
                     y=(linked_kernel.output).flatten()
                     if linked_kernel.connect is not None:
                         wp=np.concatenate((wp,linked_kernel.global_input),1)
-                    cov_wp=k_one_matrix(wp,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(wp))
-                    log_yp += log_likelihood_func(y,cov_wp,linked_kernel.scale)
+                    if linked_kernel.rff:
+                        log_yp += log_likelihood_func_rff(w,y,linked_kernel.W,linked_kernel.b,linked_kernel.length,linked_kernel.nugget,linked_kernel.scale,linked_kernel.M)
+                    else:
+                        cov_wp=k_one_matrix(wp,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(wp))
+                        log_yp += log_likelihood_func(y,cov_wp,linked_kernel.scale)
                 elif linked_kernel.type=='likelihood': 
                     log_yp += linked_kernel.llik()
             if log_yp > log_y:

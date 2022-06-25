@@ -38,11 +38,26 @@ def log_likelihood_func(y,cov,scale):
     """Compute Gaussian log-likelihood function.
     """
     cov=scale*cov
-    _,logdet=np.linalg.slogdet(cov)
+    L=np.linalg.cholesky(cov)
+    logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+    #_,logdet=np.linalg.slogdet(cov)
     quad=np.sum(y*np.linalg.solve(cov,y))
     llik=-0.5*(logdet+quad)
     return llik
 
+@jit(nopython=True,cache=True)
+def log_likelihood_func_rff(X,y,W,b,length,nugget,scale,M):
+    """Compute Gaussian log-likelihood function using random Fourier features (RFF).
+    """
+    Z=sqrt(2/M)*np.cos(np.sum(np.expand_dims(X,axis=1)*np.expand_dims(W/length,axis=0),axis=2)+b)
+    cov=np.dot(Z.T,Z)+nugget*np.identity(M)
+    L=np.linalg.cholesky(cov)
+    logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+    #_,logdet=np.linalg.slogdet(cov)
+    Zt_y=np.dot(Z.T,y)
+    quad=-np.sum(Zt_y*np.linalg.solve(cov,Zt_y))/(scale*nugget)
+    llik=-0.5*(logdet+quad)
+    return llik
 
 @jit(nopython=True,cache=True)
 def fmvn_mu(mu,cov):
@@ -94,8 +109,7 @@ def k_one_matrix(X,length,name):
         dis2=L-2*np.dot(X_l,X_l.T)+L.T
         K=np.exp(-dis2)
     elif name=='matern2.5':
-        n=np.shape(X)[0]
-        d=np.shape(X)[1]
+        n,d=np.shape(X)
         X_l=np.expand_dims((X/length).T,axis=2)
         K1=np.ones((n,n))
         K2=np.zeros((n,n))
@@ -144,28 +158,6 @@ def ghdiag(fct,mu,var,y):
     fn = sqrt(2.0)*(np.sqrt(var[:,None])*xn) + mu[:,None]
     llik=fct(y[:,None],fn)
     return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
-
-######Multivariate Gaussian sampling######
-@jit(nopython=True,cache=True)
-def cmvn(local_input,global_input,output,scale,length,nugget,name,missingness):
-    """Sample from conditional multivariate normal distribution
-    """
-    x=local_input[missingness,]
-    w1=local_input[~missingness,]
-    if global_input!=None:
-        z=global_input[missingness,]
-        x=np.concatenate((x, z),1)
-        global_w1=global_input[~missingness,]
-        w1=np.concatenate((w1, global_w1),1)
-    w2=output[~missingness,]
-    R=k_one_matrix(w1,length,name)+nugget*np.identity(len(w1))
-    c=k_one_matrix(x,length,name)+nugget*np.identity(len(x))
-    r=k_one_vec(w1,x,length,name)
-    Rinv_r=np.linalg.solve(R,r)
-    r_Rinv_r=r.T@Rinv_r
-    v=np.abs(scale*(c-r_Rinv_r))
-    m=np.sum(w2*Rinv_r,axis=0) 
-    return m, v
 
 ######functions for predictions########
 @jit(nopython=True,cache=True)

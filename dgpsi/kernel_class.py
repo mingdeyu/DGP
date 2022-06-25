@@ -1,6 +1,9 @@
 import numpy as np
-from math import sqrt
+from numpy.random import randn, uniform, standard_t
+from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
+from scipy.linalg import cho_solve
+from scipy.spatial.distance import pdist, squareform
 from .functions import gp, link_gp, gp_stats
 
 class kernel:
@@ -15,17 +18,17 @@ class kernel:
                 input dimensions (defined by the argument 'connect'), if the lengthscales in the kernel function 
                 are assumed different across input dimensions.
             scale (float, optional): the variance of a GP. Defaults to 1..
-            nugget (float, optional): the nugget term of a GP. Defaults to 1e-8.
+            nugget (float, optional): the nugget term of a GP. Defaults to 1e-6.
             name (str, optional): kernel function to be used. Either 'sexp' for squared exponential kernel or
                 'matern2.5' for Matern2.5 kernel. Defaults to 'sexp'.
             prior_name (str, optional): prior class. Either gamma ('ga') or inverse gamma ('inv_ga') distribution for 
                 the lengthscales and nugget term. Set None to disable the prior. Defaults to 'ga'.
             prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
                 parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to np.array([1.6,0.3]).
-            nugget_est (int, optional): set to True to estimate nugget term or to False to fix the nugget term as specified
-                by the argument 'nugget'. If set to 1, the value set to the argument 'nugget' is used as the initial
+            nugget_est (bool, optional): set to True to estimate nugget term or to False to fix the nugget term as specified
+                by the argument 'nugget'. If set to True, the value set to the argument 'nugget' is used as the initial
                 value. Defaults to False.
-            scale_est (int, optional): set to True to estimate the variance or to False to fix the variance as specified
+            scale_est (bool, optional): set to True to estimate the variance or to False to fix the variance as specified
                 by the argument 'scale'. Defaults to False.
             input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last layer
                    whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
@@ -60,6 +63,13 @@ class kernel:
             rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions 
                 in the global input, i.e., rep is assigned during the initialisation of 'dgp' class if one input position 
                 has multiple outputs. Otherwise, it is None. Defaults to None. 
+            Rinv (ndarray): a numpy 2d-array that stores the inversion of correlation matrix. Defaults to None.
+            Rinv_y (ndarray): a numpy 2d-array that stores the product of correlation matrix inverse and the output Y. Defaults to None.
+            rff (bool): indicates weather random Fourier features are used. Defaults to None.
+            D (int): the dimension of input data to the GP node. Defaults to None.
+            M (int): the number of features in random Fourier approximation. Defaults to None.
+            W (ndarray): a 2d-array (M, D) sampled to construct the Fourier approximation to the kernel matrix. Defaults to None.
+            b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to None.
 
         Remarks:
         For linked GP inference, when creating kernel classes for GP nodes in each layer, 
@@ -76,7 +86,7 @@ class kernel:
                 last layer, then one needs to assign np.arange(4) to the 'input_dim' argument explicitly.
         """
 
-    def __init__(self, length, scale=1., nugget=1e-8, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=False, scale_est=False, input_dim=None, connect=None):
+    def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=False, scale_est=False, input_dim=None, connect=None):
         self.type='gp'
         self.length=length
         self.scale=np.atleast_1d(scale)
@@ -101,9 +111,23 @@ class kernel:
         self.rep=None
         self.Rinv=None
         self.Rinv_y=None
+        self.rff=None
+        self.D=None
+        self.M=None
+        self.W=None
+        self.b=None
+
+    def sample_basis(self):
+        """Sample W and b to construct random Fourier approximations to correlation matrices.
+        """
+        if self.name=='sexp':
+            self.W=sqrt(2)*randn(self.M,self.D)
+        elif self.name=='matern2.5':
+            self.W=standard_t(5,size=(self.M,self.D))
+        self.b=uniform(0,2*pi,size=self.M)
 
     def log_t(self):
-        """Log transform the model paramters (lengthscales and nugget).
+        """Log transform the model parameters (lengthscales and nugget).
 
         Returns:
             ndarray: a numpy 1d-array of log-transformed model paramters
@@ -115,7 +139,7 @@ class kernel:
         return log_theta
 
     def update(self,log_theta):
-        """Update the model paramters (scale, lengthscales and nugget).
+        """Update the model parameters (scale, lengthscales and nugget).
 
         Args:
             log_theta (ndarray): optimised numpy 1d-array of log-transformed lengthscales and nugget.
@@ -128,72 +152,73 @@ class kernel:
             self.length=theta
         if self.scale_est:
             K=self.k_matrix()
-            KinvY=np.linalg.solve(K,self.output)
-            YKinvY=(self.output).T@KinvY
+            #KinvY=np.linalg.solve(K,self.output)
+            #YKinvY=(self.output).T@KinvY
+            L=np.linalg.cholesky(K)
+            YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
             new_scale=YKinvY/len(self.output)
             self.scale=new_scale.flatten()
             
-    def k_matrix(self):
-        """Compute the correlation matrix.
-
-        Returns:
-            ndarray: a numpy 2d-array as the correlation matrix.
-        """
-        n=len(self.input)
-        if self.global_input is not None:
-            X=np.concatenate((self.input, self.global_input),1)
-        else:
-            X=self.input
-        X_l=X/self.length
-        if self.name=='sexp':
-            L=np.sum(X_l**2,1).reshape([-1,1])
-            dis2=np.abs(L-2*X_l@X_l.T+L.T)
-            K=np.exp(-dis2)
-        elif self.name=='matern2.5':
-            X_l=np.expand_dims(X_l.T,axis=2)
-            dis=np.abs(X_l-X_l.transpose([0,2,1]))
-            K_1=np.prod(1+sqrt(5)*dis+5/3*dis**2,0)
-            K_2=np.exp(-sqrt(5)*np.sum(dis,0))
-            K=K_1*K_2
-        return K+self.nugget*np.eye(n)
-
-    def k_fod(self):
-        """Compute first order derivatives of the correlation matrix wrt log-transformed lengthscales and nugget.
-
-        Returns:
-            ndarray: a numpy 3d-array that contains the first order derivatives of the correlation matrix 
-                wrt log-transformed lengthscales and nugget. The length of the array equals to the total number 
-                of model parameters (i.e., the total number of lengthscales and nugget). 
-        """
-        n=len(self.input)
-        if self.global_input is not None:
-            X=np.concatenate((self.input, self.global_input),1)
-        else:
-            X=self.input
-        X_l=X/self.length
+    def k_matrix(self,fod_eval=False):
+        """Compute the correlation matrix and/or first order derivatives of the correlation matrix 
+            wrt log-transformed lengthscales and nugget.
         
-        X_li=np.expand_dims(X_l.T,axis=2)
-        disi=np.abs(X_li-X_li.transpose([0,2,1]))
+        Args:
+            fod_eval (bool): indicates if the gradient information is also computed along with the correlation
+                matrix. Defaults to False. 
+
+        Returns:
+            K (ndarray): a numpy 2d-array as the correlation matrix.
+            fod (ndarray): a numpy 3d-array that contains the first order derivatives of the correlation matrix 
+                wrt log-transformed lengthscales and nugget. The length of the array equals to the total number 
+                of model parameters (i.e., the total number of lengthscales and nugget).
+        """
+        n=len(self.input)
+        if self.global_input is not None:
+            X=np.concatenate((self.input, self.global_input),1)
+        else:
+            X=self.input
+        X_l=X/self.length
         if self.name=='sexp':
-            dis2=np.sum(disi**2,axis=0,keepdims=True)
-            K=np.exp(-dis2)
-            if len(self.length)==1:
-                fod=2*dis2*K
-            else:
-                fod=2*(disi**2)*K
+            dists = pdist(X_l, metric="sqeuclidean")
+            K = squareform(np.exp(-dists))
+            np.fill_diagonal(K, 1)
+            #L=np.sum(X_l**2,1,keepdims=True)
+            #dis2=np.abs(L-2*X_l@X_l.T+L.T)
+            #K=np.exp(-dis2)
+            if fod_eval:
+                if len(self.length)==1:
+                    dis2 = squareform(dists)
+                    fod=np.expand_dims(2*dis2*K,axis=0)
+                else:
+                    X_li=np.expand_dims(X_l.T,axis=2)
+                    disi=np.abs(X_li-X_li.transpose([0,2,1]))
+                    fod=2*(disi**2)*K
         elif self.name=='matern2.5':
-            K_1=np.prod(1+sqrt(5)*disi+5/3*disi**2,axis=0,keepdims=True)
-            K_2=np.exp(-sqrt(5)*np.sum(disi,axis=0,keepdims=True))
-            K=K_1*K_2
-            coefi=(disi**2)*(1+sqrt(5)*disi)/(1+sqrt(5)*disi+5/3*disi**2)
-            if len(self.length)==1:
-                fod=5/3*np.sum(coefi,axis=0,keepdims=True)*K
-            else:
-                fod=5/3*coefi*K
-        if self.nugget_est:
+            X_li=np.expand_dims(X_l.T,axis=2)
+            disi=np.abs(X_li-X_li.transpose([0,2,1]))
+            K=np.prod(1+sqrt(5)*disi+5/3*disi**2,0)
+            K*=np.exp(-sqrt(5)*np.sum(disi,0))
+            #X_l=np.expand_dims(X_l.T,axis=2)
+            #dis=np.abs(X_l-X_l.transpose([0,2,1]))
+            #K_1=np.prod(1+sqrt(5)*dis+5/3*dis**2,0)
+            #K_2=np.exp(-sqrt(5)*np.sum(dis,0))
+            #K=K_1*K_2
+            if fod_eval:
+                coefi=(disi**2)*(1+sqrt(5)*disi)/(1+sqrt(5)*disi+5/3*disi**2)
+                if len(self.length)==1:
+                    fod=5/3*np.sum(coefi,axis=0,keepdims=True)*K
+                else:
+                    fod=5/3*coefi*K
+        if fod_eval and self.nugget_est:
             nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)
             fod=np.concatenate((fod,nugget_fod),axis=0)
-        return fod
+        #return K+self.nugget*np.eye(n)
+        np.fill_diagonal(K, 1+self.nugget)
+        if fod_eval:
+            return K, fod
+        else:
+            return K
     
     def log_prior(self):
         """Compute the value of log priors specified to the lengthscales and nugget. 
@@ -207,11 +232,11 @@ class kernel:
         return lp
 
     def log_prior_fod(self):
-        """Compute the first order derivatives of log priors wrt the log-tranformed lengthscales and nugget.
+        """Compute the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.
 
         Returns:
             ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
-                giving the first order derivatives of log priors wrt the log-tranformed lengthscales and nugget.
+                giving the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.
         """
         fod=self.gfod(self.length)
         if self.nugget_est:
@@ -222,7 +247,7 @@ class kernel:
         """Compute the negative log-likelihood function of the GP.
 
         Args:
-            x (ndarray): a numpy 1d-array that contains the values of log-transformed model paramters: 
+            x (ndarray): a numpy 1d-array that contains the values of log-transformed model parameters: 
                 log-transformed lengthscales followed by the log-transformed nugget. 
 
         Returns:
@@ -231,9 +256,12 @@ class kernel:
         self.update(x)
         n=len(self.output)
         K=self.k_matrix()
-        _,logdet=np.linalg.slogdet(K)
-        KinvY=np.linalg.solve(K,self.output)
-        YKinvY=(self.output).T@KinvY
+        L=np.linalg.cholesky(K)
+        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
+        #_,logdet=np.linalg.slogdet(K)
+        #KinvY=np.linalg.solve(K,self.output)
+        #YKinvY=(self.output).T@KinvY
         if self.scale_est:
             scale=YKinvY/n
             neg_llik=0.5*(logdet+n*np.log(scale))
@@ -245,24 +273,25 @@ class kernel:
         return neg_llik
 
     def llik_der(self,x):
-        """Compute first order derivatives of the negative log-likelihood function wrt log-tranformed model parameters.
+        """Compute first order derivatives of the negative log-likelihood function wrt log-transformed model parameters.
 
         Args:
-            x (ndarray): a numpy 1d-array that contains the values of log-transformed model paramters: 
+            x (ndarray): a numpy 1d-array that contains the values of log-transformed model parameters: 
                 log-transformed lengthscales followed by the log-transformed nugget.
 
         Returns:
             ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
-                that contains first order derivatives of the negative log-likelihood function wrt log-tranformed 
+                that contains first order derivatives of the negative log-likelihood function wrt log-transformed 
                 lengthscales and nugget.
         """
         self.update(x)
         n=len(self.output)
-        K=self.k_matrix()
-        Kt=self.k_fod()
+        K,Kt=self.k_matrix(fod_eval=True)
         KinvKt=np.linalg.solve(K,Kt)
         tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-        KinvY=np.linalg.solve(K,self.output)
+        #KinvY=np.linalg.solve(K,self.output)
+        L=np.linalg.cholesky(K)
+        KinvY=cho_solve((L, True), self.output, check_finite=False)
         YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
         P1=-0.5*tr_KinvKt
         P2=0.5*YKinvKtKinvY
@@ -287,9 +316,9 @@ class kernel:
             lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
             ub=np.inf*np.ones(len(initial_theta_trans))
             bd=Bounds(lb, ub)
-            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd)
+            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
         else:
-            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der)
+            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
         self.add_to_path()
         
     def add_to_path(self):

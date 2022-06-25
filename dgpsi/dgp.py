@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 import copy
 from .imputation import imputer
+from .kernel_class import kernel as ker
+from .kernel_class import combine
 from sklearn.decomposition import KernelPCA
 
 class dgp:
@@ -15,12 +17,19 @@ class dgp:
         Y (ndarray): a numpy 2d-arrays containing observed output data across the DGP structure. 
             The 2d-array has it rows being output data points and columns being output dimensions 
             (with the number of columns equals to the number of GP nodes in the final layer). 
-        all_layer (list): a list contains L (the number of layers) sub-lists, each of which contains 
+        all_layer (list, optional): a list contains L (the number of layers) sub-lists, each of which contains 
             the GPs defined by the kernel class in that layer. The sub-lists are placed in the list 
-            in the same order of the specified DGP model.
+            in the same order of the specified DGP model. Defaults to None. If a DGP structure is not provided, 
+            an input-connected two-layered DGP structure (for deterministic model emulation) with the number 
+            of GP nodes in the first layer equal to the dimension of X is automatically constructed.
         check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
             position has multiple outputs. Defaults to True.
-
+        rff (bool, optional): whether to use random Fourier features to approximate the correlation matrices 
+            during the imputation in training. Defaults to False.
+        M (int, optional): the number of features to be used by random Fourier approximation. It is only used
+            when rff is set to True. Defaults to None. If it is not specified, M is set to 
+            max(100, ceil(sqrt(Data Size)*log(Data Size)))).
+        
     Remark:
         This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
             are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use lgp class for 
@@ -40,8 +49,19 @@ class dgp:
         >>>all_layer=combine(layer1,layer2,layer3)       
     """
 
-    def __init__(self, X, Y, all_layer, check_rep=True):
+    def __init__(self, X, Y, all_layer=None, check_rep=True, rff=False, M=None):
         self.Y=Y
+        if isinstance(self.Y, list):
+            if len(self.Y)==1:
+                self.Y=self.Y[0]
+            else:
+                raise Exception('Y has to be a numpy 2d-array rather than a list. The list version of Y (for linked emulation) has been reduced. Please use the dedicated lgp class for linked emulation.')
+        if (self.Y).ndim==1 or X.ndim==1:
+            raise Exception('The input and output data has to be numpy 2d-arrays.')
+        if len(X)>=300 and rff==False:
+            print('Your training data size is greater than %i, you might want to consider random Fourier features for a faster training by setting "rff=True".' % (300))
+        elif len(X)<=300 and rff:
+            print('Your training data size is smaller than %i, you may not gain much on the computation by using random Fourier features at the expense of accuracy.' % (300))
         self.indices=None
         if check_rep:
             X0, indices = np.unique(X, return_inverse=True,axis=0)
@@ -55,8 +75,18 @@ class dgp:
                 self.X=X
         else:
             self.X=X
-        self.n_layer=len(all_layer)
+        self.rff=rff
+        if M is None:
+            self.M=max(100, int(np.ceil(np.sqrt(len(self.X))*np.log(len(self.X)))))
+        else:
+            self.M=M
+        if all_layer is None:
+            D, Y_D=np.shape(self.X)[1], np.shape(self.Y)[1]
+            layer1 = [ker(length=np.array([1.])) for _ in range(D)]
+            layer2 = [ker(length=np.array([1.]),scale_est=True,connect=np.arange(D)) for _ in range(Y_D)]
+            all_layer=combine(layer1,layer2)
         self.all_layer=all_layer
+        self.n_layer=len(self.all_layer)
         self.initialize()
         self.imp=imputer(self.all_layer)
         (self.imp).sample(burnin=10)
@@ -65,11 +95,6 @@ class dgp:
     def initialize(self):
         """Initialise all_layer attribute for training.
         """
-        if isinstance(self.Y, list):
-            if len(self.Y)==1:
-                self.Y=self.Y[0]
-            else:
-                raise Exception('Y has to be a numpy 2d-array rather than a list. The list version of Y (for linked emulation) has been reduced. Please use the dedicated lgp class for linked emulation.')
         global_in=self.X
         In=self.X
         for l in range(self.n_layer):
@@ -127,6 +152,12 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                    kernel.rff, kernel.M = self.rff, self.M
+                    kernel.D=np.shape(kernel.input)[1]
+                    if kernel.connect is not None:
+                        kernel.D+=len(kernel.connect)
+                    if kernel.rff:
+                        kernel.sample_basis()
                 if l==self.n_layer-1:
                     kernel.output=copy.deepcopy(self.Y[:,[k]])
                 else:
@@ -181,7 +212,7 @@ class dgp:
         return final_struct
 
     def plot(self,layer_no,ker_no,width=4.,height=1.,ticksize=5.,labelsize=8.,hspace=0.1):
-        """Plot the traces of model paramters of a particular GP node in the DGP hierarchy.
+        """Plot the traces of model parameters of a particular GP node in the DGP hierarchy.
 
         Args:
             layer_no (int): the index of the interested layer
