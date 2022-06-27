@@ -1,6 +1,7 @@
 import copy
 import numpy as np
-from .functions import k_one_matrix
+from .functions import pdist_matern_coef
+from scipy.spatial.distance import pdist, squareform
 
 class path:
     #main algorithm
@@ -19,7 +20,7 @@ class path:
     def generate(self,N):
         d=len(self.all_layer[-1])
         m=len(self.X)
-        path=np.empty((N,m,d))
+        path_record=np.empty((N,m,d))
         for i in range(N):
             x=self.X
             for l in range(self.n_layer):
@@ -32,12 +33,25 @@ class path:
                         In=x[:,kernel.input_dim]
                     else:
                         In=x
-                    if np.any(kernel.connect!=None):
+                    if kernel.connect is not None:
                         In=np.concatenate((In,kernel.global_input),1)
-                    cov=(k_one_matrix(In,kernel.length,kernel.name)+kernel.nugget*np.identity(m))*kernel.scale
+                    cov=(self.k_matrix(In,kernel.length,kernel.name)+kernel.nugget*np.identity(m))*kernel.scale
                     L=np.linalg.cholesky(cov)
                     randn=np.random.normal(size=[m,1])
                     out[:,k]=(L@randn).flatten()
                 x=out
-            path[i,]=x
-        return path.transpose(2,0,1)
+            path_record[i,]=x
+        return path_record.transpose(2,0,1)
+    
+    @staticmethod
+    def k_matrix(X, length, name):
+        X_l=X/length
+        if name=='sexp':
+            dists = pdist(X_l, metric="sqeuclidean")
+            K = squareform(np.exp(-dists))
+        elif name=='matern2.5':
+            K=np.exp(-np.sqrt(5)*pdist(X_l, metric="minkowski",p=1))
+            K*=pdist_matern_coef(X_l)
+            K=squareform(K)
+        np.fill_diagonal(K, 1)
+        return K

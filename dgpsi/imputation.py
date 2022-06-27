@@ -1,6 +1,6 @@
 from numpy.random import uniform
 import numpy as np
-from .functions import log_likelihood_func, k_one_matrix, update_f, fmvn, log_likelihood_func_rff
+from .functions import update_f, fmvn
 
 class imputer:
     """Class to implement imputation of latent variables.
@@ -39,11 +39,7 @@ class imputer:
             k (int): the index indicating the position of the GP defined by the argument 'target_kernel' in
                 its layer.
         """
-        x=target_kernel.input
-        f=(target_kernel.output).flatten()
-        if target_kernel.connect is not None:
-            x=np.concatenate((x, target_kernel.global_input),1)
-        covariance=k_one_matrix(x,target_kernel.length,target_kernel.name)+target_kernel.nugget*np.identity(len(x))
+        covariance=target_kernel.k_matrix()
         covariance=target_kernel.scale*covariance
                   
         if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
@@ -56,7 +52,8 @@ class imputer:
                     linked_upper_kernels[0].input[:,idx]=f[linked_upper_kernels[0].rep].reshape(-1,1)
                 target_kernel.output[:,0]=f
                 return
-
+        
+        f=(target_kernel.output).flatten()
         # Choose the ellipse for this sampling iteration.
         #nu = np.random.default_rng().multivariate_normal(mean=np.zeros(len(f)),cov=covariance,check_valid='ignore')        
         nu = fmvn(covariance)               
@@ -64,15 +61,10 @@ class imputer:
         log_y=0
         for linked_kernel in linked_upper_kernels:
             if linked_kernel.type=='gp':
-                w=linked_kernel.input
-                y=(linked_kernel.output).flatten()
-                if linked_kernel.connect is not None:
-                    w=np.concatenate((w, linked_kernel.global_input),1) 
                 if linked_kernel.rff:
-                    log_y += log_likelihood_func_rff(w,y,linked_kernel.W,linked_kernel.b,linked_kernel.length,linked_kernel.nugget,linked_kernel.scale,linked_kernel.M)
+                    log_y += linked_kernel.log_likelihood_func_rff()
                 else:      
-                    cov_w=k_one_matrix(w,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(w))
-                    log_y += log_likelihood_func(y,cov_w,linked_kernel.scale)
+                    log_y += linked_kernel.log_likelihood_func()
             elif linked_kernel.type=='likelihood': 
                 log_y += linked_kernel.llik()
         log_y += np.log(uniform())
@@ -93,15 +85,10 @@ class imputer:
                 else:
                     linked_kernel.input[:,linked_kernel.input_dim==k]=fp[linked_kernel.rep].reshape(-1,1)
                 if linked_kernel.type=='gp':
-                    wp=linked_kernel.input
-                    y=(linked_kernel.output).flatten()
-                    if linked_kernel.connect is not None:
-                        wp=np.concatenate((wp,linked_kernel.global_input),1)
                     if linked_kernel.rff:
-                        log_yp += log_likelihood_func_rff(w,y,linked_kernel.W,linked_kernel.b,linked_kernel.length,linked_kernel.nugget,linked_kernel.scale,linked_kernel.M)
+                        log_yp += linked_kernel.log_likelihood_func_rff()
                     else:
-                        cov_wp=k_one_matrix(wp,linked_kernel.length,linked_kernel.name)+linked_kernel.nugget*np.identity(len(wp))
-                        log_yp += log_likelihood_func(y,cov_wp,linked_kernel.scale)
+                        log_yp += linked_kernel.log_likelihood_func()
                 elif linked_kernel.type=='likelihood': 
                     log_yp += linked_kernel.llik()
             if log_yp > log_y:

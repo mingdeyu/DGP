@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import loggamma
-from .functions import post_het1, post_het2, fmvn_mu
+from scipy.linalg import cho_solve
+from .functions import fmvn_mu
 
 class Poisson:
     """Class to implement Poisson likelihood. It (and all likelihoods below) can only be added as the final
@@ -127,17 +128,39 @@ class Hetero:
             if self.rep is None:
                 Gamma=np.diag(np.exp(self.input[:,1]))
                 y=(self.output).flatten()
-                mu,cov=post_het1(v,Gamma,y)
+                mu,cov=self.post_het1(v,Gamma,y)
             else:
                 Gamma=np.diag(np.exp(self.input[:,1]))
                 y_mask=self.output[:,0]
                 mask_f=self.rep
                 v_mask=v[mask_f,:]
                 V_mask=v[mask_f,:][:,mask_f]
-                mu,cov=post_het2(v,Gamma,v_mask,V_mask,y_mask)
+                mu,cov=self.post_het2(v,Gamma,v_mask,V_mask,y_mask)
             #f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
             f_mu=fmvn_mu(mu,cov)
             return f_mu
+    
+    @staticmethod
+    def post_het1(v,Gamma,y_mask):
+        """Calculate the conditional posterior mean and covariance of the mean 
+            of the heteroskedastic Gaussian likelihood when there are no repetitions
+            in the training data.
+        """
+        L=np.linalg.cholesky(Gamma+v)
+        mu=np.sum(v*cho_solve((L, True), y_mask, check_finite=False),axis=1)
+        cov=v@cho_solve((L, True), Gamma, check_finite=False)
+        return mu, cov
+
+    @staticmethod
+    def post_het2(v,Gamma,v_mask,V_mask,y_mask):
+        """Calculate the conditional posterior mean and covariance of the mean 
+            of the heteroskedastic Gaussian likelihood when there are repetitions
+            in the training data.
+        """
+        L=np.linalg.cholesky(Gamma+V_mask)
+        mu=np.sum(v_mask.T*cho_solve((L, True), y_mask, check_finite=False),axis=1)
+        cov=v-v_mask.T@cho_solve((L, True), v_mask, check_finite=False)
+        return mu, cov    
 
 class NegBin:
     def __init__(self, input_dim=None):

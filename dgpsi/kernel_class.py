@@ -2,9 +2,9 @@ import numpy as np
 from numpy.random import randn, uniform, standard_t
 from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
-from scipy.linalg import cho_solve
+from scipy.linalg import cho_solve, pinvh
 from scipy.spatial.distance import pdist, squareform
-from .functions import gp, link_gp, gp_stats
+from .functions import gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp
 
 class kernel:
     """
@@ -152,8 +152,6 @@ class kernel:
             self.length=theta
         if self.scale_est:
             K=self.k_matrix()
-            #KinvY=np.linalg.solve(K,self.output)
-            #YKinvY=(self.output).T@KinvY
             L=np.linalg.cholesky(K)
             YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
             new_scale=YKinvY/len(self.output)
@@ -182,38 +180,27 @@ class kernel:
         if self.name=='sexp':
             dists = pdist(X_l, metric="sqeuclidean")
             K = squareform(np.exp(-dists))
-            np.fill_diagonal(K, 1)
-            #L=np.sum(X_l**2,1,keepdims=True)
-            #dis2=np.abs(L-2*X_l@X_l.T+L.T)
-            #K=np.exp(-dis2)
             if fod_eval:
                 if len(self.length)==1:
-                    dis2 = squareform(dists)
-                    fod=np.expand_dims(2*dis2*K,axis=0)
+                    fod=np.expand_dims(squareform(2*dists)*K,axis=0)
                 else:
-                    X_li=np.expand_dims(X_l.T,axis=2)
-                    disi=np.abs(X_li-X_li.transpose([0,2,1]))
-                    fod=2*(disi**2)*K
+                    fod=fod_exp(X_l,K)
         elif self.name=='matern2.5':
-            X_li=np.expand_dims(X_l.T,axis=2)
-            disi=np.abs(X_li-X_li.transpose([0,2,1]))
-            K=np.prod(1+sqrt(5)*disi+5/3*disi**2,0)
-            K*=np.exp(-sqrt(5)*np.sum(disi,0))
-            #X_l=np.expand_dims(X_l.T,axis=2)
-            #dis=np.abs(X_l-X_l.transpose([0,2,1]))
-            #K_1=np.prod(1+sqrt(5)*dis+5/3*dis**2,0)
-            #K_2=np.exp(-sqrt(5)*np.sum(dis,0))
-            #K=K_1*K_2
             if fod_eval:
-                coefi=(disi**2)*(1+sqrt(5)*disi)/(1+sqrt(5)*disi+5/3*disi**2)
+                K=squareform(np.exp(-np.sqrt(5)*pdist(X_l, metric="minkowski",p=1)))
                 if len(self.length)==1:
-                    fod=5/3*np.sum(coefi,axis=0,keepdims=True)*K
+                    coef1, coef2 = pdist_matern_one(X_l)
                 else:
-                    fod=5/3*coefi*K
+                    coef1, coef2 = pdist_matern_multi(X_l)
+                K*=coef1
+                fod=coef2*K
+            else:
+                K=np.exp(-np.sqrt(5)*pdist(X_l, metric="minkowski",p=1))
+                K*=pdist_matern_coef(X_l)
+                K=squareform(K)
         if fod_eval and self.nugget_est:
             nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)
             fod=np.concatenate((fod,nugget_fod),axis=0)
-        #return K+self.nugget*np.eye(n)
         np.fill_diagonal(K, 1+self.nugget)
         if fod_eval:
             return K, fod
@@ -259,9 +246,6 @@ class kernel:
         L=np.linalg.cholesky(K)
         logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
-        #_,logdet=np.linalg.slogdet(K)
-        #KinvY=np.linalg.solve(K,self.output)
-        #YKinvY=(self.output).T@KinvY
         if self.scale_est:
             scale=YKinvY/n
             neg_llik=0.5*(logdet+n*np.log(scale))
@@ -289,7 +273,6 @@ class kernel:
         K,Kt=self.k_matrix(fod_eval=True)
         KinvKt=np.linalg.solve(K,Kt)
         tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-        #KinvY=np.linalg.solve(K,self.output)
         L=np.linalg.cholesky(K)
         KinvY=cho_solve((L, True), self.output, check_finite=False)
         YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
@@ -304,6 +287,30 @@ class kernel:
         if self.prior_name!=None:
             neg_St=neg_St-self.log_prior_fod()
         return neg_St
+
+    def log_likelihood_func(self):
+        cov=self.scale*self.k_matrix()
+        L=np.linalg.cholesky(cov)
+        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        quad=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
+        llik=-0.5*(logdet+quad)
+        return llik
+
+    def log_likelihood_func_rff(self):
+        """Compute Gaussian log-likelihood function using random Fourier features (RFF).
+        """
+        if self.global_input is not None:
+            X=np.concatenate((self.input, self.global_input),1)
+        else:
+            X=self.input
+        Z=sqrt(2/self.M)*np.cos(np.sum(np.expand_dims(X,axis=1)*np.expand_dims(self.W/self.length,axis=0),axis=2)+self.b)
+        cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
+        L=np.linalg.cholesky(cov)
+        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        Zt_y=np.dot(Z.T,self.output)
+        quad=-(Zt_y.T@cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
+        llik=-0.5*(logdet+quad)
+        return llik
 
     def maximise(self, method='L-BFGS-B'):
         """Optimise and update model parameters by minimising the negative log-likelihood function.
@@ -395,7 +402,13 @@ class kernel:
     def compute_stats(self):
         """Compute and store key statistics for the GP predictions
         """
-        self.Rinv,self.Rinv_y = gp_stats(self.input,self.global_input,self.output,self.length,self.nugget,self.name)
+        R=self.k_matrix()
+        #U, s, Vh = np.linalg.svd(R)
+        #self.Rinv=Vh.T@np.diag(s**-1)@U.T
+        #L=np.linalg.cholesky(R)
+        #self.Rinv_y=cho_solve((L, True), self.output, check_finite=False)
+        self.Rinv=pinvh(R,check_finite=False)
+        self.Rinv_y=np.dot(self.Rinv,self.output)
 
 def combine(*layers):
     """Combine layers into one list as a DGP structure.

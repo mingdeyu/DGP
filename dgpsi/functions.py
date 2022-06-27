@@ -32,33 +32,87 @@ def read(pkl_file):
     emu = load(open(pkl_file+".pkl", "rb"))
     return emu
 
+#######functions for optim#########
+@jit(nopython=True,cache=True)
+def pdist_matern_coef(X):
+    n = X.shape[0]
+    out_size = np.int((n * (n - 1)) / 2)
+    dm = np.empty(out_size)
+    k = 0
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            dm[k] = matern_coef(X[i], X[j])
+            k += 1
+    return dm
+
+@jit(nopython=True,cache=True)
+def matern_coef(v,u):
+    dist = 1
+    for r in range(len(v)):
+        disi = np.abs(v[r] - u[r])
+        dist *= 1+np.sqrt(5)*disi+(5/3)*disi**2
+    return dist
+
+@jit(nopython=True,cache=True)
+def fod_exp(X,K):
+    n, D = X.shape
+    dm = np.zeros((D,n,n))
+    for d in range(D):
+        for i in range(n - 1):
+            for j in range(i + 1, n):
+                temp = 2*(X[i,d]-X[j,d])**2*K[i,j]
+                dm[d,i,j], dm[d,j,i] = temp, temp
+    return dm
+
+@jit(nopython=True,cache=True)
+def pdist_matern_one(X):
+    n = X.shape[0]
+    dm = np.zeros((n,n))
+    dm1 = np.zeros((1,n,n))
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            temp1,temp2 = matern_one(X[i], X[j])
+            dm[i,j], dm[j,i] = temp1, temp1 
+            dm1[:,i,j], dm1[:,j,i] = temp2, temp2
+    return dm, dm1
+
+@jit(nopython=True,cache=True)
+def pdist_matern_multi(X):
+    n, D = X.shape
+    dm = np.zeros((n,n))
+    dm2 = np.zeros((D,n,n))
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            temp1,temp2=matern_multi(X[i], X[j])
+            dm[i,j], dm[j,i] = temp1, temp1 
+            dm2[:,i,j], dm2[:,j,i] = temp2, temp2
+    return dm, dm2
+
+@jit(nopython=True,cache=True)
+def matern_one(v,u):
+    dist = 1
+    dist1 = 0
+    for d in range(len(v)):
+        disi = np.abs(v[d] - u[d])
+        coefi = 1+np.sqrt(5)*disi+(5/3)*disi**2
+        dist *= coefi
+        coefi1=(5/3)*(disi**2)*(1+np.sqrt(5)*disi)/(1+np.sqrt(5)*disi+5/3*disi**2)
+        dist1 += coefi1
+    return dist, dist1
+
+@jit(nopython=True,cache=True)
+def matern_multi(v,u):
+    dist = 1
+    dist1=np.zeros(len(v)) 
+    for d in range(len(v)):
+        disi = np.abs(v[d] - u[d])
+        coefi = 1+np.sqrt(5)*disi+(5/3)*disi**2
+        dist *= coefi
+        coefi1=(5/3)*(disi**2)*(1+np.sqrt(5)*disi)/(1+np.sqrt(5)*disi+5/3*disi**2)
+        dist1[d] = coefi1
+    return dist, dist1
+
 ######functions for imputer########
-@jit(nopython=True,cache=True)
-def log_likelihood_func(y,cov,scale):
-    """Compute Gaussian log-likelihood function.
-    """
-    cov=scale*cov
-    L=np.linalg.cholesky(cov)
-    logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-    #_,logdet=np.linalg.slogdet(cov)
-    quad=np.sum(y*np.linalg.solve(cov,y))
-    llik=-0.5*(logdet+quad)
-    return llik
-
-@jit(nopython=True,cache=True)
-def log_likelihood_func_rff(X,y,W,b,length,nugget,scale,M):
-    """Compute Gaussian log-likelihood function using random Fourier features (RFF).
-    """
-    Z=sqrt(2/M)*np.cos(np.sum(np.expand_dims(X,axis=1)*np.expand_dims(W/length,axis=0),axis=2)+b)
-    cov=np.dot(Z.T,Z)+nugget*np.identity(M)
-    L=np.linalg.cholesky(cov)
-    logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-    #_,logdet=np.linalg.slogdet(cov)
-    Zt_y=np.dot(Z.T,y)
-    quad=-np.sum(Zt_y*np.linalg.solve(cov,Zt_y))/(scale*nugget)
-    llik=-0.5*(logdet+quad)
-    return llik
-
 @jit(nopython=True,cache=True)
 def fmvn_mu(mu,cov):
     """Generate multivariate Gaussian random samples with means.
@@ -100,54 +154,11 @@ def fmvn(cov):
 #    return samp
 
 @jit(nopython=True,cache=True)
-def k_one_matrix(X,length,name):
-    """Compute the correlation matrix without the nugget term.
-    """
-    if name=='sexp':
-        X_l=X/length
-        L=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
-        dis2=L-2*np.dot(X_l,X_l.T)+L.T
-        K=np.exp(-dis2)
-    elif name=='matern2.5':
-        n,d=np.shape(X)
-        X_l=np.expand_dims((X/length).T,axis=2)
-        K1=np.ones((n,n))
-        K2=np.zeros((n,n))
-        for i in range(d):
-            dis=np.abs(X_l[i]-X_l[i].T)
-            K1*=(1+sqrt(5)*dis+5/3*dis**2)
-            K2+=dis
-        K2=np.exp(-sqrt(5)*K2)
-        K=K1*K2
-    return K
-
-@jit(nopython=True,cache=True)
 def update_f(f,nu,theta):
     """Update ESS proposal samples.
     """
     fp=f*np.cos(theta) + nu*np.sin(theta)
     return fp
-
-@jit(nopython=True,cache=True)
-def post_het1(v,Gamma,y_mask):
-    """Calculate the conditional posterior mean and covariance of the mean 
-       of the heteroskedastic Gaussian likelihood when there are no repetitions
-       in the training data.
-    """
-    mu=np.sum(v*np.linalg.solve(Gamma+v,y_mask),axis=1)
-    cov=v@np.linalg.solve(Gamma+v,Gamma)
-    return mu, cov
-
-@jit(nopython=True,cache=True)
-def post_het2(v,Gamma,v_mask,V_mask,y_mask):
-    """Calculate the conditional posterior mean and covariance of the mean 
-       of the heteroskedastic Gaussian likelihood when there are repetitions
-       in the training data.
-    """
-    mu=np.sum(v_mask.T*np.linalg.solve(Gamma+V_mask,y_mask),axis=1)
-    cov=v-v_mask.T@np.linalg.solve(Gamma+V_mask,v_mask)
-    return mu, cov    
-
 ######Gauss-Hermite quadrature######
 def ghdiag(fct,mu,var,y):
     x, w = np.polynomial.hermite.hermgauss(10)
@@ -160,18 +171,6 @@ def ghdiag(fct,mu,var,y):
     return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
 
 ######functions for predictions########
-@jit(nopython=True,cache=True)
-def gp_stats(w1,global_w1,w2,length,nugget,name):
-    """Compute key statistics for GP node predictions 
-    """
-    if global_w1!=None:
-        w1=np.concatenate((w1, global_w1),1)
-    R=k_one_matrix(w1,length,name)+nugget*np.identity(len(w1))
-    U, s, Vh = np.linalg.svd(R)
-    Rinv=Vh.T@np.diag(s**-1)@U.T
-    Rinv_y=np.linalg.solve(R,w2)
-    return Rinv, Rinv_y
-
 @jit(nopython=True,cache=True,fastmath=True)
 def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     """Make GP predictions.
