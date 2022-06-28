@@ -4,7 +4,7 @@ from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh
 from scipy.spatial.distance import pdist, squareform
-from .functions import gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp
+from .functions import gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct
 
 class kernel:
     """
@@ -299,16 +299,16 @@ class kernel:
     def log_likelihood_func_rff(self):
         """Compute Gaussian log-likelihood function using random Fourier features (RFF).
         """
-        if self.global_input is not None:
-            X=np.concatenate((self.input, self.global_input),1)
+        if self.connect is not None:
+            X=np.concatenate((self.input,self.global_input),1)
         else:
             X=self.input
-        Z=sqrt(2/self.M)*np.cos(np.sum(np.expand_dims(X,axis=1)*np.expand_dims(self.W/self.length,axis=0),axis=2)+self.b)
+        Z=Z_fct(X,self.W,self.b,self.length,self.M)
         cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
         L=np.linalg.cholesky(cov)
         logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         Zt_y=np.dot(Z.T,self.output)
-        quad=-(Zt_y.T@cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
+        quad=-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
         llik=-0.5*(logdet+quad)
         return llik
 

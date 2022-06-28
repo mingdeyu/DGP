@@ -159,6 +159,16 @@ def update_f(f,nu,theta):
     """
     fp=f*np.cos(theta) + nu*np.sin(theta)
     return fp
+
+@jit(nopython=True,cache=True)
+def Z_fct(X,W,b,length,M):
+    N=len(X)
+    Z=np.empty((N,M))
+    W=W/length
+    for i in range(N):
+        Z[i]=np.sum(W*X[i],1)+b
+    return np.sqrt(2/M)*np.cos(Z)
+
 ######Gauss-Hermite quadrature######
 def ghdiag(fct,mu,var,y):
     x, w = np.polynomial.hermite.hermgauss(10)
