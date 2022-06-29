@@ -260,22 +260,19 @@ def k_one_vec(X,z,length,name):
 def IJ(X,z_m,z_v,length,name):
     """Compute I and J involved in linked GP predictions.
     """
-    n=np.shape(X)[0]
-    d=np.shape(X)[1]
+    n,d=X.shape
     if name=='sexp':
         X_z=X-z_m
         I=np.ones((n,1))
         J=np.ones((n,n))
-        for i in range(d):
-            X_zi=np.ascontiguousarray(np.expand_dims(X_z[:,i],axis=1))
-            X_zi_T=np.ascontiguousarray(np.expand_dims(X_z[:,i],axis=0))
-            L_X_z=X_zi**2
-            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-L_X_z/(2*z_v[i]+length[i]**2))
-            L_X_z_T=X_zi_T**2
-            cross_L_X_z=np.dot(X_zi,X_zi_T)
-            dis1=L_X_z+2*cross_L_X_z+L_X_z_T
-            dis2=L_X_z-2*cross_L_X_z+L_X_z_T
-            J*=1/np.sqrt(1+4*z_v[i]/length[i]**2)*np.exp(-dis1/(2*length[i]**2+8*z_v[i])-dis2/(2*length[i]**2))
+        for i in range(n):
+            I[i]=I_sexp(z_v,length,X_z[i])
+            for j in range(i+1):
+                temp = J_sexp(z_v,length,X_z[i],X_z[j])
+                if i==j:
+                    J[i,j]=temp
+                else:
+                    J[i,j], J[j,i]=temp, temp
     elif name=='matern2.5':
         zX=z_m-X
         muA=(zX-sqrt(5)*z_v/length).T.reshape((d,n,1))
@@ -305,6 +302,21 @@ def IJ(X,z_m,z_v,length,name):
                 I*=Id
                 J*=np.dot(Id,Id.T)
     return I,J
+
+@jit(nopython=True,cache=True,fastmath=True)
+def I_sexp(z_v,length,X_zi):
+    Id=1
+    for d in range(len(length)):
+        Id*=1/np.sqrt(1+2*z_v[d]/length[d]**2)*np.exp(-X_zi[d]**2/(2*z_v[d]+length[d]**2))
+    return Id
+
+@jit(nopython=True,cache=True,fastmath=True)
+def J_sexp(z_v,length,X_zi,X_zj):
+    Jd=1
+    for d in range(len(length)):
+        dis1, dis2 = (X_zi[d]+X_zj[d])**2, (X_zi[d]-X_zj[d])**2
+        Jd*=1/np.sqrt(1+4*z_v[d]/length[d]**2)*np.exp(-dis1/(2*length[d]**2+8*z_v[d])-dis2/(2*length[d]**2))
+    return Jd
 
 @vectorize([float64(float64)],nopython=True,cache=True,fastmath=True)
 def pnorm(x):

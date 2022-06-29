@@ -13,18 +13,10 @@ class emulator:
             of the 'dgp' class. 
         N (int, optional): the number of imputation to produce the predictions. Increase the value to account for
             more imputation uncertainties. Defaults to 50.
-        rff (bool, optional): indicates if random Fourier features will be used to approximate the correlation
-            matrices during the imputation for predictions. Defaults to False.
     """
-    def __init__(self, all_layer, N=50, rff=False):
+    def __init__(self, all_layer, N=50):
         self.all_layer=all_layer
         self.n_layer=len(all_layer)
-        for l in range(self.n_layer):
-            for kernel in self.all_layer[l]:
-                if kernel.type == 'gp':
-                    kernel.rff = rff
-                    if not kernel.rff and rff:
-                        kernel.sample_basis()
         self.imp=imputer(self.all_layer)
         (self.imp).sample(burnin=50)
         self.all_layer_set=[]
@@ -42,15 +34,15 @@ class emulator:
                 Defaults to None. If not specified, the number of chunks will be determined by dividing the input
                 array into chunks with max 200 input positions. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to None. If not specified, 
-                the number of cores is set to min(max physical cores available - 1, chunk_num).
+                the number of cores is set to (max physical cores available - 1).
 
         Returns:
             Same as the method `predict`.
         """
-        if chunk_num==None:
-            chunk_num=int(np.ceil(len(x)/200))
         if core_num==None:
-            core_num=min(psutil.cpu_count(logical = False)-1,chunk_num)
+            core_num=psutil.cpu_count(logical = False)-1
+        if chunk_num==None:
+            chunk_num=core_num
         f=lambda x: self.predict(*x) 
         z=np.array_split(x,chunk_num)
         with Pool(core_num) as pool:
