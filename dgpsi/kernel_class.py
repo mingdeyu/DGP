@@ -255,6 +255,38 @@ class kernel:
         if self.prior_name!=None:
             neg_llik=neg_llik-self.log_prior()
         return neg_llik
+    
+    def llik_rff(self,x):
+        """Compute the negative log-likelihood function of the GP under RFF.
+
+        Args:
+            x (ndarray): a numpy 1d-array that contains the values of log-transformed model parameters: 
+                log-transformed lengthscales followed by the log-transformed nugget. 
+
+        Returns:
+            ndarray: a numpy 1d-array giving negative log-likelihood.
+        """
+        self.update(x)
+        n=len(self.output)
+        if self.connect is not None:
+            X=np.concatenate((self.input,self.global_input),1)
+        else:
+            X=self.input
+        Z=Z_fct(X,self.W,self.b,self.length,self.M)
+        cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
+        L=np.linalg.cholesky(cov)
+        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        Zt_y=np.dot(Z.T,self.output)
+        quad=np.dot(self.output.T,self.output)-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))
+        if self.scale_est:
+            scale=quad/(n*self.nugget)
+            neg_llik=0.5*(logdet+n*np.log(scale)+(n-self.M)*np.log(self.nugget))
+        else:
+            neg_llik=0.5*(logdet+quad/(self.scale*self.nugget)+(n-self.M)*np.log(self.nugget)) 
+        neg_llik=neg_llik.flatten()
+        if self.prior_name!=None:
+            neg_llik=neg_llik-self.log_prior()
+        return neg_llik
 
     def llik_der(self,x):
         """Compute first order derivatives of the negative log-likelihood function wrt log-transformed model parameters.
@@ -309,6 +341,7 @@ class kernel:
         logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         Zt_y=np.dot(Z.T,self.output)
         quad=-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
+        #quad=-(Zt_y.T@cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
         llik=-0.5*(logdet+quad)
         return llik
 
@@ -320,12 +353,24 @@ class kernel:
         """
         initial_theta_trans=self.log_t()
         if self.nugget_est:
-            lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-            ub=np.inf*np.ones(len(initial_theta_trans))
-            bd=Bounds(lb, ub)
-            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+            if self.rff:
+                lb=np.concatenate((-5.*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                ub=5.*np.ones(len(initial_theta_trans))
+                bd=Bounds(lb, ub)
+                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+            else:
+                lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                ub=np.inf*np.ones(len(initial_theta_trans))
+                bd=Bounds(lb, ub)
+                _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
         else:
-            _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
+            if self.rff:
+                lb=-5.*np.ones(len(initial_theta_trans))
+                ub=5.*np.ones(len(initial_theta_trans))
+                bd=Bounds(lb, ub)
+                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+            else:
+                _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
         self.add_to_path()
         
     def add_to_path(self):
@@ -351,7 +396,7 @@ class kernel:
         m,v=gp(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
         return m,v
 
-    def linkgp_prediction(self,m,v,z):
+    def linkgp_prediction(self,m,v,z,nb_parallel):
         """Make linked GP predictions. 
 
         Args:
@@ -364,15 +409,16 @@ class kernel:
             z (ndarray): a numpy 2d-array that contains additional input testing data (with the same number of 
                 columns of the 'global_input' attribute) from the global testing input if the argument 'connect' 
                 is not None. Set to None if the argument 'connect' is None. 
+            nb_parallel (bool): whether to use Numba's multi-threading to accelerate the predictions.
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
                 represented by predictive means and variances).
         """
-        m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
+        m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name,nb_parallel)
         return m,v
 
-    def linkgp_prediction_full(self,m,v,m_z,v_z,z):
+    def linkgp_prediction_full(self,m,v,m_z,v_z,z,nb_parallel):
         """Make linked GP predictions with additional input also generated by GPs/DGPs. 
 
         Args:
@@ -386,6 +432,7 @@ class kernel:
             v_z (ndarray): a numpy 2d-array that contains predictive variances of additional input testing data from GPs.
             z (ndarray): a numpy 2d-array that contains additional input testing data from the global testing input that are
                 not from GPs. Set to None if the argument 'connect' is None. 
+            nb_parallel (bool): whether to use Numba's multi-threading to accelerate the predictions.
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
@@ -396,7 +443,7 @@ class kernel:
         idx1=np.arange(np.shape(m_z)[1])
         idx2=np.arange(np.shape(m_z)[1],np.shape(self.global_input)[1])
         overall_input=np.concatenate((self.input,self.global_input[:,idx1]),axis=1)
-        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
+        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name,nb_parallel)
         return m,v
 
     def compute_stats(self):

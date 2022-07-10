@@ -1,3 +1,5 @@
+import multiprocess.context as ctx
+import platform
 import numpy as np
 from pathos.multiprocessing import ProcessingPool as Pool
 import psutil
@@ -49,8 +51,10 @@ class lgp:
         N (int): the number of imputation to produce the predictions. Increase the value to account for more 
             imputation uncertainties. If the system consists only GP emulators, 'N' is set to 1 automatically. 
             Defaults to 50.
+        nb_parallel (bool, optional): whether to use Numba's multi-threading to accelerate the predictions. Defaults to False.
     """
-    def __init__(self, all_layer, N=50):
+    def __init__(self, all_layer, N=50, nb_parallel=False):
+        self.nb_parallel=nb_parallel
         self.L=len(all_layer)
         self.num_model=[]
         for l in range(1,self.L):
@@ -71,6 +75,12 @@ class lgp:
                         layer.append(copy.deepcopy(cont))
                 one_imputation.append(layer)
             self.all_layer_set.append(one_imputation)
+
+    def set_nb_parallel(self,nb_parallel):
+        """Set 'self.nb_parallel' to the bool value given by 'nb_parallel'. This method is useful to change 'self.nb_parallel'
+            when the lgp class has already been built.
+        """
+        self.nb_parallel=nb_parallel
     
     def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
@@ -81,18 +91,24 @@ class lgp:
                 Defaults to None. If not specified, the number of chunks will be determined by dividing the input
                 array into chunks with max 200 input positions. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to None. If not specified, 
-                the number of cores is set to min(max physical cores available - 1, chunk_num).
+                the number of cores is set to (max physical cores available - 1).
 
         Returns:
             Same as the method `predict`.
         """
+        if platform.system()=='Darwin':
+            ctx._force_start_method('forkserver')
+        if core_num==None:
+            core_num=psutil.cpu_count(logical = False)-1
+        if chunk_num==None:
+            chunk_num=core_num
+        if chunk_num<core_num:
+            core_num=chunk_num
         f=lambda x: self.predict(*x) 
         if isinstance(x, list):
             if len(x)!=self.L:
                 raise Exception('When test input is given as a list, it must contain global inputs to the all layers (even with no global inputs to internal layers). Set None as the global input to the internal models if they have no global inputs.')
             else:
-                if chunk_num==None:
-                    chunk_num=int(np.ceil(len(x[0])/200))
                 for l in range(self.L):
                     if l==0:
                         z=[[element] for element in np.array_split(x[l],chunk_num)]
@@ -106,11 +122,7 @@ class lgp:
                                 z_m=[i+[j] for i, j in zip(z_m,np.array_split(z_l[m],chunk_num))]
                         z=[i+[j] for i,j in zip(z,z_m)]
         elif not isinstance(x, list):
-            if chunk_num==None:
-                chunk_num=int(np.ceil(len(x)/200))
             z=np.array_split(x,chunk_num)
-        if core_num==None:
-            core_num=min(psutil.cpu_count(logical = False)-1,chunk_num)
         with Pool(core_num) as pool:
             res = pool.map(f, [[x, method, full_layer, sample_size] for x in z])
         if method == 'mean_var':
@@ -220,9 +232,9 @@ class lgp:
                         model=layer[k]
                         input_lk=x[l][:,model.local_input_idx]
                         if model.type=='gp':
-                            m_lk, v_lk = self.gp_pred(input_lk,None,None,None,model.structure)
+                            m_lk, v_lk = self.gp_pred(input_lk,None,None,None,model.structure,self.nb_parallel)
                         elif model.type=='dgp':
-                            _, _, m_lk, v_lk = self.dgp_pred(input_lk,None,None,None,model.structure)
+                            _, _, m_lk, v_lk = self.dgp_pred(input_lk,None,None,None,model.structure,self.nb_parallel)
                         m_l.append(m_lk)
                         v_l.append(v_lk)
                         if method=='sampling' and full_layer:
@@ -242,12 +254,12 @@ class lgp:
                         external_input_lk=x[l][k]
                         m_input_lk, v_input_lk = m_l_next[:,model.local_input_idx], v_l_next[:,model.local_input_idx]
                         if model.type=='gp':
-                            m_lk, v_lk=self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure)
+                            m_lk, v_lk=self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,self.nb_parallel)
                             if method=='sampling':
                                 row_num, col_num = np.shape(m_lk)
                                 sample_lk=np.random.normal(m_lk,np.sqrt(v_lk),size=(sample_size, row_num, col_num)).transpose(2,1,0)
                         elif model.type=='dgp':
-                            m_one_before_lk, v_one_before_lk, m_lk, v_lk = self.dgp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure)
+                            m_one_before_lk, v_one_before_lk, m_lk, v_lk = self.dgp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,self.nb_parallel)
                             if method=='sampling':
                                 row_num, col_num = np.shape(m_lk)
                                 sample_lk=np.empty((col_num, row_num, sample_size))
@@ -274,9 +286,9 @@ class lgp:
                         external_input_lk=x[l][k]
                         m_input_lk, v_input_lk = m_l_next[:,model.local_input_idx], v_l_next[:,model.local_input_idx]
                         if model.type=='gp':
-                            m_lk, v_lk = self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure)
+                            m_lk, v_lk = self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,self.nb_parallel)
                         elif model.type=='dgp':
-                            _, _, m_lk, v_lk = self.dgp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure)
+                            _, _, m_lk, v_lk = self.dgp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,self.nb_parallel)
                         m_l.append(m_lk)
                         v_l.append(v_lk)
                         if method=='sampling' and full_layer:
@@ -318,17 +330,17 @@ class lgp:
             return samples
 
     @staticmethod
-    def gp_pred(x,m,v,z,structure):
+    def gp_pred(x,m,v,z,structure,nb_parallel):
         """Compute predictive mean and variance from a GP emulator when the testing input is either deterministic or normally distributed.
         """
         if x is None:
-            m,v=structure.linkgp_prediction(m=m,v=v,z=z)
+            m,v=structure.linkgp_prediction(m=m,v=v,z=z,nb_parallel=nb_parallel)
         else:
             m,v=structure.gp_prediction(x=x,z=z)
         return m.reshape(-1,1),v.reshape(-1,1)
     
     @staticmethod
-    def dgp_pred(x,m,v,z,structure):
+    def dgp_pred(x,m,v,z,structure,nb_parallel):
         """Compute predictive mean and variance from a DGP (DGP+likelihood) emulator when the testing input is either deterministic or normally distributed.
         """
         if x is None:
@@ -349,7 +361,7 @@ class lgp:
                 for k in range(n_kerenl):
                     kernel=layer[k]
                     if x is None:
-                        m_k,v_k=kernel.linkgp_prediction(m=m,v=v,z=z)
+                        m_k,v_k=kernel.linkgp_prediction(m=m,v=v,z=z,nb_parallel=nb_parallel)
                     else:
                         m_k,v_k=kernel.gp_prediction(x=x,z=z)
                     overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
@@ -364,15 +376,15 @@ class lgp:
                                 D=np.shape(m)[1]
                                 idx1,idx2=kernel.connect[kernel.connect<=(D-1)],kernel.connect[kernel.connect>(D-1)]
                                 if idx1.size==0:
-                                    m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,idx2-D])
+                                    m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,idx2-D],nb_parallel=nb_parallel)
                                 elif idx2.size==0:
-                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=None)
+                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=None,nb_parallel=nb_parallel)
                                 else:
-                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=z[:,idx2-D])
+                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=z[:,idx2-D],nb_parallel=nb_parallel)
                             else:
-                                m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=x[:,kernel.connect])
+                                m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=x[:,kernel.connect],nb_parallel=nb_parallel)
                         else:
-                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=None)
+                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=None,nb_parallel=nb_parallel)
                         likelihood_gp_mean[:,k],likelihood_gp_var[:,k]=m_k,v_k
                     elif kernel.type=='likelihood':
                         m_k,v_k=kernel.prediction(m=m_k_in,v=v_k_in)
@@ -386,15 +398,15 @@ class lgp:
                             D=np.shape(m)[1]
                             idx1,idx2=kernel.connect[kernel.connect<=(D-1)],kernel.connect[kernel.connect>(D-1)]
                             if idx1.size==0:
-                                m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,idx2-D])
+                                m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,idx2-D],nb_parallel=nb_parallel)
                             elif idx2.size==0:
-                                m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=None)
+                                m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=None,nb_parallel=nb_parallel)
                             else:
-                                m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=z[:,idx2-D])
+                                m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=z[:,idx2-D],nb_parallel=nb_parallel)
                         else:
-                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=x[:,kernel.connect])
+                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=x[:,kernel.connect],nb_parallel=nb_parallel)
                     else:
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=None)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=None,nb_parallel=nb_parallel)
                     overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                 overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
         return overall_test_input_mean, overall_test_input_var, likelihood_gp_mean, likelihood_gp_var

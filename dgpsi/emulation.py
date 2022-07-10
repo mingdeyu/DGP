@@ -1,3 +1,5 @@
+import multiprocess.context as ctx
+import platform
 import numpy as np
 from pathos.multiprocessing import ProcessingPool as Pool
 import psutil   
@@ -13,8 +15,9 @@ class emulator:
             of the 'dgp' class. 
         N (int, optional): the number of imputation to produce the predictions. Increase the value to account for
             more imputation uncertainties. Defaults to 50.
+        nb_parallel (bool, optional): whether to use Numba's multi-threading to accelerate the predictions. Defaults to False.
     """
-    def __init__(self, all_layer, N=50):
+    def __init__(self, all_layer, N=50, nb_parallel=False):
         self.all_layer=all_layer
         self.n_layer=len(all_layer)
         self.imp=imputer(self.all_layer)
@@ -24,6 +27,15 @@ class emulator:
             (self.imp).sample()
             (self.imp).key_stats()
             (self.all_layer_set).append(copy.deepcopy(self.all_layer))
+        self.nb_parallel=nb_parallel
+        #if len(self.all_layer[0][0].input)>=500 and self.nb_parallel==False:
+        #    print('Your training data size is greater than %i, you might want to set "nb_parallel=True" to accelerate the prediction.' % (500))
+    
+    def set_nb_parallel(self,nb_parallel):
+        """Set 'self.nb_parallel' to the bool value given by 'nb_parallel'. This method is useful to change 'self.nb_parallel'
+            when the emulator class has already been built.
+        """
+        self.nb_parallel=nb_parallel
 
     def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
@@ -39,14 +51,22 @@ class emulator:
         Returns:
             Same as the method `predict`.
         """
+        if platform.system()=='Darwin':
+            ctx._force_start_method('forkserver')
         if core_num==None:
             core_num=psutil.cpu_count(logical = False)-1
         if chunk_num==None:
             chunk_num=core_num
+        if chunk_num<core_num:
+            core_num=chunk_num
         f=lambda x: self.predict(*x) 
         z=np.array_split(x,chunk_num)
         with Pool(core_num) as pool:
+            #pool.restart()
             res = pool.map(f, [[x, method, full_layer, sample_size] for x in z])
+            pool.close()
+            pool.join()
+            pool.clear()
         if method == 'mean_var':
             if full_layer:
                 combined_res=[]
@@ -142,7 +162,7 @@ class emulator:
                                 z_k_in=overall_global_test_input[:,kernel.connect]
                             else:
                                 z_k_in=None
-                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
+                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
                             likelihood_gp_mean[:,k],likelihood_gp_var[:,k]=m_k,v_k
                         elif kernel.type=='likelihood':
                             m_k,v_k=kernel.prediction(m=m_k_in,v=v_k_in)
@@ -155,7 +175,7 @@ class emulator:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
                     if full_layer:
@@ -268,7 +288,7 @@ class emulator:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
             predicted_lik.append(ghdiag(one_imputed_all_layer[-1][0].pllik,overall_test_input_mean,overall_test_input_var,y))

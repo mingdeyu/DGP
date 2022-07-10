@@ -58,10 +58,10 @@ class dgp:
                 raise Exception('Y has to be a numpy 2d-array rather than a list. The list version of Y (for linked emulation) has been reduced. Please use the dedicated lgp class for linked emulation.')
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data has to be numpy 2d-arrays.')
-        if len(X)>=300 and rff==False:
-            print('Your training data size is greater than %i, you might want to consider random Fourier features for a faster training by setting "rff=True".' % (300))
-        elif len(X)<=300 and rff:
-            print('Your training data size is smaller than %i, you may not gain much on the computation by using random Fourier features at the expense of accuracy.' % (300))
+        #if len(X)>=500 and rff==False:
+        #    print('Your training data size is greater than %i, you might want to consider random Fourier features for a faster training by setting "rff=True".' % (500))
+        #elif len(X)<=500 and rff:
+        #    print('Your training data size is smaller than %i, you may not gain much on the computation by using random Fourier features at the expense of accuracy.' % (500))
         self.indices=None
         if check_rep:
             X0, indices = np.unique(X, return_inverse=True,axis=0)
