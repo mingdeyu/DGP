@@ -19,29 +19,56 @@ The package `dgpsi` implements inference of both deep and linked Gaussian proces
 Please see [demo](demo/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
 
 ## Installation
-After cloning the repo, type the following in the same directory of `setup.py`:
+The simplest way to install the package is to clone the repo and type the following in the same directory of `setup.py`:
 
 ```bash
 pip install .
 ```
 
-to install the code and its required dependencies.
+However, to gain the best performance of the package, we recommend the following steps for the installation:
+* Download and install `Miniforge3` that is compatible to your system from [here](https://github.com/conda-forge/miniforge).
+* Run the following command in your terminal app to create a virtual environment called `dgp_si`:
+
+```bash
+conda create -n dgp_si python=3.9.13 
+```
+
+* Activate and enter the virtual environment:
+
+```bash
+conda activate dgp_si
+```
+
+* Install required packages:
+    - for Mac Silicon chip users, you could gain speed-up by switching to Apple's Accelerate framework by running:
+
+    ```bash
+    conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba "libblas=*=*accelerate"
+    ```
+
+    - for Intel chip users, you could gain speed-up by switching to MKL by running:
+
+    ```bash
+    conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba "libblas=*=*mkl"
+    ```
+
+    - otherwise, simply run:
+    ```bash
+    conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba
+    ```
+
+* Install `dgpsi` package:
+
+```bash
+cd A-LOCATION-YOU-PREFER
+git clone https://github.com/mingdeyu/DGP.git
+cd DGP
+pip install .
+```
 
 ## Tips
 * Since SI is a stochastic inference, in case of unsatisfactory results, you may want to try to restart the training multiple times even with initial values of hyperparameters unchanged;
 * The recommended DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns) or the number of parameters in the specified likelihood.
-
-## Built with
-The package is built under `Python 3.7.3` with following packages:
-* `numpy 1.18.2`;
-* `numba 0.51.2`;
-* `matplotlib 3.2.1`;
-* `tqdm 4.50.2`;
-* `scikit-learn 0.22.0`;
-* `scipy 1.4.1`;
-* `dill 0.3.2`;
-* `pathos 0.2.9`;
-* `psutil 5.8.0`.
 
 ## Contact
 Please feel free to email me with any questions and feedbacks: 

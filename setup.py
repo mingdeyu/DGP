@@ -23,7 +23,11 @@ INSTALL_REQUIRES = [
       'jupyter',
       'dill>=0.3.2',
       'pathos>=0.2.9',
-      'psutil>=5.8.0'
+      'psutil>=5.8.0',
+      'cython',
+      'pybind11',
+      'pythran',
+      'scikit-build'
 ]
 
 setup(name=PACKAGE_NAME,
