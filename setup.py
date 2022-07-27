@@ -20,14 +20,14 @@ INSTALL_REQUIRES = [
       'tqdm>=4.50.2',
       'scipy>=1.4.1',
       'scikit-learn>=0.22.0',
-      'jupyter',
+      'jupyter>=1.0.0',
       'dill>=0.3.2',
       'pathos>=0.2.9',
       'psutil>=5.8.0',
-      'cython',
-      'pybind11',
-      'pythran',
-      'scikit-build'
+      'cython>=0.29.30',
+      'pybind11>=2.10.0',
+      'pythran>=0.11.0',
+      'scikit-build>=0.15.0'
 ]
 
 setup(name=PACKAGE_NAME,
