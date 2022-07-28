@@ -1,5 +1,5 @@
-# Deep and Linked Gaussian Process Emulation using Stochastic Imputation
-The package `dgpsi` implements inference of both deep and linked Gaussian process emulation using stochastic imputation. 
+# dgpsi
+`dgpsi` implements inference of both deep and linked Gaussian process emulation using stochastic imputation. 
 
 ## Key features
 `dgpsi` currently has the following features:
@@ -19,10 +19,10 @@ The package `dgpsi` implements inference of both deep and linked Gaussian proces
 Please see [demo](demo/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
 
 ## Installation
-The simplest way to install the package is to clone the repo and type the following in the same directory of `setup.py`:
+The simplest way to install the package is to use `pip`:
 
 ```bash
-pip install .
+pip install dgpsi
 ```
 
 However, to gain the best performance of the package, we recommend the following steps for the installation:

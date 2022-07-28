@@ -17,36 +17,38 @@ class dgp:
         Y (ndarray): a numpy 2d-arrays containing observed output data across the DGP structure. 
             The 2d-array has it rows being output data points and columns being output dimensions 
             (with the number of columns equals to the number of GP nodes in the final layer). 
-        all_layer (list, optional): a list contains L (the number of layers) sub-lists, each of which contains 
+        all_layer (list, optional): a list contains *L* (the number of layers) sub-lists, each of which contains 
             the GPs defined by the kernel class in that layer. The sub-lists are placed in the list 
-            in the same order of the specified DGP model. Defaults to None. If a DGP structure is not provided, 
+            in the same order of the specified DGP model. Defaults to `None`. If a DGP structure is not provided, 
             an input-connected two-layered DGP structure (for deterministic model emulation) with the number 
-            of GP nodes in the first layer equal to the dimension of X is automatically constructed.
+            of GP nodes in the first layer equal to the dimension of **X** is automatically constructed.
         check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
-            position has multiple outputs. Defaults to True.
+            position has multiple outputs. Defaults to `True`.
         rff (bool, optional): whether to use random Fourier features to approximate the correlation matrices 
-            during the imputation in training. Defaults to False.
+            during the imputation in training. Defaults to `False`.
         M (int, optional): the number of features to be used by random Fourier approximation. It is only used
-            when rff is set to True. Defaults to None. If it is not specified, M is set to 
-            max(100, ceil(sqrt(Data Size)*log(Data Size)))).
+            when **rff** is set to True. Defaults to `None`. If it is not specified, **M** is set to 
+            ``max(100, ceil(sqrt(Data Size)*log(Data Size))))``.
         
     Remark:
         This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
-            are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use lgp class for 
-            inference where one can have separate input/output training data for each (D)GP. See lgp class for 
-            implementation details. 
+        are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use :class:`.lgp` class for 
+        inference where one can have separate input/output training data for each (D)GP. See :class:`.lgp` class for 
+        implementation details. 
 
     Examples:
         To build a list that represents a three-layer DGP with three GPs in the first two layers and
-        one GP (i.e., only one dimensional output) in the final layer, do:
-        >>>from kernel_class import kernel, combine
-        >>>layer1, layer2, layer3=[],[],[]
-        >>>for _ in range(3):
-             layer1.append(kernel(length=np.array([1])))
-        >>>for _ in range(3):
-             layer2.append(kernel(length=np.array([1])))
-        >>>layer3.append(kernel(length=np.array([1])))
-        >>>all_layer=combine(layer1,layer2,layer3)       
+        one GP (i.e., only one dimensional output) in the final layer, do::
+
+            from kernel_class import kernel, combine
+            layer1, layer2, layer3=[],[],[]
+            for _ in range(3):
+                layer1.append(kernel(length=np.array([1])))
+            for _ in range(3):
+                layer2.append(kernel(length=np.array([1])))
+            layer3.append(kernel(length=np.array([1])))
+            all_layer=combine(layer1,layer2,layer3) 
+
     """
 
     def __init__(self, X, Y, all_layer=None, check_rep=True, rff=False, M=None):
@@ -169,11 +171,11 @@ class dgp:
         """Train the DGP model.
 
         Args:
-            N (int): number of iterations for stochastic EM. Defaults to 500.
+            N (int): number of iterations for stochastic EM. Defaults to `500`.
             ess_burn (int, optional): number of burnin steps for the ESS-within-Gibbs
-                at each I-step of the SEM. Defaults to 10.
+                at each I-step of the SEM. Defaults to `10`.
             disable (bool, optional): whether to disable the training progress bar. 
-                Defaults to False.
+                Defaults to `False`.
         """
         pgb=trange(1,N+1,disable=disable)
         for i in pgb:
@@ -194,7 +196,7 @@ class dgp:
             burnin (int, optional): the number of SEM iterations to be discarded for
                 point estimate calculation. Must be smaller than the SEM iterations 
                 implemented. If this is not specified, only the last 25% of iterations
-                are used. Defaults to None.
+                are used. Defaults to `None`.
 
         Returns:
             list: an updated list that represents the trained DGP hierarchy.
@@ -215,13 +217,13 @@ class dgp:
         """Plot the traces of model parameters of a particular GP node in the DGP hierarchy.
 
         Args:
-            layer_no (int): the index of the interested layer
-            ker_no (int): the index of the interested GP in the layer specified by layer_no
-            width (float, optional): the overall plot width. Defaults to 4.
-            height (float, optional): the overall plot height. Defaults to 1.
-            ticksize (float, optional): the size of sub-plot ticks. Defaults to 5.
-            labelsize (float, optional): the font size of y labels. Defaults to 8.
-            hspace (float, optional): the space between sub-plots. Defaults to 0.1.
+            layer_no (int): the index of the interested layer.
+            ker_no (int): the index of the interested GP in the layer specified by **layer_no**.
+            width (float, optional): the overall plot width. Defaults to `4`.
+            height (float, optional): the overall plot height. Defaults to `1`.
+            ticksize (float, optional): the size of sub-plot ticks. Defaults to `5`.
+            labelsize (float, optional): the font size of y labels. Defaults to `8`.
+            hspace (float, optional): the space between sub-plots. Defaults to `0.1`.
         """
         kernel=self.all_layer[layer_no-1][ker_no-1]
         n_para=np.shape(kernel.para_path)[1]

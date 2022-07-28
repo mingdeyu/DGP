@@ -3,14 +3,14 @@ import pathlib
 
 here = pathlib.Path(__file__).parent.resolve()
 
-VERSION = '2.1-beta'
+VERSION = '2.1.0'
 PACKAGE_NAME = 'dgpsi'
 AUTHOR = 'Deyu Ming'
 AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
 URL = 'https://github.com/mingdeyu/DGP'
 
 LICENSE = 'MIT'
-DESCRIPTION = 'Deep Gaussian Process Emulation using Stochastic Imputation'
+DESCRIPTION = 'Deep and Linked Gaussian Process Emulation using Stochastic Imputation'
 LONG_DESCRIPTION = (here / 'README.md').read_text(encoding='utf-8')
 
 INSTALL_REQUIRES = [

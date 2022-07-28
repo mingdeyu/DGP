@@ -12,16 +12,16 @@ class container:
 
     Args:
         structure (list): a list that contains the trained structure of GP or DGP of a computer model. For GP, 
-            this is the list exported from the 'export' method of the gp class. For DGP, this is the list exported 
-            from the 'estimate' method of the dgp class.
+            this is the list exported from the :meth:`.export` method of the :class:`.gp` class. For DGP, this is the list exported 
+            from the :meth:`.estimate` of the :class:`.dgp` class.
         local_input_idx (ndarray): a numpy 1d-array that specifies the indices of outputs (a 2d-array) 
             produced by all models in the feeding layer that are input to the model emulated by the GP or DGP
-            represented by the 'structure' argument. The indices should be ordered in such a way that the extracted
+            represented by the **structure** argument. The indices should be ordered in such a way that the extracted
             output from the feeding layer is sorted in the same order as the training input used for the GP/DGP 
-            emulation of the computer model that the 'structure' argument represents. When the model is in the first
-            layer, 'local_input_idx' gives the indices of its input in the global testing input set, see 'predict' 
-            method of 'lgp' class for descriptions of the global testing input set. Defaults to None. When the
-            argument is None, one needs to set its value using the 'set_local_input' method of the class. 
+            emulation of the computer model that the **structure** argument represents. When the model is in the first
+            layer, **local_input_idx** gives the indices of its input in the global testing input set, see :meth:`.lgp.predict`
+            for descriptions of the global testing input set. Defaults to `None`. When the
+            argument is `None`, one needs to set its value using the :meth:`.set_local_input`. 
     """
     def __init__(self, structure, local_input_idx=None):
         if len(structure)==1:
@@ -35,7 +35,7 @@ class container:
         self.local_input_idx=local_input_idx
 
     def set_local_input(self, idx):
-        """Set the 'local_input_idx' argument if it is not set when the class is constructed.
+        """Set the **local_input_idx** argument if it is not set when the class is constructed.
         """
         self.local_input_idx=idx
 
@@ -44,14 +44,14 @@ class lgp:
     Class to store a system of GP and DGP emulators for predictions. 
 
     Args:
-        all_layer (list): a list contains L (the number of layers of a systems of computer models) sub-lists, 
+        all_layer (list): a list contains *L* (the number of layers of a systems of computer models) sub-lists, 
             each of which represents a layer and contains the GP/DGP emulators of computer models represented by 
-            the 'container' class. The sub-lists are placed in the list in the same order of the specified computer
+            the :class:`.container` class. The sub-lists are placed in the list in the same order of the specified computer
             model system.
         N (int): the number of imputation to produce the predictions. Increase the value to account for more 
-            imputation uncertainties. If the system consists only GP emulators, 'N' is set to 1 automatically. 
-            Defaults to 50.
-        nb_parallel (bool, optional): whether to use Numba's multi-threading to accelerate the predictions. Defaults to False.
+            imputation uncertainties. If the system consists only GP emulators, **N** is set to `1` automatically. 
+            Defaults to `50`.
+        nb_parallel (bool, optional): whether to use *Numba*'s multi-threading to accelerate the predictions. Defaults to `False`.
     """
     def __init__(self, all_layer, N=50, nb_parallel=False):
         self.nb_parallel=nb_parallel
@@ -77,8 +77,8 @@ class lgp:
             self.all_layer_set.append(one_imputation)
 
     def set_nb_parallel(self,nb_parallel):
-        """Set 'self.nb_parallel' to the bool value given by 'nb_parallel'. This method is useful to change 'self.nb_parallel'
-            when the lgp class has already been built.
+        """Set 'self.nb_parallel' to the bool value given by **nb_parallel**. This method is useful to change **self.nb_parallel**
+            when the :class:`.lgp` class has already been built.
         """
         self.nb_parallel=nb_parallel
     
@@ -86,12 +86,11 @@ class lgp:
         """Implement parallel predictions from the trained DGP model.
 
         Args:
-            x, method, full_layer, sample_size: see descriptions of the method `predict`.
-            chunk_num (int, optional): the number of chunks that the testing input array 'x' will be divided into. 
-                Defaults to None. If not specified, the number of chunks will be determined by dividing the input
-                array into chunks with max 200 input positions. 
-            core_num (int, optional): the number of cores/workers to be used. Defaults to None. If not specified, 
-                the number of cores is set to (max physical cores available - 1).
+            x, method, full_layer, sample_size: see descriptions of the method :meth:`.lgp.predict`.
+            chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
+                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
+            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``(max physical cores available - 1)``.
 
         Returns:
             Same as the method `predict`.
@@ -152,49 +151,51 @@ class lgp:
         """Implement predictions from the linked (D)GP model.
 
         Args:
-            x Union[ndarray, list]: a numpy 2d-array or a list:
-                1. If x is a 2d-array, it is the global testing input set to the computer models in the first layer where 
-                    each rows are input testing data points and columns are input dimensions across all computer models in 
-                    the first layer of the system. In this case, it is assumed that 'x' is the only global input to the computer 
-                    system, i.e., there are no external global input to computer models in layers other than the first layer.
-                2. If x is a list, it has L (the number of layers of a systems of computer models) elements. The first element
-                    is a numpy 2d-array that represents the global testing input set to the computer models in the first layer. 
-                    The remaining L-1 elements are L-1 sub-lists, each of which contains a number (same as the number of computer
-                    models in the corresponding layer) of numpy 2d-arrays (rows being testing points and columns being input 
-                    dimensions) that represent the external global testing input to the computer models in the corresponding layer. 
-                    The order of 2d-arrays in each sub-list must be the same order of the emulators placed in the corresponding layer
-                    of 'all_layer' argument to 'lgp' class. If there is no external global input to a certain computer model of the 
-                    system, set None in the corresponding sub-list (i.e., layer) of 'x'.   
-            method (str, optional): the prediction approach: mean-variance ('mean_var') or sampling 
-                ('sampling') approach. Defaults to 'mean_var'.
-            full_layer (bool, optional): whether to output the predictions from all GP/DGP emulators in the system. Defaults to False.
-            sample_size (int, optional): the number of samples to draw for each given imputation in 'sampling' method.
-                Defaults to 50.
+            x (ndarray_or_list): a numpy 2d-array or a list.
+            
+                1. If **x** is a 2d-array, it is the global testing input set to the computer models in the first layer where 
+                   each rows are input testing data points and columns are input dimensions across all computer models in 
+                   the first layer of the system. In this case, it is assumed that **x** is the only global input to the computer 
+                   system, i.e., there are no external global input to computer models in layers other than the first layer.
+                2. If **x** is a list, it has *L* (the number of layers of a systems of computer models) elements. The first element
+                   is a numpy 2d-array that represents the global testing input set to the computer models in the first layer. 
+                   The remaining L-1 elements are *L-1* sub-lists, each of which contains a number (same as the number of computer
+                   models in the corresponding layer) of numpy 2d-arrays (rows being testing points and columns being input 
+                   dimensions) that represent the external global testing input to the computer models in the corresponding layer. 
+                   The order of 2d-arrays in each sub-list must be the same order of the emulators placed in the corresponding layer
+                   of **all_layer** argument to :class:`.lgp` class. If there is no external global input to a certain computer model of the 
+                   system, set `None` in the corresponding sub-list (i.e., layer) of **x**.   
+            method (str, optional): the prediction approach: mean-variance (`mean_var`) or sampling 
+                (`sampling`) approach. Defaults to `mean_var`.
+            full_layer (bool, optional): whether to output the predictions from all GP/DGP emulators in the system. Defaults to `False`.
+            sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
+                Defaults to `50`.
             
         Returns:
-            Union[tuple, list]: 
-                if the argument method='mean_var', a tuple is returned:
-                    1. If full_layer=False, the tuple contains two lists, one for the predictive means 
-                        and another for the predictive variances. Each list contains a number (same number of computer models in the
-                        final layer of the system) of numpy 2d-arrays. Each 2d-array has its rows corresponding to global testing 
-                        positions and columns corresponding to GP/DGP (or DGP+likelihood) output dimensions of the associated computer
-                        model in the final layer;
-                    2. If full_layer=True, the tuple contains two lists, one for the predictive means 
-                        and another for the predictive variances. Each list contains L (i.e., the number of layers of the emulated system) 
-                        sub-lists. Each sub-list represents a layer and contains a number (same number of computer models in the corresponding 
-                        layer of the system) of numpy 2d-arrays. Each array has its rows corresponding to global testing positions and columns 
-                        corresponding to GP/DGP (or DGP+likelihood in case of the final layer) output dimensions of the associated computer
-                        model in the corresponding layer.
-                if the argument method='sampling', a list is returned:
-                    1. If full_layer=False, the list contains a number (same number of computer models in the final layer of the system) of numpy 
-                        3d-arrays. Each array corresponds to a computer model in the final layer, and has its 0-axis corresponding to the output 
-                        dimensions of the GP/DGP (or DGP+likelihood) emulators, 1-axis corresponding to global testing positions, and 2-axis 
-                        corresponding to samples of size 'N' imputations * 'sample_size';
-                    2. If full_layer=True, the list contains L (i.e., the number of layers of the emulated system) sub-lists. Each sub-list 
-                        represents a layer and contains a number (same number of computer models in the corresponding layer of the system) of 
-                        numpy 3d-arrays. Each array corresponds to a computer model in the associated layer, and has its 0-axis corresponding 
-                        to the output dimensions of the GP/DGP (or DGP+likelihood in case of the final layer) emulators, 1-axis corresponding 
-                        to global testing positions, and 2-axis corresponding to samples of size 'N' imputations * 'sample_size'.
+            tuple_or_list: 
+                if the argument **method** = '`mean_var`', a tuple is returned:
+                    1. If **full_layer** = `False`, the tuple contains two lists, one for the predictive means 
+                       and another for the predictive variances. Each list contains a number (same number of computer models in the
+                       final layer of the system) of numpy 2d-arrays. Each 2d-array has its rows corresponding to global testing 
+                       positions and columns corresponding to GP/DGP (or DGP+likelihood) output dimensions of the associated computer
+                       model in the final layer;
+                    2. If **full_layer** = `True`, the tuple contains two lists, one for the predictive means 
+                       and another for the predictive variances. Each list contains *L* (i.e., the number of layers of the emulated system) 
+                       sub-lists. Each sub-list represents a layer and contains a number (same number of computer models in the corresponding 
+                       layer of the system) of numpy 2d-arrays. Each array has its rows corresponding to global testing positions and columns 
+                       corresponding to GP/DGP (or DGP+likelihood in case of the final layer) output dimensions of the associated computer
+                       model in the corresponding layer.
+                if the argument **method** = '`sampling`', a list is returned:
+                    1. If **full_layer** = `False`, the list contains a number (same number of computer models in the final layer of the system) of numpy 
+                       3d-arrays. Each array corresponds to a computer model in the final layer, and has its 0-axis corresponding to the output 
+                       dimensions of the GP/DGP (or DGP+likelihood) emulators, 1-axis corresponding to global testing positions, and 2-axis 
+                       corresponding to samples of size **N** * **sample_size**;
+                    2. If **full_layer** = `True`, the list contains *L* (i.e., the number of layers of the emulated system) sub-lists. Each sub-list 
+                       represents a layer and contains a number (same number of computer models in the corresponding layer of the system) of 
+                       numpy 3d-arrays. Each array corresponds to a computer model in the associated layer, and has its 0-axis corresponding 
+                       to the output dimensions of the GP/DGP (or DGP+likelihood in case of the final layer) emulators, 1-axis corresponding 
+                       to global testing positions, and 2-axis corresponding to samples of size **N** * **sample_size**.
+
         """
         if isinstance(x, list) and len(x)!=self.L:
             raise Exception('When test input is given as a list, it must contain global inputs to the all layers (even with no global inputs to internal layers). Set None as the global input to the internal models if they have no global inputs.')

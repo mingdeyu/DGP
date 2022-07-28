@@ -10,81 +10,68 @@ class kernel:
     """
     Class that defines the GPs in the DGP hierarchy.
 
-        Args:
-            length (ndarray): a numpy 1d-array, whose length equals to:
-                1. one if the lengthscales in the kernel function are assumed same across input dimensions;
-                2. the total number of input dimensions, which is the sum of the number of feeding GPs 
-                in the last layer (defined by the argument 'input_dim') and the number of connected global
-                input dimensions (defined by the argument 'connect'), if the lengthscales in the kernel function 
-                are assumed different across input dimensions.
-            scale (float, optional): the variance of a GP. Defaults to 1..
-            nugget (float, optional): the nugget term of a GP. Defaults to 1e-6.
-            name (str, optional): kernel function to be used. Either 'sexp' for squared exponential kernel or
-                'matern2.5' for Matern2.5 kernel. Defaults to 'sexp'.
-            prior_name (str, optional): prior class. Either gamma ('ga') or inverse gamma ('inv_ga') distribution for 
-                the lengthscales and nugget term. Set None to disable the prior. Defaults to 'ga'.
-            prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
-                parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to np.array([1.6,0.3]).
-            nugget_est (bool, optional): set to True to estimate nugget term or to False to fix the nugget term as specified
-                by the argument 'nugget'. If set to True, the value set to the argument 'nugget' is used as the initial
-                value. Defaults to False.
-            scale_est (bool, optional): set to True to estimate the variance or to False to fix the variance as specified
-                by the argument 'scale'. Defaults to False.
-            input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last layer
-                   whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
-                   feed into the GP. When set to None, all outputs from GPs of last layer (or all global input 
-                   dimensions) feed into the GP. Defaults to None.
-            connect (ndarray, optional): a numpy 1d-array that contains the indices of dimensions in the global
-                input connecting to the GP as additional input dimensions to the input obtained from the output of
-                GPs in the last layer (as determined by the argument 'input_dim'). When set to None, no global input
-                connection is implemented. Defaults to None. When the kernel class is used in GP/DGP emulators for linked
-                emulation and some input dimensions to the computer models are not connected to some feeding computer models, 
-                set 'connect' to a 1d-array of indices of these external global input dimensions, and accordingly, set 
-                'input_dim' to a 1d-array of indices of the remaining input dimensions that are connected to the feeding 
-                computer models.                   
+    Args:
+        length (ndarray): a numpy 1d-array, whose length equals to:
 
-        Attributes:
-            type (str): identifies that the kernel is a GP.
-            g (function): a function giving the log probability density function of gamma or inverse gamma distribution 
-                ignoring the constant part.
-            gfod (function): a function giving the first order derivative of g with respect to the log-transformed 
-                lengthscales and nugget. 
-            para_path (ndarray): a numpy 2d-array that contains the trace of model parameters. Each row is a 
-                parameter estimate produced by one SEM iteration. The model parameters in each row are ordered as 
-                follow: np.array([scale estimate, lengthscale estimate (whose length>=1), nugget estimate]).
-            global_input (ndarray): a numpy 2d-array that contains the connect global input dimensions determined 
-                by the argument 'connect'. The value of the attribute is assigned during the initialisation of 
-                'dgp' class. If 'connect' is set to None, this attribute is also None. 
-            input (ndarray): a numpy 2d-array (each row as a data point and each column as a data dimension) that 
-                contains the input training data (according to the argument 'input_dim') to the GP. The value of 
-                this attribute is assigned during the initialisation of 'dgp' class. 
-            output (ndarray): a numpy 2d-array with only one column that contains the output training data to the GP.
-                The value of this attribute is assigned during the initialisation of 'dgp' class.
-            rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions 
-                in the global input, i.e., rep is assigned during the initialisation of 'dgp' class if one input position 
-                has multiple outputs. Otherwise, it is None. Defaults to None. 
-            Rinv (ndarray): a numpy 2d-array that stores the inversion of correlation matrix. Defaults to None.
-            Rinv_y (ndarray): a numpy 2d-array that stores the product of correlation matrix inverse and the output Y. Defaults to None.
-            rff (bool): indicates weather random Fourier features are used. Defaults to None.
-            D (int): the dimension of input data to the GP node. Defaults to None.
-            M (int): the number of features in random Fourier approximation. Defaults to None.
-            W (ndarray): a 2d-array (M, D) sampled to construct the Fourier approximation to the kernel matrix. Defaults to None.
-            b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to None.
+            1. one if the lengthscales in the kernel function are assumed same across input dimensions;
+            2. the total number of input dimensions, which is the sum of the number of feeding GPs 
+               in the last layer (defined by the argument **input_dim**) and the number of connected global
+               input dimensions (defined by the argument **connect**), if the lengthscales in the kernel function 
+               are assumed different across input dimensions.
+        scale (float, optional): the variance of a GP. Defaults to `1`.
+        nugget (float, optional): the nugget term of a GP. Defaults to `1e-6`.
+        name (str, optional): kernel function to be used. Either `sexp` for squared exponential kernel or
+            `matern2.5` for Matern2.5 kernel. Defaults to `sexp`.
+        prior_name (str, optional): prior class. Either gamma (`ga`) or inverse gamma (`inv_ga`) distribution for 
+            the lengthscales and nugget term. Set `None` to disable the prior. Defaults to `ga`.
+        prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
+            parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to ``np.array([1.6,0.3])``.
+        nugget_est (bool, optional): set to `True` to estimate nugget term or to `False` to fix the nugget term as specified
+            by the argument **nugget**. If set to True, the value set to the argument **nugget** is used as the initial
+            value. Defaults to `False`.
+        scale_est (bool, optional): set to `True` to estimate the variance or to `False` to fix the variance as specified
+            by the argument **scale**. Defaults to `False`.
+        input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last layer
+            whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
+            feed into the GP. When set to `None`, all outputs from GPs of last layer (or all global input 
+            dimensions) feed into the GP. Defaults to `None`.
+        connect (ndarray, optional): a numpy 1d-array that contains the indices of dimensions in the global
+            input connecting to the GP as additional input dimensions to the input obtained from the output of
+            GPs in the last layer (as determined by the argument **input_dim**). When set to `None`, no global input
+            connection is implemented. Defaults to `None`. When the kernel class is used in GP/DGP emulators for linked
+            emulation and some input dimensions to the computer models are not connected to some feeding computer models, 
+            set **connect** to a 1d-array of indices of these external global input dimensions, and accordingly, set 
+            **input_dim** to a 1d-array of indices of the remaining input dimensions that are connected to the feeding 
+            computer models.                   
 
-        Remarks:
-        For linked GP inference, when creating kernel classes for GP nodes in each layer, 
-            1. The 'connect' argument of the kernel class is set at its default None and not used because one needs 
-                to explicitly specify the external inputs to each GP using the Z argument of lgp class;
-            2. The 'global_input' attribute in the kernel class no longer contains dimensions of global input to the 
-                GPs in the first layer, as in DGP inference. Instead it contains external inputs 
-                provided in the Z argument;
-            3. The 'input_dim' argument in the kernel class needs to be specified explicitly by the user to let the 
-                inference know which GPs in the last layer are feeding GPs. We do not implement the default setting, like 
-                in the DGP case, that a GP is connected to all GPs in the last layers. Thus, one has to supply the 'input_dim' 
-                argument a full GP node index in the last layer of all GPs in the last layer are feeding the GP that the kernel
-                class represent. For example, if one is creating a GP that has its local input produced by all 4 GPs in the 
-                last layer, then one needs to assign np.arange(4) to the 'input_dim' argument explicitly.
-        """
+    Attributes:
+        type (str): identifies that the kernel is a GP.
+        g (function): a function giving the log probability density function of gamma or inverse gamma distribution 
+            ignoring the constant part.
+        gfod (function): a function giving the first order derivative of **g** with respect to the log-transformed 
+            lengthscales and nugget. 
+        para_path (ndarray): a numpy 2d-array that contains the trace of model parameters. Each row is a 
+            parameter estimate produced by one SEM iteration. The model parameters in each row are ordered as 
+            follow: ``np.array([scale estimate, lengthscale estimate (whose length>=1), nugget estimate])``.
+        global_input (ndarray): a numpy 2d-array that contains the connect global input dimensions determined 
+            by the argument **connect**. The value of the attribute is assigned during the initialisation of 
+            :class:`.dgp` class. If **connect** is set to `None`, this attribute is also `None`. 
+        input (ndarray): a numpy 2d-array (each row as a data point and each column as a data dimension) that 
+            contains the input training data (according to the argument **input_dim**) to the GP. The value of 
+            this attribute is assigned during the initialisation of :class:`.dgp` class. 
+        output (ndarray): a numpy 2d-array with only one column that contains the output training data to the GP.
+            The value of this attribute is assigned during the initialisation of :class:`.dgp` class.
+        rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions 
+            in the global input, i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position 
+            has multiple outputs. Otherwise, it is `None`. Defaults to `None`. 
+        Rinv (ndarray): a numpy 2d-array that stores the inversion of correlation matrix. Defaults to `None`.
+        Rinv_y (ndarray): a numpy 2d-array that stores the product of correlation matrix inverse and the output Y. Defaults to `None`.
+        rff (bool): indicates weather random Fourier features are used. Defaults to `None`.
+        D (int): the dimension of input data to the GP node. Defaults to `None`.
+        M (int): the number of features in random Fourier approximation. Defaults to `None`.
+        W (ndarray): a 2d-array (M, D) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
+        b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
+    """
 
     def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=False, scale_est=False, input_dim=None, connect=None):
         self.type='gp'
@@ -118,7 +105,7 @@ class kernel:
         self.b=None
 
     def sample_basis(self):
-        """Sample W and b to construct random Fourier approximations to correlation matrices.
+        """Sample **W** and **b** to construct random Fourier approximations to correlation matrices.
         """
         if self.name=='sexp':
             self.W=sqrt(2)*randn(self.M,self.D)
@@ -130,7 +117,7 @@ class kernel:
         """Log transform the model parameters (lengthscales and nugget).
 
         Returns:
-            ndarray: a numpy 1d-array of log-transformed model paramters
+            ndarray: a numpy 1d-array of log-transformed model parameters
         """
         if self.nugget_est:
             log_theta=np.log(np.concatenate((self.length,self.nugget)))
@@ -158,18 +145,18 @@ class kernel:
             self.scale=new_scale.flatten()
             
     def k_matrix(self,fod_eval=False):
-        """Compute the correlation matrix and/or first order derivatives of the correlation matrix 
-            wrt log-transformed lengthscales and nugget.
+        """Compute the correlation matrix and/or first order derivatives of the correlation matrix wrt log-transformed lengthscales and nugget.
         
         Args:
             fod_eval (bool): indicates if the gradient information is also computed along with the correlation
-                matrix. Defaults to False. 
+                matrix. Defaults to `False`. 
 
         Returns:
-            K (ndarray): a numpy 2d-array as the correlation matrix.
-            fod (ndarray): a numpy 3d-array that contains the first order derivatives of the correlation matrix 
-                wrt log-transformed lengthscales and nugget. The length of the array equals to the total number 
-                of model parameters (i.e., the total number of lengthscales and nugget).
+            ndarray_or_tuple: 
+                1. If **fod_eval** = `False`, a numpy 2d-array *K* is returned as the correlation matrix.
+                2. If **fod_eval** = `True`, a tuple is returned. It includes *K* and fod, a numpy 3d-array that contains the first order derivatives of the correlation matrix 
+                   wrt log-transformed lengthscales and nugget. The length of the array equals to the total number 
+                   of model parameters (i.e., the total number of lengthscales and nugget).
         """
         n=len(self.input)
         if self.global_input is not None:
@@ -223,7 +210,7 @@ class kernel:
 
         Returns:
             ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
-                giving the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.
+            giving the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.
         """
         fod=self.gfod(self.length)
         if self.nugget_est:
@@ -297,8 +284,8 @@ class kernel:
 
         Returns:
             ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
-                that contains first order derivatives of the negative log-likelihood function wrt log-transformed 
-                lengthscales and nugget.
+            that contains first order derivatives of the negative log-likelihood function wrt log-transformed 
+            lengthscales and nugget.
         """
         self.update(x)
         n=len(self.output)
@@ -349,7 +336,7 @@ class kernel:
         """Optimise and update model parameters by minimising the negative log-likelihood function.
 
         Args:
-            method (str, optional): optimisation algorithm. Defaults to 'L-BFGS-B'.
+            method (str, optional): optimisation algorithm. Defaults to `L-BFGS-B`.
         """
         initial_theta_trans=self.log_t()
         if self.nugget_est:
@@ -374,7 +361,7 @@ class kernel:
         self.add_to_path()
         
     def add_to_path(self):
-        """Add updated model parameter estimates to the class attribute 'para_path'.
+        """Add updated model parameter estimates to the class attribute **para_path**.
         """
         para=np.concatenate((self.scale,self.length,self.nugget))
         self.para_path=np.vstack((self.para_path,para))
@@ -385,10 +372,10 @@ class kernel:
         Args:
             x (ndarray): a numpy 2d-array that contains the input testing data (whose rows correspond to testing
                 data points and columns correspond to testing data dimensions) with the number of columns same as 
-                the 'input' attribute.
+                the **input** attribute.
             z (ndarray): a numpy 2d-array that contains additional input testing data (with the same number of 
-                columns of the 'global_input' attribute) from the global testing input if the argument 'connect' 
-                is not None. Set to None if the argument 'connect' is None. 
+                columns of the **global_input** attribute) from the global testing input if the argument **connect** 
+                is not `None`. Set to None if the argument **connect** is `None`. 
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions. 
@@ -402,18 +389,18 @@ class kernel:
         Args:
             m (ndarray): a numpy 2d-array that contains predictive means of testing outputs from the GPs in the last 
                 layer. The number of rows equals to the number of testing positions and the number of columns equals to the 
-                length of the argument 'input_dim'. If the argument 'input_dim' is None, then the number of columns equals 
+                length of the argument **input_dim**. If the argument **input_dim** is `None`, then the number of columns equals 
                 to the number of GPs in the last layer.
             v (ndarray): a numpy 2d-array that contains predictive variances of testing outputs from the GPs in the last 
-                layer. It has the same shape of 'm'.
+                layer. It has the same shape of **m**.
             z (ndarray): a numpy 2d-array that contains additional input testing data (with the same number of 
-                columns of the 'global_input' attribute) from the global testing input if the argument 'connect' 
-                is not None. Set to None if the argument 'connect' is None. 
-            nb_parallel (bool): whether to use Numba's multi-threading to accelerate the predictions.
+                columns of the **global_input** attribute) from the global testing input if the argument **connect** 
+                is not `None`. Set to `None` if the argument **connect** is `None`. 
+            nb_parallel (bool): whether to use *Numba*'s multi-threading to accelerate the predictions.
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
-                represented by predictive means and variances).
+            represented by predictive means and variances).
         """
         m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name,nb_parallel)
         return m,v
@@ -424,19 +411,19 @@ class kernel:
         Args:
             m (ndarray): a numpy 2d-array that contains predictive means of testing outputs from the GPs in the last 
                 layer. The number of rows equals to the number of testing positions and the number of columns equals to the 
-                length of the argument 'input_dim'. If the argument 'input_dim' is None, then the number of columns equals 
+                length of the argument **input_dim**. If the argument **input_dim** is `None`, then the number of columns equals 
                 to the number of GPs in the last layer.
             v (ndarray): a numpy 2d-array that contains predictive variances of testing outputs from the GPs in the last 
-                layer. It has the same shape of 'm'.
+                layer. It has the same shape of **m**.
             m_z (ndarray): a numpy 2d-array that contains predictive means of additional input testing data from GPs.
             v_z (ndarray): a numpy 2d-array that contains predictive variances of additional input testing data from GPs.
             z (ndarray): a numpy 2d-array that contains additional input testing data from the global testing input that are
-                not from GPs. Set to None if the argument 'connect' is None. 
-            nb_parallel (bool): whether to use Numba's multi-threading to accelerate the predictions.
+                not from GPs. Set to `None` if the argument **connect** is None. 
+            nb_parallel (bool): whether to use *Numba*'s multi-threading to accelerate the predictions.
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
-                represented by predictive means and variances).
+            represented by predictive means and variances).
         """
         m=np.concatenate((m,m_z),axis=1)
         v=np.concatenate((v,v_z),axis=1)
@@ -461,7 +448,7 @@ def combine(*layers):
     """Combine layers into one list as a DGP structure.
 
     Args:
-        *layers (list): a sequence of lists, each of which contains the GPs (defined by the kernel class) in that layer.
+        layers (list): a sequence of lists, each of which contains the GPs (defined by the :class:`.kernel` class) in that layer.
 
     Returns:
         list: a list of layers defining the DGP structure.

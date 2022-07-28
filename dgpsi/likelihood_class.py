@@ -7,23 +7,23 @@ class Poisson:
     """Class to implement Poisson likelihood. It (and all likelihoods below) can only be added as the final
        layer of the DGP+likelihood model.
 
-        Args:
-            input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last 
-            layer whose outputs feed into the likelihood node. When set to None, all outputs from GPs of 
-            last layer feed into the likelihood node. Defaults to None.
+    Args:
+        input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last 
+            layer whose outputs feed into the likelihood node. When set to `None`, all outputs from GPs of 
+            last layer feed into the likelihood node. Defaults to `None`.
 
-        Attributes:
-            type (str): identifies that the node is a likelihood node;
-            input (ndarray): a numpy 2d-array (each row as a data point and each column as a likelihood parameter from the
-                DGP part) that contains the input data (according to the argument 'input_dim') to the likelihood node. The value of 
-                this attribute is assigned during the initialisation of 'dgp' class. 
-            output (ndarray): a numpy 2d-array with only one column that contains the output data to the likelihood node.
-                The value of this attribute is assigned during the initialisation of 'dgp' class.
-            exact_post_idx (ndarray): a numpy 1d-array that indicates the indices of the likelihood parameters that allow closed-form
-               conditional posterior distributions. Defaults to None.
-            rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions in the global input,
-                i.e., rep is assigned during the initialisation of 'dgp' class if one input position has multiple outputs. Otherwise, it is
-                None. Defaults to None. 
+    Attributes:
+        type (str): identifies that the node is a likelihood node;
+        input (ndarray): a numpy 2d-array (each row as a data point and each column as a likelihood parameter from the
+            DGP part) that contains the input data (according to the argument **input_dim**) to the likelihood node. The value of 
+            this attribute is assigned during the initialisation of :class:`.dgp` class. 
+        output (ndarray): a numpy 2d-array with only one column that contains the output data to the likelihood node.
+            The value of this attribute is assigned during the initialisation of :class:`.dgp` class.
+        exact_post_idx (ndarray): a numpy 1d-array that indicates the indices of the likelihood parameters that allow closed-form
+            conditional posterior distributions. Defaults to `None`.
+        rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions in the global input,
+            i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position has multiple outputs. Otherwise, it is
+            `None`. Defaults to `None`. 
     """
     def __init__(self, input_dim=None):
         self.type='likelihood'
@@ -49,12 +49,12 @@ class Poisson:
         """The predicted log-likelihood function of Poisson distribution.
 
         Args:
-            y (ndarray): a numpy 3d-array of output data with shape (N,1,1), where N is the number of output data points.
-            f (ndarray): a numpy 3d-array of sample points with shape (N,S,Q), where S is the number of sample points and 
-                         Q is the number of parameters in the distribution (e.g., Q=1 for Poisson distribution).
+            y (ndarray): a numpy 3d-array of output data with shape ``(N,1,1)``, where *N* is the number of output data points.
+            f (ndarray): a numpy 3d-array of sample points with shape ``(N,S,Q)``, where *S* is the number of sample points and 
+                *Q* is the number of parameters in the distribution (e.g., *Q* = `1` for Poisson distribution).
 
         Returns:
-            ndarray: a numpy 3d-array of log-likelihood for given f.
+            ndarray: a numpy 3d-array of log-likelihood for given **f**.
         """
         pllik=y*f-np.exp(f)-loggamma(y+1)
         return pllik
@@ -70,7 +70,7 @@ class Poisson:
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
-                represented by predictive means and variances).
+            represented by predictive means and variances).
         """
         y_mean=np.exp(m+v/2)
         y_var=np.exp(m+v/2)+(np.exp(v)-1)*np.exp(2*m+v)
@@ -144,8 +144,8 @@ class Hetero:
     @staticmethod
     def post_het1(v,Gamma,y_mask):
         """Calculate the conditional posterior mean and covariance of the mean 
-            of the heteroskedastic Gaussian likelihood when there are no repetitions
-            in the training data.
+           of the heteroskedastic Gaussian likelihood when there are no repetitions
+           in the training data.
         """
         L=np.linalg.cholesky(Gamma+v)
         #mu=np.sum(v*cho_solve((L, True), y_mask, check_finite=False),axis=1)
@@ -156,8 +156,8 @@ class Hetero:
     @staticmethod
     def post_het2(v,Gamma,v_mask,V_mask,y_mask):
         """Calculate the conditional posterior mean and covariance of the mean 
-            of the heteroskedastic Gaussian likelihood when there are repetitions
-            in the training data.
+           of the heteroskedastic Gaussian likelihood when there are repetitions
+           in the training data.
         """
         L=np.linalg.cholesky(Gamma+V_mask)
         #mu=np.sum(v_mask.T*cho_solve((L, True), y_mask, check_finite=False),axis=1)

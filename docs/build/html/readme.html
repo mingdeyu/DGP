@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dgpsi &mdash; Deep and Linked Gaussian Process Emulation 2.1.0 documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="_static/doctools.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API Reference" href="modules.html" />
+    <link rel="prev" title="Welcome to Deep and Linked Gaussian Process Emulation’s documentation!" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html" class="icon icon-home"> Deep and Linked Gaussian Process Emulation
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">dgpsi</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#key-features">Key features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips">Tips</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#contact">Contact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#references">References</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Deep and Linked Gaussian Process Emulation</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>dgpsi</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/readme.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="dgpsi">
+<h1>dgpsi<a class="headerlink" href="#dgpsi" title="Permalink to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">dgpsi</span></code> implements inference of both deep and linked Gaussian process emulation using stochastic imputation.</p>
+<section id="key-features">
+<h2>Key features<a class="headerlink" href="#key-features" title="Permalink to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">dgpsi</span></code> currently has the following features:</p>
+<ul class="simple">
+<li><p>Deep Gaussian process emulation with flexible architecture construction:</p>
+<ul>
+<li><p>multiple layers;</p></li>
+<li><p>multiple GP nodes;</p></li>
+<li><p>separable or non-separable squared exponential and Matérn2.5 kernels;</p></li>
+<li><p>global input connections;</p></li>
+<li><p>non-Gaussian likelihoods (Poisson, Negative-Binomial, heteroskedastic Gaussian, and more to come);</p></li>
+</ul>
+</li>
+<li><p>Linked emulation of feed-forward systems of computer models:</p>
+<ul>
+<li><p>linking GP emulators of deterministic individual computer models;</p></li>
+<li><p>linking GP and DGP emulators of deterministic individual computer models;</p></li>
+</ul>
+</li>
+<li><p><strong>(New Feature)</strong> Multi-core predictions from GP, DGP, and Linked (D)GP emulators;</p></li>
+<li><p>More features coming soon.</p></li>
+</ul>
+<p>Please see <span class="xref myst">demo</span> for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in <a class="reference internal" href="dgpsi.html"><span class="doc std std-doc">dgpsi</span></a>.</p>
+</section>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this heading"></a></h2>
+<p>The simplest way to install the package is to use <code class="docutils literal notranslate"><span class="pre">pip</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip install dgpsi
+</pre></div>
+</div>
+<p>However, to gain the best performance of the package, we recommend the following steps for the installation:</p>
+<ul class="simple">
+<li><p>Download and install <code class="docutils literal notranslate"><span class="pre">Miniforge3</span></code> that is compatible to your system from <a class="reference external" href="https://github.com/conda-forge/miniforge">here</a>.</p></li>
+<li><p>Run the following command in your terminal app to create a virtual environment called <code class="docutils literal notranslate"><span class="pre">dgp_si</span></code>:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda create -n dgp_si <span class="nv">python</span><span class="o">=</span><span class="m">3</span>.9.13 
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Activate and enter the virtual environment:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda activate dgp_si
+</pre></div>
+</div>
+<ul>
+<li><p>Install required packages:</p>
+<ul class="simple">
+<li><p>for Mac Silicon chip users, you could gain speed-up by switching to Apple’s Accelerate framework by running:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba <span class="s2">&quot;libblas=*=*accelerate&quot;</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>for Intel chip users, you could gain speed-up by switching to MKL by running:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba <span class="s2">&quot;libblas=*=*mkl&quot;</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>otherwise, simply run:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba
+</pre></div>
+</div>
+</li>
+<li><p>Install <code class="docutils literal notranslate"><span class="pre">dgpsi</span></code> package:</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span> A-LOCATION-YOU-PREFER
+git clone https://github.com/mingdeyu/DGP.git
+<span class="nb">cd</span> DGP
+pip install .
+</pre></div>
+</div>
+</section>
+<section id="tips">
+<h2>Tips<a class="headerlink" href="#tips" title="Permalink to this heading"></a></h2>
+<ul class="simple">
+<li><p>Since SI is a stochastic inference, in case of unsatisfactory results, you may want to try to restart the training multiple times even with initial values of hyperparameters unchanged;</p></li>
+<li><p>The recommended DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns) or the number of parameters in the specified likelihood.</p></li>
+</ul>
+</section>
+<section id="contact">
+<h2>Contact<a class="headerlink" href="#contact" title="Permalink to this heading"></a></h2>
+<p>Please feel free to email me with any questions and feedbacks:</p>
+<p>Deyu Ming &lt;<a class="reference external" href="mailto:deyu&#46;ming&#46;16&#37;&#52;&#48;ucl&#46;ac&#46;uk">deyu<span>&#46;</span>ming<span>&#46;</span>16<span>&#64;</span>ucl<span>&#46;</span>ac<span>&#46;</span>uk</a>&gt;.</p>
+</section>
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Permalink to this heading"></a></h2>
+<blockquote>
+<div><p><a class="reference external" href="https://arxiv.org/abs/2107.01590">Ming, D., Williamson, D., and Guillas, S. (2021) Deep Gaussian process emulation using stochastic imputation.</a></p>
+</div></blockquote>
+<blockquote>
+<div><p><a class="reference external" href="https://epubs.siam.org/doi/abs/10.1137/20M1323771">Ming, D. and Guillas, S. (2021) Linked Gaussian process emulation for systems of computer models using Matérn kernels and adaptive design, <i>SIAM/ASA Journal on Uncertainty Quantification</i>. 9(4), 1615-1642.</a></p>
+</div></blockquote>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to Deep and Linked Gaussian Process Emulation’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="modules.html" class="btn btn-neutral float-right" title="API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Deyu Ming.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

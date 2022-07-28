@@ -16,7 +16,7 @@ class imputer:
 
         Args:
             burnin (int, optional): the number of burnin iterations for the ESS-within-Gibbs sampler
-            to generate one realisation of latent variables. Defaults to 0.
+                to generate one realisation of latent variables. Defaults to `0`.
         """
         n_layer=len(self.all_layer)
         for _ in range(burnin+1):
@@ -35,8 +35,8 @@ class imputer:
         Args:
             target_kernel (class): the GP whose output is a latent variable that needs to be imputed.
             linked_upper_kernels (list): a list of GPs (in the next layer) that link the output produced
-                by the GP defined by the argument 'target_kernel'.
-            k (int): the index indicating the position of the GP defined by the argument 'target_kernel' in
+                by the GP defined by the argument **target_kernel**.
+            k (int): the index indicating the position of the GP defined by the argument **target_kernel** in
                 its layer.
         """
         covariance=target_kernel.k_matrix()
