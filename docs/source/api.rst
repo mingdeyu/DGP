@@ -1,7 +1,7 @@
-dgpsi Submodule List
---------------------
+API Reference
+=============
 
-dgpsi.dgp module
+dgp module
 ----------------
 
 .. automodule:: dgpsi.dgp
@@ -9,7 +9,7 @@ dgpsi.dgp module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.emulation module
+emulation module
 ----------------------
 
 .. automodule:: dgpsi.emulation
@@ -17,7 +17,7 @@ dgpsi.emulation module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.functions module
+functions module
 ----------------------
 
 .. automodule:: dgpsi.functions
@@ -25,7 +25,7 @@ dgpsi.functions module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.gp module
+gp module
 ---------------
 
 .. automodule:: dgpsi.gp
@@ -33,7 +33,7 @@ dgpsi.gp module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.imputation module
+imputation module
 -----------------------
 
 .. automodule:: dgpsi.imputation
@@ -41,7 +41,7 @@ dgpsi.imputation module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.kernel\_class module
+kernel\_class module
 --------------------------
 
 .. automodule:: dgpsi.kernel_class
@@ -49,7 +49,7 @@ dgpsi.kernel\_class module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.likelihood\_class module
+likelihood\_class module
 ------------------------------
 
 .. automodule:: dgpsi.likelihood_class
@@ -57,7 +57,7 @@ dgpsi.likelihood\_class module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.linkgp module
+linkgp module
 -------------------
 
 .. automodule:: dgpsi.linkgp
@@ -65,7 +65,7 @@ dgpsi.linkgp module
    :undoc-members:
    :show-inheritance:
 
-dgpsi.synthetic module
+synthetic module
 ----------------------
 
 .. automodule:: dgpsi.synthetic

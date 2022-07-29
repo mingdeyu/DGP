@@ -10,7 +10,7 @@ Welcome to Deep and Linked Gaussian Process Emulation's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   modules
+   api
 
 Indices and tables
 ==================
