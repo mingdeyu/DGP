@@ -16,7 +16,8 @@
 * **(New Feature)** Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
 * More features coming soon.
 
-Please see [demo](demo/) for some illustrative examples of the method. Detailed descriptions on how to use the package can be found in scripts contained in [dgpsi](dgpsi/).
+Please see [demo](https://github.com/mingdeyu/DGP/tree/master/demo) for some illustrative examples of the method. The API reference 
+of the package can be accessed from [https://dgpsi.readthedocs.io](https://dgpsi.readthedocs.io).
 
 ## Installation
 The simplest way to install the package is to use `pip`:

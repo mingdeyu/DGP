@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dgpsi package &mdash; Deep and Linked Gaussian Process Emulation 2.1.0 documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="_static/doctools.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="API Reference" href="modules.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html" class="icon icon-home"> Deep and Linked Gaussian Process Emulation
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">dgpsi package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#submodules">Submodules</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.dgp">dgpsi.dgp module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.emulation">dgpsi.emulation module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.functions">dgpsi.functions module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.gp">dgpsi.gp module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.imputation">dgpsi.imputation module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.kernel_class">dgpsi.kernel_class module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.likelihood_class">dgpsi.likelihood_class module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.linkgp">dgpsi.linkgp module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi.synthetic">dgpsi.synthetic module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-dgpsi">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Deep and Linked Gaussian Process Emulation</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="modules.html">API Reference</a> &raquo;</li>
+      <li>dgpsi package</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="dgpsi-package">
+<h1>dgpsi package<a class="headerlink" href="#dgpsi-package" title="Permalink to this heading"></a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this heading"></a></h2>
+</section>
+<section id="module-dgpsi.dgp">
+<span id="dgpsi-dgp-module"></span><h2>dgpsi.dgp module<a class="headerlink" href="#module-dgpsi.dgp" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.dgp.dgp">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.dgp.</span></span><span class="sig-name descname"><span class="pre">dgp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_layer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_rep</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.dgp.dgp" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class that contains the deep GP hierarchy for stochastic imputation inference.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>X</strong> (<em>ndarray</em>) – a numpy 2d-array where each row is an input data point and
+each column is an input dimension.</p></li>
+<li><p><strong>Y</strong> (<em>ndarray</em>) – a numpy 2d-arrays containing observed output data across the DGP structure.
+The 2d-array has it rows being output data points and columns being output dimensions
+(with the number of columns equals to the number of GP nodes in the final layer).</p></li>
+<li><p><strong>all_layer</strong> (<em>list</em><em>, </em><em>optional</em>) – a list contains <em>L</em> (the number of layers) sub-lists, each of which contains
+the GPs defined by the kernel class in that layer. The sub-lists are placed in the list
+in the same order of the specified DGP model. Defaults to <cite>None</cite>. If a DGP structure is not provided,
+an input-connected two-layered DGP structure (for deterministic model emulation) with the number
+of GP nodes in the first layer equal to the dimension of <strong>X</strong> is automatically constructed.</p></li>
+<li><p><strong>check_rep</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to check the repetitions in the dataset, i.e., if one input
+position has multiple outputs. Defaults to <cite>True</cite>.</p></li>
+<li><p><strong>rff</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to use random Fourier features to approximate the correlation matrices
+during the imputation in training. Defaults to <cite>False</cite>.</p></li>
+<li><p><strong>M</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of features to be used by random Fourier approximation. It is only used
+when <strong>rff</strong> is set to True. Defaults to <cite>None</cite>. If it is not specified, <strong>M</strong> is set to
+<code class="docutils literal notranslate"><span class="pre">max(100,</span> <span class="pre">ceil(sqrt(Data</span> <span class="pre">Size)*log(Data</span> <span class="pre">Size))))</span></code>.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="simple">
+<dt>Remark:</dt><dd><p>This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
+are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use <a class="reference internal" href="#dgpsi.linkgp.lgp" title="dgpsi.linkgp.lgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">lgp</span></code></a> class for
+inference where one can have separate input/output training data for each (D)GP. See <a class="reference internal" href="#dgpsi.linkgp.lgp" title="dgpsi.linkgp.lgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">lgp</span></code></a> class for
+implementation details.</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<p>To build a list that represents a three-layer DGP with three GPs in the first two layers and
+one GP (i.e., only one dimensional output) in the final layer, do:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">kernel_class</span> <span class="kn">import</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">combine</span>
+<span class="n">layer1</span><span class="p">,</span> <span class="n">layer2</span><span class="p">,</span> <span class="n">layer3</span><span class="o">=</span><span class="p">[],[],[]</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+    <span class="n">layer1</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">kernel</span><span class="p">(</span><span class="n">length</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">])))</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+    <span class="n">layer2</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">kernel</span><span class="p">(</span><span class="n">length</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">])))</span>
+<span class="n">layer3</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">kernel</span><span class="p">(</span><span class="n">length</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">])))</span>
+<span class="n">all_layer</span><span class="o">=</span><span class="n">combine</span><span class="p">(</span><span class="n">layer1</span><span class="p">,</span><span class="n">layer2</span><span class="p">,</span><span class="n">layer3</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.dgp.dgp.estimate">
+<span class="sig-name descname"><span class="pre">estimate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">burnin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.dgp.dgp.estimate" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the point estimates of model parameters and output the trained DGP.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>burnin</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of SEM iterations to be discarded for
+point estimate calculation. Must be smaller than the SEM iterations
+implemented. If this is not specified, only the last 25% of iterations
+are used. Defaults to <cite>None</cite>.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>an updated list that represents the trained DGP hierarchy.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.dgp.dgp.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.dgp.dgp.initialize" title="Permalink to this definition"></a></dt>
+<dd><p>Initialise all_layer attribute for training.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.dgp.dgp.plot">
+<span class="sig-name descname"><span class="pre">plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">layer_no</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ker_no</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">width</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">height</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ticksize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">labelsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hspace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.dgp.dgp.plot" title="Permalink to this definition"></a></dt>
+<dd><p>Plot the traces of model parameters of a particular GP node in the DGP hierarchy.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>layer_no</strong> (<em>int</em>) – the index of the interested layer.</p></li>
+<li><p><strong>ker_no</strong> (<em>int</em>) – the index of the interested GP in the layer specified by <strong>layer_no</strong>.</p></li>
+<li><p><strong>width</strong> (<em>float</em><em>, </em><em>optional</em>) – the overall plot width. Defaults to <cite>4</cite>.</p></li>
+<li><p><strong>height</strong> (<em>float</em><em>, </em><em>optional</em>) – the overall plot height. Defaults to <cite>1</cite>.</p></li>
+<li><p><strong>ticksize</strong> (<em>float</em><em>, </em><em>optional</em>) – the size of sub-plot ticks. Defaults to <cite>5</cite>.</p></li>
+<li><p><strong>labelsize</strong> (<em>float</em><em>, </em><em>optional</em>) – the font size of y labels. Defaults to <cite>8</cite>.</p></li>
+<li><p><strong>hspace</strong> (<em>float</em><em>, </em><em>optional</em>) – the space between sub-plots. Defaults to <cite>0.1</cite>.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.dgp.dgp.train">
+<span class="sig-name descname"><span class="pre">train</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">500</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_burn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disable</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.dgp.dgp.train" title="Permalink to this definition"></a></dt>
+<dd><p>Train the DGP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>N</strong> (<em>int</em>) – number of iterations for stochastic EM. Defaults to <cite>500</cite>.</p></li>
+<li><p><strong>ess_burn</strong> (<em>int</em><em>, </em><em>optional</em>) – number of burnin steps for the ESS-within-Gibbs
+at each I-step of the SEM. Defaults to <cite>10</cite>.</p></li>
+<li><p><strong>disable</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to disable the training progress bar.
+Defaults to <cite>False</cite>.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.emulation">
+<span id="dgpsi-emulation-module"></span><h2>dgpsi.emulation module<a class="headerlink" href="#module-dgpsi.emulation" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.emulation.emulator">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.emulation.</span></span><span class="sig-name descname"><span class="pre">emulator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.emulation.emulator" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class to make predictions from the trained DGP or DGP+likelihood model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>all_layer</strong> (<em>list</em>) – a list that contains the trained DGP model produced by the method <a class="reference internal" href="#dgpsi.dgp.dgp.estimate" title="dgpsi.dgp.dgp.estimate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">estimate()</span></code></a>
+of the <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class.</p></li>
+<li><p><strong>N</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of imputation to produce the predictions. Increase the value to account for
+more imputation uncertainties. Defaults to <cite>50</cite>.</p></li>
+<li><p><strong>nb_parallel</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to use <em>Numba</em>’s multi-threading to accelerate the predictions. Defaults to <cite>False</cite>.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.emulation.emulator.nllik">
+<span class="sig-name descname"><span class="pre">nllik</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.emulation.emulator.nllik" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the negative predicted log-likelihood from the trained DGP model with likelihood layer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> (<em>ndarray</em>) – a numpy 2d-array where each row is an input testing data point and
+each column is an input dimension.</p></li>
+<li><p><strong>y</strong> (<em>ndarray</em>) – a numpy 2d-array where each row is a scalar-valued testing output data point.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a tuple of two 1d-arrays. The first one is the average negative predicted log-likelihood across
+all testing data points. The second ones is the negative predicted log-likelihood for each testing data point.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.emulation.emulator.ppredict">
+<span class="sig-name descname"><span class="pre">ppredict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mean_var'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">full_layer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">core_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.emulation.emulator.ppredict" title="Permalink to this definition"></a></dt>
+<dd><p>Implement parallel predictions from the trained DGP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.emulation.emulator.predict" title="dgpsi.emulation.emulator.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">emulator.predict()</span></code></a>.</p></li>
+<li><p><strong>method</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.emulation.emulator.predict" title="dgpsi.emulation.emulator.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">emulator.predict()</span></code></a>.</p></li>
+<li><p><strong>full_layer</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.emulation.emulator.predict" title="dgpsi.emulation.emulator.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">emulator.predict()</span></code></a>.</p></li>
+<li><p><strong>sample_size</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.emulation.emulator.predict" title="dgpsi.emulation.emulator.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">emulator.predict()</span></code></a>.</p></li>
+<li><p><strong>chunk_num</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of chunks that the testing input array <strong>x</strong> will be divided into.
+Defaults to <cite>None</cite>. If not specified, the number of chunks is set to <strong>core_num</strong>.</p></li>
+<li><p><strong>core_num</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of cores/workers to be used. Defaults to <cite>None</cite>. If not specified,
+the number of cores is set to <code class="docutils literal notranslate"><span class="pre">(max</span> <span class="pre">physical</span> <span class="pre">cores</span> <span class="pre">available</span> <span class="pre">-</span> <span class="pre">1)</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Same as the method <a class="reference internal" href="#dgpsi.emulation.emulator.predict" title="dgpsi.emulation.emulator.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">emulator.predict()</span></code></a>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.emulation.emulator.predict">
+<span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mean_var'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">full_layer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.emulation.emulator.predict" title="Permalink to this definition"></a></dt>
+<dd><p>Implement predictions from the trained DGP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> (<em>ndarray</em>) – a numpy 2d-array where each row is an input testing data point and
+each column is an input dimension.</p></li>
+<li><p><strong>method</strong> (<em>str</em><em>, </em><em>optional</em>) – the prediction approach: mean-variance (<cite>mean_var</cite>) or sampling
+(<cite>sampling</cite>) approach. Defaults to <cite>mean_var</cite>.</p></li>
+<li><p><strong>full_layer</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to output the predictions of all layers. Defaults to <cite>False</cite>.</p></li>
+<li><p><strong>sample_size</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of samples to draw for each given imputation if <strong>method</strong> = ‘<cite>sampling</cite>’.
+Defaults to <cite>50</cite>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>if the argument <strong>method</strong> = ‘<cite>mean_var</cite>’, a tuple is returned:</dt><dd><ol class="arabic simple">
+<li><p>If <strong>full_layer</strong> = <cite>False</cite>, the tuple contains two numpy 2d-arrays, one for the predictive means
+and another for the predictive variances. Each array has its rows corresponding to testing
+positions and columns corresponding to DGP output dimensions (i.e., GP/likelihood nodes in the final layer);</p></li>
+<li><p>If <strong>full_layer</strong> = <cite>True</cite>, the tuple contains two lists, one for the predictive means
+and another for the predictive variances. Each list contains <em>L</em> (i.e., the number of layers)
+numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns
+corresponding to output dimensions (i.e., GP nodes from the associated layer and in case of the final layer,
+it may be the number of the likelihood nodes).</p></li>
+</ol>
+</dd>
+<dt>if the argument <strong>method</strong> = ‘<cite>sampling</cite>’, a list is returned:</dt><dd><ol class="arabic simple">
+<li><p>If <strong>full_layer</strong> = <cite>False</cite>, the list contains <em>D</em> (i.e., the number of GP/likelihood nodes in the final layer) numpy
+2d-arrays. Each array has its rows corresponding to testing positions and columns corresponding to samples of
+size: <strong>N</strong> * <strong>sample_size</strong>;</p></li>
+<li><p>If <strong>full_layer</strong> = <cite>True</cite>, the list contains <em>L</em> (i.e., the number of layers) sub-lists. Each sub-list
+represents the samples draw from the GPs/likelihoods in the corresponding layers, and contains
+<em>D</em> (i.e., the number of GP nodes in the corresponding layer or likelihood nodes in the final layer)
+numpy 2d-arrays. Each array gives samples of the output from one of <em>D</em> GPs/likelihoods at the
+testing positions, and has its rows corresponding to testing positions and columns corresponding to samples
+of size: <strong>N</strong> * <strong>sample_size</strong>.</p></li>
+</ol>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple_or_list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.emulation.emulator.set_nb_parallel">
+<span class="sig-name descname"><span class="pre">set_nb_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.emulation.emulator.set_nb_parallel" title="Permalink to this definition"></a></dt>
+<dd><p>Set <strong>self.nb_parallel</strong> to the bool value given by <strong>nb_parallel</strong>. This method is useful to change <strong>self.nb_parallel</strong>
+when the emulator class has already been built.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.functions">
+<span id="dgpsi-functions-module"></span><h2>dgpsi.functions module<a class="headerlink" href="#module-dgpsi.functions" title="Permalink to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.IJ">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">IJ</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.IJ" title="Permalink to this definition"></a></dt>
+<dd><p>Compute I and J involved in linked GP predictions.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.IJ_parallel">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">IJ_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.IJ_parallel" title="Permalink to this definition"></a></dt>
+<dd><p>Compute I and J involved in linked GP predictions.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.I_matern_parallel">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">I_matern_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">muA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">muB</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zXi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.I_matern_parallel" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.I_sexp_parallel">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">I_sexp_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_zi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.I_sexp_parallel" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.J_matern_parallel">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">J_matern_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">z_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Xi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Xj</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zXi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zXj</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.J_matern_parallel" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.J_sexp">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">J_sexp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_zi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_zj</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.J_sexp" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.J_sexp_parallel">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">J_sexp_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_zi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X_zj</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.J_sexp_parallel" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.Jd">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">Jd</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z_v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.Jd" title="Permalink to this definition"></a></dt>
+<dd><p>Compute J components in different input dimensions for Matern2.5 kernel.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.Z_fct">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">Z_fct</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">W</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.Z_fct" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.fmvn">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">fmvn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cov</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.fmvn" title="Permalink to this definition"></a></dt>
+<dd><p>Generate multivariate Gaussian random samples without means.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.fmvn_mu">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">fmvn_mu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.fmvn_mu" title="Permalink to this definition"></a></dt>
+<dd><p>Generate multivariate Gaussian random samples with means.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.fod_exp">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">fod_exp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.fod_exp" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.ghdiag">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">ghdiag</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fct</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">var</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.ghdiag" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.gp">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">gp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">global_w1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Rinv</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Rinv_y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nugget</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.gp" title="Permalink to this definition"></a></dt>
+<dd><p>Make GP predictions.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.k_one_vec">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">k_one_vec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.k_one_vec" title="Permalink to this definition"></a></dt>
+<dd><p>Compute cross-correlation matrix between the testing and training input data.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.link_gp">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">link_gp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">global_w1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Rinv</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Rinv_y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nugget</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.link_gp" title="Permalink to this definition"></a></dt>
+<dd><p>Make linked GP predictions.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.matern_coef">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">matern_coef</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.matern_coef" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.matern_multi">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">matern_multi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.matern_multi" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.matern_one">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">matern_one</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">u</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.matern_one" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.pdist_matern_coef">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">pdist_matern_coef</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.pdist_matern_coef" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.pdist_matern_multi">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">pdist_matern_multi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.pdist_matern_multi" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.pdist_matern_one">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">pdist_matern_one</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.pdist_matern_one" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.read">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">read</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pkl_file</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.read" title="Permalink to this definition"></a></dt>
+<dd><p>Load the <cite>.pkl</cite> file that stores the emulator.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>pkl_file</strong> (<em>strings</em>) – specifies the path to and the name of the <cite>.pkl</cite> file where
+the emulator is stored.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>an emulator class. For GP, it is the <a class="reference internal" href="#dgpsi.gp.gp" title="dgpsi.gp.gp"><code class="xref py py-class docutils literal notranslate"><span class="pre">gp</span></code></a> class. For DGP, it is the <a class="reference internal" href="#dgpsi.emulation.emulator" title="dgpsi.emulation.emulator"><code class="xref py py-class docutils literal notranslate"><span class="pre">emulator</span></code></a> class.</dt><dd><p>For linked GP/DGP, it is the <a class="reference internal" href="#dgpsi.linkgp.lgp" title="dgpsi.linkgp.lgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">lgp</span></code></a> class.</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>class</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.update_f">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">update_f</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.update_f" title="Permalink to this definition"></a></dt>
+<dd><p>Update ESS proposal samples.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.functions.write">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.functions.</span></span><span class="sig-name descname"><span class="pre">write</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">emu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pkl_file</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.functions.write" title="Permalink to this definition"></a></dt>
+<dd><p>Save the constructed emulator to a pkl file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>emu</strong> (<em>class</em>) – an emulator class. For GP, it is the <a class="reference internal" href="#dgpsi.gp.gp" title="dgpsi.gp.gp"><code class="xref py py-class docutils literal notranslate"><span class="pre">gp</span></code></a> class after training.
+For DGP, it is the <a class="reference internal" href="#dgpsi.emulation.emulator" title="dgpsi.emulation.emulator"><code class="xref py py-class docutils literal notranslate"><span class="pre">emulator</span></code></a> class. For linked GP/DGP, it is the <a class="reference internal" href="#dgpsi.linkgp.lgp" title="dgpsi.linkgp.lgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">lgp</span></code></a> class.</p></li>
+<li><p><strong>pkl_file</strong> (<em>strings</em>) – specifies the path to and the name of the <cite>.pkl</cite> file to which
+the emulator is saved.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.gp">
+<span id="dgpsi-gp-module"></span><h2>dgpsi.gp module<a class="headerlink" href="#module-dgpsi.gp" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.gp.gp">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.gp.</span></span><span class="sig-name descname"><span class="pre">gp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.gp.gp" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class that for Gaussian process emulation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>X</strong> (<em>ndarray</em>) – a numpy 2d-array where each row is an input data point and
+each column is an input dimension.</p></li>
+<li><p><strong>Y</strong> (<em>ndarray</em>) – a numpy 2d-array with only one column and each row being an input data point.</p></li>
+<li><p><strong>kernel</strong> (<em>class</em>) – a <a class="reference internal" href="#dgpsi.kernel_class.kernel" title="dgpsi.kernel_class.kernel"><code class="xref py py-class docutils literal notranslate"><span class="pre">kernel</span></code></a> class that specifies the features of the GP.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.gp.gp.export">
+<span class="sig-name descname"><span class="pre">export</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.gp.gp.export" title="Permalink to this definition"></a></dt>
+<dd><p>Export the trained GP.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.gp.gp.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.gp.gp.initialize" title="Permalink to this definition"></a></dt>
+<dd><p>Assign input/output data to the kernel for training.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.gp.gp.ppredict">
+<span class="sig-name descname"><span class="pre">ppredict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mean_var'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">core_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.gp.gp.ppredict" title="Permalink to this definition"></a></dt>
+<dd><p>Implement parallel predictions from the trained GP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.gp.gp.predict" title="dgpsi.gp.gp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">gp.predict()</span></code></a>.</p></li>
+<li><p><strong>method</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.gp.gp.predict" title="dgpsi.gp.gp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">gp.predict()</span></code></a>.</p></li>
+<li><p><strong>sample_size</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.gp.gp.predict" title="dgpsi.gp.gp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">gp.predict()</span></code></a>.</p></li>
+<li><p><strong>chunk_num</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of chunks that the testing input array <strong>x</strong> will be divided into.
+Defaults to <cite>None</cite>. If not specified, the number of chunks is set to <strong>core_num</strong>.</p></li>
+<li><p><strong>core_num</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of cores/workers to be used. Defaults to <cite>None</cite>. If not specified,
+the number of cores is set to <code class="docutils literal notranslate"><span class="pre">(max</span> <span class="pre">physical</span> <span class="pre">cores</span> <span class="pre">available</span> <span class="pre">-</span> <span class="pre">1)</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Same as the method <a class="reference internal" href="#dgpsi.gp.gp.predict" title="dgpsi.gp.gp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">gp.predict()</span></code></a>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.gp.gp.predict">
+<span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mean_var'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.gp.gp.predict" title="Permalink to this definition"></a></dt>
+<dd><p>Implement predictions from the trained GP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> (<em>ndarray</em>) – a numpy 2d-array where each row is an input testing data point and
+each column is an input dimension.</p></li>
+<li><p><strong>method</strong> (<em>str</em><em>, </em><em>optional</em>) – the prediction approach: mean-variance (<cite>mean_var</cite>) or sampling
+(<cite>sampling</cite>) approach. Defaults to <cite>mean_var</cite>.</p></li>
+<li><p><strong>sample_size</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of samples to draw from the predictive distribution of
+GP if <strong>method</strong> = ‘<cite>sampling</cite>’. Defaults to <cite>50</cite>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>if the argument <strong>method</strong> = ‘<cite>mean_var</cite>’, a tuple is returned:</dt><dd><p>the tuple contains two numpy 2d-arrays, one for the predictive means
+and another for the predictive variances. Each array has only one column with its rows
+corresponding to testing positions;</p>
+</dd>
+<dt>if the argument <strong>method</strong> = ‘<cite>sampling</cite>’, a numpy 2d-array is returned:</dt><dd><p>the array has its rows corresponding to testing positions and columns corresponding to
+sample_size number of samples drawn from the predictive distribution of GP;</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple_or_ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.gp.gp.train">
+<span class="sig-name descname"><span class="pre">train</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.gp.gp.train" title="Permalink to this definition"></a></dt>
+<dd><p>Train the GP model.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.imputation">
+<span id="dgpsi-imputation-module"></span><h2>dgpsi.imputation module<a class="headerlink" href="#module-dgpsi.imputation" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.imputation.imputer">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.imputation.</span></span><span class="sig-name descname"><span class="pre">imputer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_layer</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.imputation.imputer" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class to implement imputation of latent variables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>all_layer</strong> (<em>list</em>) – a list that contains the DGP model</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.imputation.imputer.key_stats">
+<span class="sig-name descname"><span class="pre">key_stats</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.imputation.imputer.key_stats" title="Permalink to this definition"></a></dt>
+<dd><p>Compute and store key statistics used in predictions</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.imputation.imputer.one_sample">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">one_sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target_kernel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">linked_upper_kernels</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.imputation.imputer.one_sample" title="Permalink to this definition"></a></dt>
+<dd><p>Impute one latent variable produced by a particular GP.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>target_kernel</strong> (<em>class</em>) – the GP whose output is a latent variable that needs to be imputed.</p></li>
+<li><p><strong>linked_upper_kernels</strong> (<em>list</em>) – a list of GPs (in the next layer) that link the output produced
+by the GP defined by the argument <strong>target_kernel</strong>.</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – the index indicating the position of the GP defined by the argument <strong>target_kernel</strong> in
+its layer.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.imputation.imputer.sample">
+<span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">burnin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.imputation.imputer.sample" title="Permalink to this definition"></a></dt>
+<dd><p>Implement the imputation via the ESS-within-Gibbs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>burnin</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of burnin iterations for the ESS-within-Gibbs sampler
+to generate one realisation of latent variables. Defaults to <cite>0</cite>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.kernel_class">
+<span id="dgpsi-kernel-class-module"></span><h2>dgpsi.kernel_class module<a class="headerlink" href="#module-dgpsi.kernel_class" title="Permalink to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.combine">
+<span class="sig-prename descclassname"><span class="pre">dgpsi.kernel_class.</span></span><span class="sig-name descname"><span class="pre">combine</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">layers</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.combine" title="Permalink to this definition"></a></dt>
+<dd><p>Combine layers into one list as a DGP structure.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>layers</strong> (<em>list</em>) – a sequence of lists, each of which contains the GPs (defined by the <a class="reference internal" href="#dgpsi.kernel_class.kernel" title="dgpsi.kernel_class.kernel"><code class="xref py py-class docutils literal notranslate"><span class="pre">kernel</span></code></a> class) in that layer.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a list of layers defining the DGP structure.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.kernel_class.</span></span><span class="sig-name descname"><span class="pre">kernel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nugget</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'sexp'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'ga'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_coef</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">array([1.6,</span> <span class="pre">0.3])</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nugget_est</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_est</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">connect</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class that defines the GPs in the DGP hierarchy.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>length</strong> (<em>ndarray</em>) – <p>a numpy 1d-array, whose length equals to:</p>
+<ol class="arabic simple">
+<li><p>one if the lengthscales in the kernel function are assumed same across input dimensions;</p></li>
+<li><p>the total number of input dimensions, which is the sum of the number of feeding GPs
+in the last layer (defined by the argument <strong>input_dim</strong>) and the number of connected global
+input dimensions (defined by the argument <strong>connect</strong>), if the lengthscales in the kernel function
+are assumed different across input dimensions.</p></li>
+</ol>
+</p></li>
+<li><p><strong>scale</strong> (<em>float</em><em>, </em><em>optional</em>) – the variance of a GP. Defaults to <cite>1</cite>.</p></li>
+<li><p><strong>nugget</strong> (<em>float</em><em>, </em><em>optional</em>) – the nugget term of a GP. Defaults to <cite>1e-6</cite>.</p></li>
+<li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – kernel function to be used. Either <cite>sexp</cite> for squared exponential kernel or
+<cite>matern2.5</cite> for Matern2.5 kernel. Defaults to <cite>sexp</cite>.</p></li>
+<li><p><strong>prior_name</strong> (<em>str</em><em>, </em><em>optional</em>) – prior class. Either gamma (<cite>ga</cite>) or inverse gamma (<cite>inv_ga</cite>) distribution for
+the lengthscales and nugget term. Set <cite>None</cite> to disable the prior. Defaults to <cite>ga</cite>.</p></li>
+<li><p><strong>prior_coef</strong> (<em>ndarray</em><em>, </em><em>optional</em>) – a numpy 1d-array that contains two values specifying the shape and rate
+parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to <code class="docutils literal notranslate"><span class="pre">np.array([1.6,0.3])</span></code>.</p></li>
+<li><p><strong>nugget_est</strong> (<em>bool</em><em>, </em><em>optional</em>) – set to <cite>True</cite> to estimate nugget term or to <cite>False</cite> to fix the nugget term as specified
+by the argument <strong>nugget</strong>. If set to True, the value set to the argument <strong>nugget</strong> is used as the initial
+value. Defaults to <cite>False</cite>.</p></li>
+<li><p><strong>scale_est</strong> (<em>bool</em><em>, </em><em>optional</em>) – set to <cite>True</cite> to estimate the variance or to <cite>False</cite> to fix the variance as specified
+by the argument <strong>scale</strong>. Defaults to <cite>False</cite>.</p></li>
+<li><p><strong>input_dim</strong> (<em>ndarray</em><em>, </em><em>optional</em>) – a numpy 1d-array that contains the indices of GPs in the last layer
+whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
+feed into the GP. When set to <cite>None</cite>, all outputs from GPs of last layer (or all global input
+dimensions) feed into the GP. Defaults to <cite>None</cite>.</p></li>
+<li><p><strong>connect</strong> (<em>ndarray</em><em>, </em><em>optional</em>) – a numpy 1d-array that contains the indices of dimensions in the global
+input connecting to the GP as additional input dimensions to the input obtained from the output of
+GPs in the last layer (as determined by the argument <strong>input_dim</strong>). When set to <cite>None</cite>, no global input
+connection is implemented. Defaults to <cite>None</cite>. When the kernel class is used in GP/DGP emulators for linked
+emulation and some input dimensions to the computer models are not connected to some feeding computer models,
+set <strong>connect</strong> to a 1d-array of indices of these external global input dimensions, and accordingly, set
+<strong>input_dim</strong> to a 1d-array of indices of the remaining input dimensions that are connected to the feeding
+computer models.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.type">
+<span class="sig-name descname"><span class="pre">type</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.type" title="Permalink to this definition"></a></dt>
+<dd><p>identifies that the kernel is a GP.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.g">
+<span class="sig-name descname"><span class="pre">g</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.g" title="Permalink to this definition"></a></dt>
+<dd><p>a function giving the log probability density function of gamma or inverse gamma distribution
+ignoring the constant part.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>function</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.gfod">
+<span class="sig-name descname"><span class="pre">gfod</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.gfod" title="Permalink to this definition"></a></dt>
+<dd><p>a function giving the first order derivative of <strong>g</strong> with respect to the log-transformed
+lengthscales and nugget.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>function</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.para_path">
+<span class="sig-name descname"><span class="pre">para_path</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.para_path" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array that contains the trace of model parameters. Each row is a
+parameter estimate produced by one SEM iteration. The model parameters in each row are ordered as
+follow: <code class="docutils literal notranslate"><span class="pre">np.array([scale</span> <span class="pre">estimate,</span> <span class="pre">lengthscale</span> <span class="pre">estimate</span> <span class="pre">(whose</span> <span class="pre">length&gt;=1),</span> <span class="pre">nugget</span> <span class="pre">estimate])</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.global_input">
+<span class="sig-name descname"><span class="pre">global_input</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.global_input" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array that contains the connect global input dimensions determined
+by the argument <strong>connect</strong>. The value of the attribute is assigned during the initialisation of
+<a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class. If <strong>connect</strong> is set to <cite>None</cite>, this attribute is also <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.input">
+<span class="sig-name descname"><span class="pre">input</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.input" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array (each row as a data point and each column as a data dimension) that
+contains the input training data (according to the argument <strong>input_dim</strong>) to the GP. The value of
+this attribute is assigned during the initialisation of <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.output">
+<span class="sig-name descname"><span class="pre">output</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.output" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array with only one column that contains the output training data to the GP.
+The value of this attribute is assigned during the initialisation of <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.rep">
+<span class="sig-name descname"><span class="pre">rep</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.rep" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 1d-array used to re-construct repetitions in the data according to the repetitions
+in the global input, i.e., rep is assigned during the initialisation of <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class if one input position
+has multiple outputs. Otherwise, it is <cite>None</cite>. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.Rinv">
+<span class="sig-name descname"><span class="pre">Rinv</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.Rinv" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array that stores the inversion of correlation matrix. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.Rinv_y">
+<span class="sig-name descname"><span class="pre">Rinv_y</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.Rinv_y" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array that stores the product of correlation matrix inverse and the output Y. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.rff">
+<span class="sig-name descname"><span class="pre">rff</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.rff" title="Permalink to this definition"></a></dt>
+<dd><p>indicates weather random Fourier features are used. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.D">
+<span class="sig-name descname"><span class="pre">D</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.D" title="Permalink to this definition"></a></dt>
+<dd><p>the dimension of input data to the GP node. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.M">
+<span class="sig-name descname"><span class="pre">M</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.M" title="Permalink to this definition"></a></dt>
+<dd><p>the number of features in random Fourier approximation. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.W">
+<span class="sig-name descname"><span class="pre">W</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.W" title="Permalink to this definition"></a></dt>
+<dd><p>a 2d-array (M, D) sampled to construct the Fourier approximation to the kernel matrix. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.b">
+<span class="sig-name descname"><span class="pre">b</span></span><a class="headerlink" href="#dgpsi.kernel_class.kernel.b" title="Permalink to this definition"></a></dt>
+<dd><p>a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.add_to_path">
+<span class="sig-name descname"><span class="pre">add_to_path</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.add_to_path" title="Permalink to this definition"></a></dt>
+<dd><p>Add updated model parameter estimates to the class attribute <strong>para_path</strong>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.compute_stats">
+<span class="sig-name descname"><span class="pre">compute_stats</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.compute_stats" title="Permalink to this definition"></a></dt>
+<dd><p>Compute and store key statistics for the GP predictions</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.gp_prediction">
+<span class="sig-name descname"><span class="pre">gp_prediction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.gp_prediction" title="Permalink to this definition"></a></dt>
+<dd><p>Make GP predictions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> (<em>ndarray</em>) – a numpy 2d-array that contains the input testing data (whose rows correspond to testing
+data points and columns correspond to testing data dimensions) with the number of columns same as
+the <strong>input</strong> attribute.</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>) – a numpy 2d-array that contains additional input testing data (with the same number of
+columns of the <strong>global_input</strong> attribute) from the global testing input if the argument <strong>connect</strong>
+is not <cite>None</cite>. Set to None if the argument <strong>connect</strong> is <cite>None</cite>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a tuple of two 1d-arrays giving the means and variances at the testing input data positions.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.k_matrix">
+<span class="sig-name descname"><span class="pre">k_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fod_eval</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.k_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the correlation matrix and/or first order derivatives of the correlation matrix wrt log-transformed lengthscales and nugget.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>fod_eval</strong> (<em>bool</em>) – indicates if the gradient information is also computed along with the correlation
+matrix. Defaults to <cite>False</cite>.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><ol class="arabic simple">
+<li><p>If <strong>fod_eval</strong> = <cite>False</cite>, a numpy 2d-array <em>K</em> is returned as the correlation matrix.</p></li>
+<li><p>If <strong>fod_eval</strong> = <cite>True</cite>, a tuple is returned. It includes <em>K</em> and fod, a numpy 3d-array that contains the first order derivatives of the correlation matrix
+wrt log-transformed lengthscales and nugget. The length of the array equals to the total number
+of model parameters (i.e., the total number of lengthscales and nugget).</p></li>
+</ol>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray_or_tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.linkgp_prediction">
+<span class="sig-name descname"><span class="pre">linkgp_prediction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.linkgp_prediction" title="Permalink to this definition"></a></dt>
+<dd><p>Make linked GP predictions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>m</strong> (<em>ndarray</em>) – a numpy 2d-array that contains predictive means of testing outputs from the GPs in the last
+layer. The number of rows equals to the number of testing positions and the number of columns equals to the
+length of the argument <strong>input_dim</strong>. If the argument <strong>input_dim</strong> is <cite>None</cite>, then the number of columns equals
+to the number of GPs in the last layer.</p></li>
+<li><p><strong>v</strong> (<em>ndarray</em>) – a numpy 2d-array that contains predictive variances of testing outputs from the GPs in the last
+layer. It has the same shape of <strong>m</strong>.</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>) – a numpy 2d-array that contains additional input testing data (with the same number of
+columns of the <strong>global_input</strong> attribute) from the global testing input if the argument <strong>connect</strong>
+is not <cite>None</cite>. Set to <cite>None</cite> if the argument <strong>connect</strong> is <cite>None</cite>.</p></li>
+<li><p><strong>nb_parallel</strong> (<em>bool</em>) – whether to use <em>Numba</em>’s multi-threading to accelerate the predictions.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are
+represented by predictive means and variances).</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.linkgp_prediction_full">
+<span class="sig-name descname"><span class="pre">linkgp_prediction_full</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.linkgp_prediction_full" title="Permalink to this definition"></a></dt>
+<dd><p>Make linked GP predictions with additional input also generated by GPs/DGPs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>m</strong> (<em>ndarray</em>) – a numpy 2d-array that contains predictive means of testing outputs from the GPs in the last
+layer. The number of rows equals to the number of testing positions and the number of columns equals to the
+length of the argument <strong>input_dim</strong>. If the argument <strong>input_dim</strong> is <cite>None</cite>, then the number of columns equals
+to the number of GPs in the last layer.</p></li>
+<li><p><strong>v</strong> (<em>ndarray</em>) – a numpy 2d-array that contains predictive variances of testing outputs from the GPs in the last
+layer. It has the same shape of <strong>m</strong>.</p></li>
+<li><p><strong>m_z</strong> (<em>ndarray</em>) – a numpy 2d-array that contains predictive means of additional input testing data from GPs.</p></li>
+<li><p><strong>v_z</strong> (<em>ndarray</em>) – a numpy 2d-array that contains predictive variances of additional input testing data from GPs.</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>) – a numpy 2d-array that contains additional input testing data from the global testing input that are
+not from GPs. Set to <cite>None</cite> if the argument <strong>connect</strong> is None.</p></li>
+<li><p><strong>nb_parallel</strong> (<em>bool</em>) – whether to use <em>Numba</em>’s multi-threading to accelerate the predictions.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are
+represented by predictive means and variances).</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.llik">
+<span class="sig-name descname"><span class="pre">llik</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.llik" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the negative log-likelihood function of the GP.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>x</strong> (<em>ndarray</em>) – a numpy 1d-array that contains the values of log-transformed model parameters:
+log-transformed lengthscales followed by the log-transformed nugget.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a numpy 1d-array giving negative log-likelihood.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.llik_der">
+<span class="sig-name descname"><span class="pre">llik_der</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.llik_der" title="Permalink to this definition"></a></dt>
+<dd><p>Compute first order derivatives of the negative log-likelihood function wrt log-transformed model parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>x</strong> (<em>ndarray</em>) – a numpy 1d-array that contains the values of log-transformed model parameters:
+log-transformed lengthscales followed by the log-transformed nugget.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
+that contains first order derivatives of the negative log-likelihood function wrt log-transformed
+lengthscales and nugget.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.llik_rff">
+<span class="sig-name descname"><span class="pre">llik_rff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.llik_rff" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the negative log-likelihood function of the GP under RFF.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>x</strong> (<em>ndarray</em>) – a numpy 1d-array that contains the values of log-transformed model parameters:
+log-transformed lengthscales followed by the log-transformed nugget.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a numpy 1d-array giving negative log-likelihood.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.log_likelihood_func">
+<span class="sig-name descname"><span class="pre">log_likelihood_func</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.log_likelihood_func" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.log_likelihood_func_rff">
+<span class="sig-name descname"><span class="pre">log_likelihood_func_rff</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.log_likelihood_func_rff" title="Permalink to this definition"></a></dt>
+<dd><p>Compute Gaussian log-likelihood function using random Fourier features (RFF).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.log_prior">
+<span class="sig-name descname"><span class="pre">log_prior</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.log_prior" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the value of log priors specified to the lengthscales and nugget.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>a numpy 1d-array giving the sum of log priors of the lengthscales and nugget.</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.log_prior_fod">
+<span class="sig-name descname"><span class="pre">log_prior_fod</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.log_prior_fod" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
+giving the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.log_t">
+<span class="sig-name descname"><span class="pre">log_t</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.log_t" title="Permalink to this definition"></a></dt>
+<dd><p>Log transform the model parameters (lengthscales and nugget).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>a numpy 1d-array of log-transformed model parameters</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.maximise">
+<span class="sig-name descname"><span class="pre">maximise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'L-BFGS-B'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.maximise" title="Permalink to this definition"></a></dt>
+<dd><p>Optimise and update model parameters by minimising the negative log-likelihood function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>method</strong> (<em>str</em><em>, </em><em>optional</em>) – optimisation algorithm. Defaults to <cite>L-BFGS-B</cite>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.sample_basis">
+<span class="sig-name descname"><span class="pre">sample_basis</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.sample_basis" title="Permalink to this definition"></a></dt>
+<dd><p>Sample <strong>W</strong> and <strong>b</strong> to construct random Fourier approximations to correlation matrices.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.kernel_class.kernel.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_theta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.kernel_class.kernel.update" title="Permalink to this definition"></a></dt>
+<dd><p>Update the model parameters (scale, lengthscales and nugget).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>log_theta</strong> (<em>ndarray</em>) – optimised numpy 1d-array of log-transformed lengthscales and nugget.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.likelihood_class">
+<span id="dgpsi-likelihood-class-module"></span><h2>dgpsi.likelihood_class module<a class="headerlink" href="#module-dgpsi.likelihood_class" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.likelihood_class.</span></span><span class="sig-name descname"><span class="pre">Hetero</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.llik">
+<span class="sig-name descname"><span class="pre">llik</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.llik" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.pllik">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">pllik</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">f</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.pllik" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.post_het1">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">post_het1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_mask</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.post_het1" title="Permalink to this definition"></a></dt>
+<dd><p>Calculate the conditional posterior mean and covariance of the mean
+of the heteroskedastic Gaussian likelihood when there are no repetitions
+in the training data.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.post_het2">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">post_het2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_mask</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">V_mask</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_mask</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.post_het2" title="Permalink to this definition"></a></dt>
+<dd><p>Calculate the conditional posterior mean and covariance of the mean
+of the heteroskedastic Gaussian likelihood when there are repetitions
+in the training data.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.posterior">
+<span class="sig-name descname"><span class="pre">posterior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">idx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.posterior" title="Permalink to this definition"></a></dt>
+<dd><p>Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.prediction">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prediction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.prediction" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Hetero.sampling">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f_sample</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Hetero.sampling" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.NegBin">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.likelihood_class.</span></span><span class="sig-name descname"><span class="pre">NegBin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.NegBin" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.NegBin.llik">
+<span class="sig-name descname"><span class="pre">llik</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.NegBin.llik" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.NegBin.pllik">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">pllik</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">f</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.NegBin.pllik" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.NegBin.prediction">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prediction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.NegBin.prediction" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.NegBin.sampling">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sampling</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f_sample</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.NegBin.sampling" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.likelihood_class.</span></span><span class="sig-name descname"><span class="pre">Poisson</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="simple">
+<dt>Class to implement Poisson likelihood. It (and all likelihoods below) can only be added as the final</dt><dd><p>layer of the DGP+likelihood model.</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>input_dim</strong> (<em>ndarray</em><em>, </em><em>optional</em>) – a numpy 1d-array that contains the indices of GPs in the last
+layer whose outputs feed into the likelihood node. When set to <cite>None</cite>, all outputs from GPs of
+last layer feed into the likelihood node. Defaults to <cite>None</cite>.</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.type">
+<span class="sig-name descname"><span class="pre">type</span></span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.type" title="Permalink to this definition"></a></dt>
+<dd><p>identifies that the node is a likelihood node;</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.input">
+<span class="sig-name descname"><span class="pre">input</span></span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.input" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array (each row as a data point and each column as a likelihood parameter from the
+DGP part) that contains the input data (according to the argument <strong>input_dim</strong>) to the likelihood node. The value of
+this attribute is assigned during the initialisation of <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.output">
+<span class="sig-name descname"><span class="pre">output</span></span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.output" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 2d-array with only one column that contains the output data to the likelihood node.
+The value of this attribute is assigned during the initialisation of <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.exact_post_idx">
+<span class="sig-name descname"><span class="pre">exact_post_idx</span></span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.exact_post_idx" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 1d-array that indicates the indices of the likelihood parameters that allow closed-form
+conditional posterior distributions. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.rep">
+<span class="sig-name descname"><span class="pre">rep</span></span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.rep" title="Permalink to this definition"></a></dt>
+<dd><p>a numpy 1d-array used to re-construct repetitions in the data according to the repetitions in the global input,
+i.e., rep is assigned during the initialisation of <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class if one input position has multiple outputs. Otherwise, it is
+<cite>None</cite>. Defaults to <cite>None</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.llik">
+<span class="sig-name descname"><span class="pre">llik</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.llik" title="Permalink to this definition"></a></dt>
+<dd><p>The log-likelihood function of Poisson distribution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>a numpy 1d-array of log-likelihood.</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.pllik">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">pllik</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">f</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.pllik" title="Permalink to this definition"></a></dt>
+<dd><p>The predicted log-likelihood function of Poisson distribution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> (<em>ndarray</em>) – a numpy 3d-array of output data with shape <code class="docutils literal notranslate"><span class="pre">(N,1,1)</span></code>, where <em>N</em> is the number of output data points.</p></li>
+<li><p><strong>f</strong> (<em>ndarray</em>) – a numpy 3d-array of sample points with shape <code class="docutils literal notranslate"><span class="pre">(N,S,Q)</span></code>, where <em>S</em> is the number of sample points and
+<em>Q</em> is the number of parameters in the distribution (e.g., <em>Q</em> = <cite>1</cite> for Poisson distribution).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a numpy 3d-array of log-likelihood for given <strong>f</strong>.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.prediction">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prediction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.prediction" title="Permalink to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Compute mean and variance of the DGP+Poisson model given the predictive</dt><dd><p>mean and variance of DGP model for Poisson parameter.</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>m</strong> (<em>ndarray</em>) – a numpy 2d-array of predictive mean from the DGP model for the Poisson parameter.</p></li>
+<li><p><strong>v</strong> (<em>ndarray</em>) – a numpy 2d-array of predictive variance from the DGP model for the Poisson parameter.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are
+represented by predictive means and variances).</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.likelihood_class.Poisson.sampling">
+<span class="sig-name descname"><span class="pre">sampling</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f_sample</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.likelihood_class.Poisson.sampling" title="Permalink to this definition"></a></dt>
+<dd><p>Generate samples of DGP+Poisson model given samples of DGP model for the Poisson parameter.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>f_sample</strong> (<em>ndarray</em>) – a numpy 2d-array (with one column) of samples from the DGP model for the Poisson parameter.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a tuple of one 1d-arrays giving samples at the testing input data positions.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.linkgp">
+<span id="dgpsi-linkgp-module"></span><h2>dgpsi.linkgp module<a class="headerlink" href="#module-dgpsi.linkgp" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.linkgp.container">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.linkgp.</span></span><span class="sig-name descname"><span class="pre">container</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">structure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">local_input_idx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.container" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class to contain the trained GP or DGP emulator of a computer model for linked (D)GP emulation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>structure</strong> (<em>list</em>) – a list that contains the trained structure of GP or DGP of a computer model. For GP,
+this is the list exported from the <a class="reference internal" href="#dgpsi.gp.gp.export" title="dgpsi.gp.gp.export"><code class="xref py py-meth docutils literal notranslate"><span class="pre">export()</span></code></a> method of the <a class="reference internal" href="#dgpsi.gp.gp" title="dgpsi.gp.gp"><code class="xref py py-class docutils literal notranslate"><span class="pre">gp</span></code></a> class. For DGP, this is the list exported
+from the <a class="reference internal" href="#dgpsi.dgp.dgp.estimate" title="dgpsi.dgp.dgp.estimate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">estimate()</span></code></a> of the <a class="reference internal" href="#dgpsi.dgp.dgp" title="dgpsi.dgp.dgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">dgp</span></code></a> class.</p></li>
+<li><p><strong>local_input_idx</strong> (<em>ndarray</em>) – a numpy 1d-array that specifies the indices of outputs (a 2d-array)
+produced by all models in the feeding layer that are input to the model emulated by the GP or DGP
+represented by the <strong>structure</strong> argument. The indices should be ordered in such a way that the extracted
+output from the feeding layer is sorted in the same order as the training input used for the GP/DGP
+emulation of the computer model that the <strong>structure</strong> argument represents. When the model is in the first
+layer, <strong>local_input_idx</strong> gives the indices of its input in the global testing input set, see <a class="reference internal" href="#dgpsi.linkgp.lgp.predict" title="dgpsi.linkgp.lgp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">lgp.predict()</span></code></a>
+for descriptions of the global testing input set. Defaults to <cite>None</cite>. When the
+argument is <cite>None</cite>, one needs to set its value using the <a class="reference internal" href="#dgpsi.linkgp.container.set_local_input" title="dgpsi.linkgp.container.set_local_input"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set_local_input()</span></code></a>.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.linkgp.container.set_local_input">
+<span class="sig-name descname"><span class="pre">set_local_input</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">idx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.container.set_local_input" title="Permalink to this definition"></a></dt>
+<dd><p>Set the <strong>local_input_idx</strong> argument if it is not set when the class is constructed.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.linkgp.lgp">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.linkgp.</span></span><span class="sig-name descname"><span class="pre">lgp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">all_layer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.lgp" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class to store a system of GP and DGP emulators for predictions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>all_layer</strong> (<em>list</em>) – a list contains <em>L</em> (the number of layers of a systems of computer models) sub-lists,
+each of which represents a layer and contains the GP/DGP emulators of computer models represented by
+the <a class="reference internal" href="#dgpsi.linkgp.container" title="dgpsi.linkgp.container"><code class="xref py py-class docutils literal notranslate"><span class="pre">container</span></code></a> class. The sub-lists are placed in the list in the same order of the specified computer
+model system.</p></li>
+<li><p><strong>N</strong> (<em>int</em>) – the number of imputation to produce the predictions. Increase the value to account for more
+imputation uncertainties. If the system consists only GP emulators, <strong>N</strong> is set to <cite>1</cite> automatically.
+Defaults to <cite>50</cite>.</p></li>
+<li><p><strong>nb_parallel</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to use <em>Numba</em>’s multi-threading to accelerate the predictions. Defaults to <cite>False</cite>.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.linkgp.lgp.dgp_pred">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dgp_pred</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">structure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.lgp.dgp_pred" title="Permalink to this definition"></a></dt>
+<dd><p>Compute predictive mean and variance from a DGP (DGP+likelihood) emulator when the testing input is either deterministic or normally distributed.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.linkgp.lgp.gp_pred">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">gp_pred</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">structure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.lgp.gp_pred" title="Permalink to this definition"></a></dt>
+<dd><p>Compute predictive mean and variance from a GP emulator when the testing input is either deterministic or normally distributed.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.linkgp.lgp.ppredict">
+<span class="sig-name descname"><span class="pre">ppredict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mean_var'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">full_layer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">core_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.lgp.ppredict" title="Permalink to this definition"></a></dt>
+<dd><p>Implement parallel predictions from the trained DGP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.linkgp.lgp.predict" title="dgpsi.linkgp.lgp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">lgp.predict()</span></code></a>.</p></li>
+<li><p><strong>method</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.linkgp.lgp.predict" title="dgpsi.linkgp.lgp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">lgp.predict()</span></code></a>.</p></li>
+<li><p><strong>full_layer</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.linkgp.lgp.predict" title="dgpsi.linkgp.lgp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">lgp.predict()</span></code></a>.</p></li>
+<li><p><strong>sample_size</strong> – see descriptions of the method <a class="reference internal" href="#dgpsi.linkgp.lgp.predict" title="dgpsi.linkgp.lgp.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">lgp.predict()</span></code></a>.</p></li>
+<li><p><strong>chunk_num</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of chunks that the testing input array <strong>x</strong> will be divided into.
+Defaults to <cite>None</cite>. If not specified, the number of chunks is set to <strong>core_num</strong>.</p></li>
+<li><p><strong>core_num</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of cores/workers to be used. Defaults to <cite>None</cite>. If not specified,
+the number of cores is set to <code class="docutils literal notranslate"><span class="pre">(max</span> <span class="pre">physical</span> <span class="pre">cores</span> <span class="pre">available</span> <span class="pre">-</span> <span class="pre">1)</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Same as the method <cite>predict</cite>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.linkgp.lgp.predict">
+<span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mean_var'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">full_layer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.lgp.predict" title="Permalink to this definition"></a></dt>
+<dd><p>Implement predictions from the linked (D)GP model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x</strong> (<em>ndarray_or_list</em>) – <p>a numpy 2d-array or a list.</p>
+<ol class="arabic simple">
+<li><p>If <strong>x</strong> is a 2d-array, it is the global testing input set to the computer models in the first layer where
+each rows are input testing data points and columns are input dimensions across all computer models in
+the first layer of the system. In this case, it is assumed that <strong>x</strong> is the only global input to the computer
+system, i.e., there are no external global input to computer models in layers other than the first layer.</p></li>
+<li><p>If <strong>x</strong> is a list, it has <em>L</em> (the number of layers of a systems of computer models) elements. The first element
+is a numpy 2d-array that represents the global testing input set to the computer models in the first layer.
+The remaining L-1 elements are <em>L-1</em> sub-lists, each of which contains a number (same as the number of computer
+models in the corresponding layer) of numpy 2d-arrays (rows being testing points and columns being input
+dimensions) that represent the external global testing input to the computer models in the corresponding layer.
+The order of 2d-arrays in each sub-list must be the same order of the emulators placed in the corresponding layer
+of <strong>all_layer</strong> argument to <a class="reference internal" href="#dgpsi.linkgp.lgp" title="dgpsi.linkgp.lgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">lgp</span></code></a> class. If there is no external global input to a certain computer model of the
+system, set <cite>None</cite> in the corresponding sub-list (i.e., layer) of <strong>x</strong>.</p></li>
+</ol>
+</p></li>
+<li><p><strong>method</strong> (<em>str</em><em>, </em><em>optional</em>) – the prediction approach: mean-variance (<cite>mean_var</cite>) or sampling
+(<cite>sampling</cite>) approach. Defaults to <cite>mean_var</cite>.</p></li>
+<li><p><strong>full_layer</strong> (<em>bool</em><em>, </em><em>optional</em>) – whether to output the predictions from all GP/DGP emulators in the system. Defaults to <cite>False</cite>.</p></li>
+<li><p><strong>sample_size</strong> (<em>int</em><em>, </em><em>optional</em>) – the number of samples to draw for each given imputation if <strong>method</strong> = ‘<cite>sampling</cite>’.
+Defaults to <cite>50</cite>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>if the argument <strong>method</strong> = ‘<cite>mean_var</cite>’, a tuple is returned:</dt><dd><ol class="arabic simple">
+<li><p>If <strong>full_layer</strong> = <cite>False</cite>, the tuple contains two lists, one for the predictive means
+and another for the predictive variances. Each list contains a number (same number of computer models in the
+final layer of the system) of numpy 2d-arrays. Each 2d-array has its rows corresponding to global testing
+positions and columns corresponding to GP/DGP (or DGP+likelihood) output dimensions of the associated computer
+model in the final layer;</p></li>
+<li><p>If <strong>full_layer</strong> = <cite>True</cite>, the tuple contains two lists, one for the predictive means
+and another for the predictive variances. Each list contains <em>L</em> (i.e., the number of layers of the emulated system)
+sub-lists. Each sub-list represents a layer and contains a number (same number of computer models in the corresponding
+layer of the system) of numpy 2d-arrays. Each array has its rows corresponding to global testing positions and columns
+corresponding to GP/DGP (or DGP+likelihood in case of the final layer) output dimensions of the associated computer
+model in the corresponding layer.</p></li>
+</ol>
+</dd>
+<dt>if the argument <strong>method</strong> = ‘<cite>sampling</cite>’, a list is returned:</dt><dd><ol class="arabic simple">
+<li><p>If <strong>full_layer</strong> = <cite>False</cite>, the list contains a number (same number of computer models in the final layer of the system) of numpy
+3d-arrays. Each array corresponds to a computer model in the final layer, and has its 0-axis corresponding to the output
+dimensions of the GP/DGP (or DGP+likelihood) emulators, 1-axis corresponding to global testing positions, and 2-axis
+corresponding to samples of size <strong>N</strong> * <strong>sample_size</strong>;</p></li>
+<li><p>If <strong>full_layer</strong> = <cite>True</cite>, the list contains <em>L</em> (i.e., the number of layers of the emulated system) sub-lists. Each sub-list
+represents a layer and contains a number (same number of computer models in the corresponding layer of the system) of
+numpy 3d-arrays. Each array corresponds to a computer model in the associated layer, and has its 0-axis corresponding
+to the output dimensions of the GP/DGP (or DGP+likelihood in case of the final layer) emulators, 1-axis corresponding
+to global testing positions, and 2-axis corresponding to samples of size <strong>N</strong> * <strong>sample_size</strong>.</p></li>
+</ol>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>tuple_or_list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.linkgp.lgp.set_nb_parallel">
+<span class="sig-name descname"><span class="pre">set_nb_parallel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nb_parallel</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.linkgp.lgp.set_nb_parallel" title="Permalink to this definition"></a></dt>
+<dd><p>Set ‘self.nb_parallel’ to the bool value given by <strong>nb_parallel</strong>. This method is useful to change <strong>self.nb_parallel</strong>
+when the <a class="reference internal" href="#dgpsi.linkgp.lgp" title="dgpsi.linkgp.lgp"><code class="xref py py-class docutils literal notranslate"><span class="pre">lgp</span></code></a> class has already been built.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi.synthetic">
+<span id="dgpsi-synthetic-module"></span><h2>dgpsi.synthetic module<a class="headerlink" href="#module-dgpsi.synthetic" title="Permalink to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="dgpsi.synthetic.path">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">dgpsi.synthetic.</span></span><span class="sig-name descname"><span class="pre">path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_layer</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.synthetic.path" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.synthetic.path.generate">
+<span class="sig-name descname"><span class="pre">generate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">N</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.synthetic.path.generate" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="dgpsi.synthetic.path.k_matrix">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">k_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#dgpsi.synthetic.path.k_matrix" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-dgpsi">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-dgpsi" title="Permalink to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="modules.html" class="btn btn-neutral float-left" title="API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Deyu Ming.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
