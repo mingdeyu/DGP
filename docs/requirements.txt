@@ -1,0 +1,11 @@
+sphinx
+sphinx_rtd_theme
+numpy
+numba
+matplotlib
+tqdm
+scipy
+scikit-learn
+dill
+pathos
+psutil

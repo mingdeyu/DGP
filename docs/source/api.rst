@@ -1,8 +1,5 @@
-dgpsi package
-=============
-
-Submodules
-----------
+dgpsi Submodule List
+--------------------
 
 dgpsi.dgp module
 ----------------
