@@ -4,10 +4,10 @@ matplotlib==3.5.2
 tqdm==4.64.0
 scipy==1.8.1
 scikit-learn==1.1.1
-dill==0.3.5.1
+#dill==0.3.5.1
 pathos==0.2.9
 psutil==5.9.1
 cython==0.29.31
 pybind11==2.10.0
 pythran==0.11.0
-scikit-build==0.15.0
+#scikit-build==0.15.0
