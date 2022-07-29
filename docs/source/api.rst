@@ -72,11 +72,3 @@ synthetic module
    :members:
    :undoc-members:
    :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: dgpsi
-   :members:
-   :undoc-members:
-   :show-inheritance:
