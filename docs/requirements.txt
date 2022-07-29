@@ -1,9 +1,9 @@
 numpy==1.21.6
-#numba
-#matplotlib
-#tqdm
-#scipy
+numba==0.55.2
+matplotlib==3.2.1
+tqdm==4.50.2
+scipy==1.7.3
 #scikit-learn
 #dill
-#pathos
+pathos==0.2.9
 #psutil
