@@ -3,7 +3,7 @@ numba==0.55.2
 matplotlib==3.5.2
 tqdm==4.64.0
 scipy==1.8.1
-#scikit-learn
+scikit-learn==1.1.1
 #dill
 pathos==0.2.9
-#psutil
+psutil==5.9.1
