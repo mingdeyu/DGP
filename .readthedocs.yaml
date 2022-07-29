@@ -6,7 +6,9 @@ build:
   tools:
     python: "3.9"
 
-requirements_file: docs/requirements.txt
+python:
+  install:
+    - requirements: docs/requirements.txt
 
 # If using Sphinx, optionally build your docs in additional formats such as PDF
 formats:
