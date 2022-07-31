@@ -1,8 +1,13 @@
 # dgpsi
-`dgpsi` implements inference of both deep and linked Gaussian process emulation using stochastic imputation. 
+[![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mingdeyu/DGP?display_name=release&include_prereleases&style=flat-square)](https://github.com/mingdeyu/DGP/releases)
+[![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/dgpsi?label=PyPI%20Downloads&style=flat-square)](https://pypi.org/project/dgpsi/)
+[![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
+![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?style=flat-square)
+[![DOI](https://img.shields.io/badge/DOI-10.1137%2F20M1323771-informational?style=flat-square)](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
 
-## Key features
-`dgpsi` currently has the following features:
+## A Python package for deep and linked Gaussian process emulations using stochastic imputation
+`dgpsi` currently implements:
 
 * Deep Gaussian process emulation with flexible architecture construction: 
     - multiple layers;
@@ -13,20 +18,22 @@
 * Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of deterministic individual computer models;
     - linking GP and DGP emulators of deterministic individual computer models;
-* **(New Feature)** Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
-* More features coming soon.
-
-Please see [demo](https://github.com/mingdeyu/DGP/tree/master/demo) for some illustrative examples of the method. The API reference 
-of the package can be accessed from [https://dgpsi.readthedocs.io](https://dgpsi.readthedocs.io).
+* **(New Feature)** Multi-core predictions from GP, DGP, and Linked (D)GP emulators.
 
 ## Installation
-The simplest way to install the package is to use `pip`:
+`dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
 
 ```bash
 pip install dgpsi
 ```
 
-However, to gain the best performance of the package, we recommend the following steps for the installation:
+or `conda`:
+
+```bash
+conda install dgpsi
+```
+
+However, to gain the best performance of the package or you are using an Apple Silicon computer, we recommend the following steps for the installation:
 * Download and install `Miniforge3` that is compatible to your system from [here](https://github.com/conda-forge/miniforge).
 * Run the following command in your terminal app to create a virtual environment called `dgp_si`:
 
@@ -40,36 +47,31 @@ conda create -n dgp_si python=3.9.13
 conda activate dgp_si
 ```
 
-* Install required packages:
-    - for Mac Silicon chip users, you could gain speed-up by switching to Apple's Accelerate framework by running:
+* Install `dgpsi`:
+    - for Apple Silicon users, you could gain speed-up by switching to Apple's Accelerate framework by running:
 
     ```bash
-    conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba "libblas=*=*accelerate"
+    conda install dgpsi "libblas=*=*accelerate"
     ```
 
-    - for Intel chip users, you could gain speed-up by switching to MKL by running:
+    - for Intel users, you could gain speed-up by switching to MKL by running:
 
     ```bash
-    conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba "libblas=*=*mkl"
+    conda install dgpsi "libblas=*=*mkl"
     ```
 
     - otherwise, simply run:
     ```bash
-    conda install -c conda-forge cython pybind11 matplotlib tqdm jupyter dill pathos psutil numpy pythran scipy scikit-learn scikit-build numba
+    conda install dgpsi
     ```
 
-* Install `dgpsi` package:
-
-```bash
-cd A-LOCATION-YOU-PREFER
-git clone https://github.com/mingdeyu/DGP.git
-cd DGP
-pip install .
-```
+## Demo and Documentation
+Please see [demo](https://github.com/mingdeyu/DGP/tree/master/demo) for some illustrative examples of the method. The API reference 
+of the package can be accessed from [https://dgpsi.readthedocs.io](https://dgpsi.readthedocs.io), and some tutorials will be soon added there.
 
 ## Tips
 * Since SI is a stochastic inference, in case of unsatisfactory results, you may want to try to restart the training multiple times even with initial values of hyperparameters unchanged;
-* The recommended DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns) or the number of parameters in the specified likelihood.
+* The recommended DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns) or the number of parameters in the specified likelihood. The `dgp` class in the package is default to this structure.
 
 ## Contact
 Please feel free to email me with any questions and feedbacks: 
