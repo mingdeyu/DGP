@@ -10,7 +10,7 @@ AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
 URL = 'https://github.com/mingdeyu/DGP'
 
 LICENSE = 'MIT'
-DESCRIPTION = 'Deep and Linked Gaussian Process Emulation using Stochastic Imputation'
+DESCRIPTION = 'Deep and Linked Gaussian Process Emulations using Stochastic Imputation'
 LONG_DESCRIPTION = (here / 'README.md').read_text(encoding='utf-8')
 
 INSTALL_REQUIRES = [

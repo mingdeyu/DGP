@@ -1,12 +1,11 @@
 # dgpsi
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mingdeyu/DGP?display_name=release&include_prereleases&style=flat-square)](https://github.com/mingdeyu/DGP/releases)
 [![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/dgpsi?label=PyPI%20Downloads&style=flat-square)](https://pypi.org/project/dgpsi/)
 [![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
 ![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?style=flat-square)
 [![DOI](https://img.shields.io/badge/DOI-10.1137%2F20M1323771-informational?style=flat-square)](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
 
-## A Python package for deep and linked Gaussian process emulations using stochastic imputation
+## A Python package for deep and linked Gaussian process emulations
 `dgpsi` currently implements:
 
 * Deep Gaussian process emulation with flexible architecture construction: 
@@ -48,13 +47,13 @@ conda activate dgp_si
 ```
 
 * Install `dgpsi`:
-    - for Apple Silicon users, you could gain speed-up by switching to Apple's Accelerate framework by running:
+    - for Apple Silicon users, you could gain speed-up by switching to Apple's Accelerate framework:
 
     ```bash
     conda install dgpsi "libblas=*=*accelerate"
     ```
 
-    - for Intel users, you could gain speed-up by switching to MKL by running:
+    - for Intel users, you could gain speed-up by switching to MKL:
 
     ```bash
     conda install dgpsi "libblas=*=*mkl"
