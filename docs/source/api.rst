@@ -17,14 +17,6 @@ emulation module
    :undoc-members:
    :show-inheritance:
 
-functions module
-----------------------
-
-.. automodule:: dgpsi.functions
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 gp module
 ---------------
 
@@ -61,6 +53,22 @@ linkgp module
 -------------------
 
 .. automodule:: dgpsi.linkgp
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+utils module
+----------------------
+
+.. automodule:: dgpsi.utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+functions module
+----------------------
+
+.. automodule:: dgpsi.functions
    :members:
    :undoc-members:
    :show-inheritance:
