@@ -35,7 +35,8 @@ class kernel:
 
                 1. the indices of GPs in the feeding layer whose outputs feed into the GP; or
                 2. the indices of dimensions in the global input if the GP is in the first layer. 
-        When set to `None`, 
+            When set to `None`, 
+            
                 1. all outputs from GPs in the feeding layer; or 
                 2. all global input dimensions feed into the GP. 
             Defaults to `None`.
