@@ -24,7 +24,7 @@ def read(pkl_file):
     
     Returns:
         class: an emulator class. For GP, it is the :class:`.gp` class. For DGP, it is the :class:`.emulator` class. 
-            For linked GP/DGP, it is the :class:`.lgp` class.
+        For linked GP/DGP, it is the :class:`.lgp` class.
     """
     emu = load(open(pkl_file+".pkl", "rb"))
     return emu
@@ -35,7 +35,7 @@ def summary(obj):
 
     Args:
         obj (class): 
-            **obj** can be one of the following:
+        **obj** can be one of the following:
                 1. an instance of :class:`.kernel` class;
                 2. an instance of :class:`.gp` class;
                 3. an instance of :class:`.dgp` class;
