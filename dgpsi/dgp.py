@@ -14,7 +14,7 @@ class dgp:
     Args:
         X (ndarray): a numpy 2d-array where each row is an input data point and 
             each column is an input dimension. 
-        Y (ndarray): a numpy 2d-arrays containing observed output data across the DGP structure. 
+        Y (ndarray): a numpy 2d-arrays containing observed output data. 
             The 2d-array has it rows being output data points and columns being output dimensions 
             (with the number of columns equals to the number of GP nodes in the final layer). 
         all_layer (list, optional): a list contains *L* (the number of layers) sub-lists, each of which contains 
@@ -27,7 +27,7 @@ class dgp:
         rff (bool, optional): whether to use random Fourier features to approximate the correlation matrices 
             during the imputation in training. Defaults to `False`.
         M (int, optional): the number of features to be used by random Fourier approximation. It is only used
-            when **rff** is set to True. Defaults to `None`. If it is not specified, **M** is set to 
+            when **rff** is set to `True`. Defaults to `None`. If it is not specified, **M** is set to 
             ``max(100, ceil(sqrt(Data Size)*log(Data Size))))``.
         
     Remark:
@@ -59,7 +59,7 @@ class dgp:
             else:
                 raise Exception('Y has to be a numpy 2d-array rather than a list. The list version of Y (for linked emulation) has been reduced. Please use the dedicated lgp class for linked emulation.')
         if (self.Y).ndim==1 or X.ndim==1:
-            raise Exception('The input and output data has to be numpy 2d-arrays.')
+            raise Exception('The input and output data have to be numpy 2d-arrays.')
         #if len(X)>=500 and rff==False:
         #    print('Your training data size is greater than %i, you might want to consider random Fourier features for a faster training by setting "rff=True".' % (500))
         #elif len(X)<=500 and rff:
@@ -68,11 +68,8 @@ class dgp:
         if check_rep:
             X0, indices = np.unique(X, return_inverse=True,axis=0)
             if len(X0) != len(X):
-                if len(self.Y)!=1:
-                    self.X=X
-                else:
-                    self.X = X0
-                    self.indices=indices
+                self.X = X0
+                self.indices=indices
             else:  
                 self.X=X
         else:

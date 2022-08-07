@@ -116,6 +116,8 @@ class emulator:
                    testing positions, and has its rows corresponding to testing positions and columns corresponding to samples
                    of size: **N** * **sample_size**.
         """
+        if x.ndim==1:
+            raise Exception('The testing input has to be a numpy 2d-array')
         M=len(x)
         if method=='mean_var':
             sample_size=1

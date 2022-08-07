@@ -19,6 +19,8 @@ class gp:
     def __init__(self, X, Y, kernel):
         self.X=X
         self.Y=Y
+        if (self.Y).ndim==1 or X.ndim==1:
+            raise Exception('The input and output data have to be numpy 2d-arrays.')
         self.kernel=kernel
         self.initialize()
 
@@ -102,6 +104,8 @@ class gp:
                 the array has its rows corresponding to testing positions and columns corresponding to
                 sample_size number of samples drawn from the predictive distribution of GP;
         """
+        if x.ndim==1:
+            raise Exception('The testing input has to be a numpy 2d-array')
         M=len(x)
         overall_global_test_input=x
         if self.kernel.connect is not None:

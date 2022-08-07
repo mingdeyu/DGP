@@ -3,7 +3,7 @@ import pathlib
 
 here = pathlib.Path(__file__).parent.resolve()
 
-VERSION = '2.1.0'
+VERSION = '2.1.1'
 PACKAGE_NAME = 'dgpsi'
 AUTHOR = 'Deyu Ming'
 AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
@@ -27,7 +27,8 @@ INSTALL_REQUIRES = [
       'cython>=0.29.30',
       'pybind11>=2.10.0',
       'pythran>=0.11.0',
-      'scikit-build>=0.15.0'
+      'scikit-build>=0.15.0',
+      'tabulate>=0.8.7'
 ]
 
 setup(name=PACKAGE_NAME,

@@ -11,33 +11,37 @@ class kernel:
     Class that defines the GPs in the DGP hierarchy.
 
     Args:
-        length (ndarray): a numpy 1d-array, whose length equals to:
-
-            1. one if the lengthscales in the kernel function are assumed same across input dimensions;
-            2. the total number of input dimensions, which is the sum of the number of feeding GPs 
-               in the last layer (defined by the argument **input_dim**) and the number of connected global
-               input dimensions (defined by the argument **connect**), if the lengthscales in the kernel function 
-               are assumed different across input dimensions.
+        length (ndarray): 
+            a numpy 1d-array, whose length equals to:
+                1. either one if the lengthscales in the kernel function are assumed same across input dimensions; or
+                2. the total number of input dimensions, which is the sum of the number of feeding GPs 
+                   in the last layer (defined by the argument **input_dim**) and the number of connected global
+                   input dimensions (defined by the argument **connect**), if the lengthscales in the kernel function 
+                   are assumed different across input dimensions.
         scale (float, optional): the variance of a GP. Defaults to `1`.
         nugget (float, optional): the nugget term of a GP. Defaults to `1e-6`.
         name (str, optional): kernel function to be used. Either `sexp` for squared exponential kernel or
             `matern2.5` for Matern2.5 kernel. Defaults to `sexp`.
-        prior_name (str, optional): prior class. Either gamma (`ga`) or inverse gamma (`inv_ga`) distribution for 
+        prior_name (str, optional): prior options for the lengthscales and nugget term. Either gamma (`ga`) or inverse gamma (`inv_ga`) distribution for 
             the lengthscales and nugget term. Set `None` to disable the prior. Defaults to `ga`.
         prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
             parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to ``np.array([1.6,0.3])``.
         nugget_est (bool, optional): set to `True` to estimate nugget term or to `False` to fix the nugget term as specified
-            by the argument **nugget**. If set to True, the value set to the argument **nugget** is used as the initial
+            by the argument **nugget**. If set to `True`, the value set to the argument **nugget** is used as the initial
             value. Defaults to `False`.
         scale_est (bool, optional): set to `True` to estimate the variance or to `False` to fix the variance as specified
             by the argument **scale**. Defaults to `False`.
-        input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last layer
-            whose outputs (or the indices of dimensions in the global input if the GP is in the first layer)
-            feed into the GP. When set to `None`, all outputs from GPs of last layer (or all global input 
-            dimensions) feed into the GP. Defaults to `None`.
+        input_dim (ndarray, optional): 
+            a numpy 1d-array that contains either
+                1. the indices of GPs in the feeding layer whose outputs feed into the GP; or
+                2. the indices of dimensions in the global input if the GP is in the first layer. 
+            When set to `None`, 
+                1. all outputs from GPs in the feeding layer; or 
+                2. all global input dimensions feed into the GP. 
+            Defaults to `None`.
         connect (ndarray, optional): a numpy 1d-array that contains the indices of dimensions in the global
             input connecting to the GP as additional input dimensions to the input obtained from the output of
-            GPs in the last layer (as determined by the argument **input_dim**). When set to `None`, no global input
+            GPs in the feeding layer (as determined by the argument **input_dim**). When set to `None`, no global input
             connection is implemented. Defaults to `None`. When the kernel class is used in GP/DGP emulators for linked
             emulation and some input dimensions to the computer models are not connected to some feeding computer models, 
             set **connect** to a 1d-array of indices of these external global input dimensions, and accordingly, set 

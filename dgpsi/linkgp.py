@@ -56,6 +56,7 @@ class lgp:
     def __init__(self, all_layer, N=50, nb_parallel=False):
         self.nb_parallel=nb_parallel
         self.L=len(all_layer)
+        self.all_layer=all_layer
         self.num_model=[]
         for l in range(1,self.L):
             self.num_model.append(len(all_layer[l]))
@@ -159,7 +160,7 @@ class lgp:
                    system, i.e., there are no external global input to computer models in layers other than the first layer.
                 2. If **x** is a list, it has *L* (the number of layers of a systems of computer models) elements. The first element
                    is a numpy 2d-array that represents the global testing input set to the computer models in the first layer. 
-                   The remaining L-1 elements are *L-1* sub-lists, each of which contains a number (same as the number of computer
+                   The remaining *L-1* elements are *L-1* sub-lists, each of which contains a number (same as the number of computer
                    models in the corresponding layer) of numpy 2d-arrays (rows being testing points and columns being input 
                    dimensions) that represent the external global testing input to the computer models in the corresponding layer. 
                    The order of 2d-arrays in each sub-list must be the same order of the emulators placed in the corresponding layer
@@ -200,6 +201,8 @@ class lgp:
         if isinstance(x, list) and len(x)!=self.L:
             raise Exception('When test input is given as a list, it must contain global inputs to the all layers (even with no global inputs to internal layers). Set None as the global input to the internal models if they have no global inputs.')
         elif not isinstance(x, list):
+            if x.ndim==1:
+                raise Exception('The testing input has to be a numpy 2d-array.')
             x=[x]
             for num in self.num_model:
                 x.append([None]*num) 

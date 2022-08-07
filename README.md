@@ -2,7 +2,7 @@
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mingdeyu/DGP?display_name=release&include_prereleases&style=flat-square)](https://github.com/mingdeyu/DGP/releases)
 [![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
 [![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
-![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?color=informational&style=flat-square)
+![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?color=orange&style=flat-square)
 [![DOI](https://img.shields.io/badge/DOI-10.1137%2F20M1323771-informational?style=flat-square)](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
 
 ## A Python package for deep and linked Gaussian process emulations
@@ -29,7 +29,7 @@ pip install dgpsi
 or `conda`:
 
 ```bash
-conda install dgpsi
+conda install -c conda-forge dgpsi
 ```
 
 However, to gain the best performance of the package or you are using an Apple Silicon computer, we recommend the following steps for the installation:
