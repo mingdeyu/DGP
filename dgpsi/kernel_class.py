@@ -11,8 +11,8 @@ class kernel:
     Class that defines the GPs in the DGP hierarchy.
 
     Args:
-        length (ndarray): 
-            a numpy 1d-array, whose length equals to:
+        length (ndarray): a numpy 1d-array, whose length equals to:
+
                 1. either one if the lengthscales in the kernel function are assumed same across input dimensions; or
                 2. the total number of input dimensions, which is the sum of the number of feeding GPs 
                    in the last layer (defined by the argument **input_dim**) and the number of connected global
@@ -31,11 +31,11 @@ class kernel:
             value. Defaults to `False`.
         scale_est (bool, optional): set to `True` to estimate the variance or to `False` to fix the variance as specified
             by the argument **scale**. Defaults to `False`.
-        input_dim (ndarray, optional): 
-            a numpy 1d-array that contains either
+        input_dim (ndarray, optional): a numpy 1d-array that contains either
+
                 1. the indices of GPs in the feeding layer whose outputs feed into the GP; or
                 2. the indices of dimensions in the global input if the GP is in the first layer. 
-            When set to `None`, 
+        When set to `None`, 
                 1. all outputs from GPs in the feeding layer; or 
                 2. all global input dimensions feed into the GP. 
             Defaults to `None`.

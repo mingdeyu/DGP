@@ -34,13 +34,13 @@ def summary(obj):
     """Summarize key information of GP, DGP, and Linked (D)GP structures.
 
     Args:
-        obj (class): 
-        **obj** can be one of the following:
-                1. an instance of :class:`.kernel` class;
-                2. an instance of :class:`.gp` class;
-                3. an instance of :class:`.dgp` class;
-                4. an instance of :class:`.emulator` class;
-                5. an instance of :class:`.lgp` class
+        obj (class): **obj** can be one of the following:
+
+            1. an instance of :class:`.kernel` class;
+            2. an instance of :class:`.gp` class;
+            3. an instance of :class:`.dgp` class;
+            4. an instance of :class:`.emulator` class;
+            5. an instance of :class:`.lgp` class
     
     Returns:
         string: a table summarizing key information contained in **obj**.
