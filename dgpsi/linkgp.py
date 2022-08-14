@@ -15,10 +15,10 @@ class container:
             this is the list exported from the :meth:`.export` method of the :class:`.gp` class. For DGP, this is the list exported 
             from the :meth:`.estimate` of the :class:`.dgp` class.
         local_input_idx (ndarray): a numpy 1d-array that specifies the indices of outputs (a 2d-array) 
-            produced by all models in the feeding layer that are input to the model emulated by the GP or DGP
+            produced by all models in the feeding layer that are input to the emulator
             represented by the **structure** argument. The indices should be ordered in such a way that the extracted
             output from the feeding layer is sorted in the same order as the training input used for the GP/DGP 
-            emulation of the computer model that the **structure** argument represents. When the model is in the first
+            emulator that the **structure** argument represents. When the emulator is in the first
             layer, **local_input_idx** gives the indices of its input in the global testing input set, see :meth:`.lgp.predict`
             for descriptions of the global testing input set. Defaults to `None`. When the
             argument is `None`, one needs to set its value using the :meth:`.set_local_input`. 
@@ -36,6 +36,12 @@ class container:
 
     def set_local_input(self, idx):
         """Set the **local_input_idx** argument if it is not set when the class is constructed.
+
+        Remark: 
+           This method is useful when different models are emulated by different teams. Each team can create the container
+           of their model even without knowing how different models are connected together. When this information is available and
+           containers of different emulators are collected, the connections between emulators can then be set by assigning
+           values to **local_input_idx** of each container with this method.
         """
         self.local_input_idx=idx
 
@@ -176,26 +182,24 @@ class lgp:
             tuple_or_list: 
                 if the argument **method** = '`mean_var`', a tuple is returned:
                     1. If **full_layer** = `False`, the tuple contains two lists, one for the predictive means 
-                       and another for the predictive variances. Each list contains a number (same number of computer models in the
+                       and another for the predictive variances. Each list contains a number (same number of emulators in the
                        final layer of the system) of numpy 2d-arrays. Each 2d-array has its rows corresponding to global testing 
-                       positions and columns corresponding to GP/DGP (or DGP+likelihood) output dimensions of the associated computer
-                       model in the final layer;
+                       positions and columns corresponding to output dimensions of the associated emulator in the final layer;
                     2. If **full_layer** = `True`, the tuple contains two lists, one for the predictive means 
                        and another for the predictive variances. Each list contains *L* (i.e., the number of layers of the emulated system) 
-                       sub-lists. Each sub-list represents a layer and contains a number (same number of computer models in the corresponding 
+                       sub-lists. Each sub-list represents a layer and contains a number (same number of emulators in the corresponding 
                        layer of the system) of numpy 2d-arrays. Each array has its rows corresponding to global testing positions and columns 
-                       corresponding to GP/DGP (or DGP+likelihood in case of the final layer) output dimensions of the associated computer
-                       model in the corresponding layer.
+                       corresponding to output dimensions of the associated GP/DGP emulator in the corresponding layer.
                 if the argument **method** = '`sampling`', a list is returned:
-                    1. If **full_layer** = `False`, the list contains a number (same number of computer models in the final layer of the system) of numpy 
-                       3d-arrays. Each array corresponds to a computer model in the final layer, and has its 0-axis corresponding to the output 
-                       dimensions of the GP/DGP (or DGP+likelihood) emulators, 1-axis corresponding to global testing positions, and 2-axis 
+                    1. If **full_layer** = `False`, the list contains a number (same number of emulators in the final layer of the system) of numpy 
+                       3d-arrays. Each array corresponds to an emulator in the final layer, and has its 0-axis corresponding to the output 
+                       dimensions of the GP/DGP emulator, 1-axis corresponding to global testing positions, and 2-axis 
                        corresponding to samples of size **N** * **sample_size**;
                     2. If **full_layer** = `True`, the list contains *L* (i.e., the number of layers of the emulated system) sub-lists. Each sub-list 
-                       represents a layer and contains a number (same number of computer models in the corresponding layer of the system) of 
-                       numpy 3d-arrays. Each array corresponds to a computer model in the associated layer, and has its 0-axis corresponding 
-                       to the output dimensions of the GP/DGP (or DGP+likelihood in case of the final layer) emulators, 1-axis corresponding 
-                       to global testing positions, and 2-axis corresponding to samples of size **N** * **sample_size**.
+                       represents a layer and contains a number (same number of emulators in the corresponding layer of the system) of 
+                       numpy 3d-arrays. Each array corresponds to an emulator in the associated layer, and has its 0-axis corresponding 
+                       to the output dimensions of the GP/DGP emulators, 1-axis corresponding to global testing positions, and 2-axis 
+                       corresponding to samples of size **N** * **sample_size**.
 
         """
         if isinstance(x, list) and len(x)!=self.L:

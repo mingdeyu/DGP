@@ -102,7 +102,7 @@ class gp:
 
             if the argument **method** = '`sampling`', a numpy 2d-array is returned:
                 the array has its rows corresponding to testing positions and columns corresponding to
-                sample_size number of samples drawn from the predictive distribution of GP;
+                `sample_size` number of samples drawn from the predictive distribution of GP;
         """
         if x.ndim==1:
             raise Exception('The testing input has to be a numpy 2d-array')

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath("../.."))
 project = 'Deep and Linked Gaussian Process Emulations'
 copyright = '2022, Deyu Ming'
 author = 'Deyu Ming'
-release = '2.1.1'
+release = '2.1.2'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

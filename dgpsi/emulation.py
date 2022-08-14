@@ -8,12 +8,12 @@ import copy
 from .functions import ghdiag
 
 class emulator:
-    """Class to make predictions from the trained DGP or DGP+likelihood model.
+    """Class to make predictions from the trained DGP model.
 
     Args:
         all_layer (list): a list that contains the trained DGP model produced by the method :meth:`.estimate`
             of the :class:`.dgp` class. 
-        N (int, optional): the number of imputation to produce the predictions. Increase the value to account for
+        N (int, optional): the number of imputations to produce the predictions. Increase the value to account for
             more imputation uncertainties. Defaults to `50`.
         nb_parallel (bool, optional): whether to use *Numba*'s multi-threading to accelerate the predictions. Defaults to `False`.
     """
@@ -33,7 +33,7 @@ class emulator:
     
     def set_nb_parallel(self,nb_parallel):
         """Set **self.nb_parallel** to the bool value given by **nb_parallel**. This method is useful to change **self.nb_parallel**
-            when the emulator class has already been built.
+            when the :class:`.emulator` class has already been built.
         """
         self.nb_parallel=nb_parallel
 
@@ -99,18 +99,18 @@ class emulator:
             tuple_or_list: if the argument **method** = '`mean_var`', a tuple is returned:
                 1. If **full_layer** = `False`, the tuple contains two numpy 2d-arrays, one for the predictive means 
                    and another for the predictive variances. Each array has its rows corresponding to testing 
-                   positions and columns corresponding to DGP output dimensions (i.e., GP/likelihood nodes in the final layer);
+                   positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
                 2. If **full_layer** = `True`, the tuple contains two lists, one for the predictive means 
                    and another for the predictive variances. Each list contains *L* (i.e., the number of layers) 
                    numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns 
-                   corresponding to output dimensions (i.e., GP nodes from the associated layer and in case of the final layer, 
+                   corresponding to output dimensions (i.e., the number of GP nodes from the associated layer and in case of the final layer, 
                    it may be the number of the likelihood nodes).
             if the argument **method** = '`sampling`', a list is returned:
                 1. If **full_layer** = `False`, the list contains *D* (i.e., the number of GP/likelihood nodes in the final layer) numpy 
                    2d-arrays. Each array has its rows corresponding to testing positions and columns corresponding to samples of
                    size: **N** * **sample_size**;
                 2. If **full_layer** = `True`, the list contains *L* (i.e., the number of layers) sub-lists. Each sub-list 
-                   represents the samples draw from the GPs/likelihoods in the corresponding layers, and contains 
+                   represents samples drawn from the GPs/likelihoods in the corresponding layers, and contains 
                    *D* (i.e., the number of GP nodes in the corresponding layer or likelihood nodes in the final layer) 
                    numpy 2d-arrays. Each array gives samples of the output from one of *D* GPs/likelihoods at the 
                    testing positions, and has its rows corresponding to testing positions and columns corresponding to samples
@@ -244,7 +244,7 @@ class emulator:
             return mu, sigma2
 
     def nllik(self,x,y):
-        """Compute the negative predicted log-likelihood from the trained DGP model with likelihood layer.
+        """Compute the negative predicted log-likelihood from a trained DGP model with likelihood layer.
 
         Args:
             x (ndarray): a numpy 2d-array where each row is an input testing data point and 
@@ -253,7 +253,7 @@ class emulator:
 
         Returns:
             tuple: a tuple of two 1d-arrays. The first one is the average negative predicted log-likelihood across
-            all testing data points. The second ones is the negative predicted log-likelihood for each testing data point.
+            all testing data points. The second one is the negative predicted log-likelihood for each testing data point.
         """
         if len(self.all_layer[-1])!=1:
             raise Exception('The method is only applicable to DGP with the final layer formed by only ONE node, which must be a likelihood node.')

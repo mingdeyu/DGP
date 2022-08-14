@@ -4,13 +4,13 @@ from scipy.linalg import cho_solve
 from .functions import fmvn_mu
 
 class Poisson:
-    """Class to implement Poisson likelihood. It (and all likelihoods below) can only be added as the final
-       layer of the DGP+likelihood model.
+    """Class to implement Poisson likelihood. It can only be added as the final layer of a DGP model.
 
     Args:
-        input_dim (ndarray, optional): a numpy 1d-array that contains the indices of GPs in the last 
+        input_dim (ndarray, optional): a numpy 1d-array of length one that contains the indices of one GP in the feeding 
             layer whose outputs feed into the likelihood node. When set to `None`, all outputs from GPs of 
-            last layer feed into the likelihood node. Defaults to `None`.
+            the feeding layer feed into the likelihood node, and in this case one needs to ensure there is only one GP node specified
+            in the feeding layer. Defaults to `None`.
 
     Attributes:
         type (str): identifies that the node is a likelihood node;
@@ -89,6 +89,14 @@ class Poisson:
         return y_sample.flatten()
 
 class Hetero:
+    """Class to implement Heteroskedastic Gaussian likelihood. It can only be added as the final layer of a DGP model.
+
+    Args:
+        input_dim (ndarray, optional): a numpy 1d-array of length two that contains the indices of two GPs in the feeding 
+            layer whose outputs feed into the likelihood node. When set to `None`, all outputs from GPs of 
+            the feeding layer feed into the likelihood node, and in this case one needs to ensure there are only two GP nodes specified
+            in the feeding layer. Defaults to `None`.
+    """
     def __init__(self, input_dim=None):
         self.type='likelihood'
         self.name='Hetero'
@@ -166,6 +174,14 @@ class Hetero:
         return mu, cov    
 
 class NegBin:
+    """Class to implement Negative Binomial likelihood. It can only be added as the final layer of a DGP model.
+
+    Args:
+        input_dim (ndarray, optional): a numpy 1d-array of length two that contains the indices of two GPs in the feeding 
+            layer whose outputs feed into the likelihood node. When set to `None`, all outputs from GPs of 
+            the feeding layer feed into the likelihood node, and in this case one needs to ensure there are only two GP nodes specified
+            in the feeding layer. Defaults to `None`.
+    """
     def __init__(self, input_dim=None):
         self.type='likelihood'
         self.name='NegBin'

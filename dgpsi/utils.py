@@ -4,13 +4,13 @@ import numpy as np
 
 ######Save and Load Emulators#######
 def write(emu, pkl_file):
-    """Save the constructed emulator to a pkl file.
+    """Save the constructed emulator to a `.pkl` file.
     
     Args:
         emu (class): an emulator class. For GP, it is the :class:`.gp` class after training. 
             For DGP, it is the :class:`.emulator` class. For linked GP/DGP, it is the :class:`.lgp` class.
-        pkl_file (strings): specifies the path to and the name of the `.pkl` file to which
-            the emulator is saved.
+        pkl_file (strings): the path to and the name of the `.pkl` file to which
+            the emulator specified by **emu** is saved.
     """
     dump(emu, open(pkl_file+".pkl","wb"))
 
@@ -19,7 +19,7 @@ def read(pkl_file):
     """Load the `.pkl` file that stores the emulator.
     
     Args:
-        pkl_file (strings): specifies the path to and the name of the `.pkl` file where
+        pkl_file (strings): the path to and the name of the `.pkl` file where
             the emulator is stored.
     
     Returns:
@@ -30,7 +30,7 @@ def read(pkl_file):
     return emu
 
 ######summary function#######
-def summary(obj):
+def summary(obj, tablefmt='fancy_grid'):
     """Summarize key information of GP, DGP, and Linked (D)GP structures.
 
     Args:
@@ -41,6 +41,7 @@ def summary(obj):
             3. an instance of :class:`.dgp` class;
             4. an instance of :class:`.emulator` class;
             5. an instance of :class:`.lgp` class
+        tablefmt (strings): the style of output summary table. See <https://pypi.org/project/tabulate/> for different options.
     
     Returns:
         string: a table summarizing key information contained in **obj**.
@@ -53,7 +54,7 @@ def summary(obj):
         f"{np.array2string(np.atleast_1d(obj.scale)[0], precision=3, floatmode='fixed')}" if obj.scale_est else f"{np.array2string(np.atleast_1d(obj.scale)[0], precision=3, floatmode='fixed')} (fixed)", 
         f"{np.array2string(np.atleast_1d(obj.nugget)[0], precision=3, floatmode='fixed')}" if obj.nugget_est else f"{np.array2string(np.atleast_1d(obj.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
         ])
-        table = tabulate(info, headers='firstrow', tablefmt='fancy_grid')
+        table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
     elif type(obj).__name__=='gp':
         ker=obj.kernel
@@ -63,7 +64,7 @@ def summary(obj):
         f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')}" if ker.scale_est else f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')} (fixed)", 
         f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')}" if ker.nugget_est else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
         f"{np.array2string(ker.input_dim+1, separator=', ')}"])
-        table = tabulate(info, headers='firstrow', tablefmt='fancy_grid')
+        table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("'Input Dims' indicates the dimensions (i.e., columns) of your input data that are actually used for GP training.")
     elif type(obj).__name__=='dgp':
@@ -83,7 +84,7 @@ def summary(obj):
                     'NA' if ker.type=='likelihood' else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')}" if ker.nugget_est else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
                     f"{np.array2string(ker.input_dim+1, separator=', ')}",
                     'NA' if ker.type=='likelihood' else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
-        table = tabulate(info, headers='firstrow', tablefmt='fancy_grid')
+        table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs are used as the input to the current GP.")
         print("2. 'Global Connection' indicates the dimensions (i.e., column numbers) of the global input data that are used as additional input dimensions to the current GP.")
@@ -101,7 +102,7 @@ def summary(obj):
                     'NA' if ker.type=='likelihood' else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')}" if ker.nugget_est else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
                     f"{np.array2string(ker.input_dim+1, separator=', ')}",
                     'NA' if ker.type=='likelihood' else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
-        table = tabulate(info, headers='firstrow', tablefmt='fancy_grid')
+        table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs are used as the input to the current GP.")
         print("2. 'Global Connection' indicates the dimensions (i.e., column numbers) of the global input data that are used as additional input dimensions to the current GP.")
@@ -131,7 +132,7 @@ def summary(obj):
                         external = 'No' if cont.structure[0][0].connect is None else 'Yes'
                 info.append([f'Layer {l+1:d}', f'Emu {k+1:d}', 'DGP' if cont.type=='dgp' else 'GP', links, external
                     ])
-        table = tabulate(info, headers='firstrow', tablefmt='fancy_grid')
+        table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("1. 'Connection' gives the indices of emulators and the associated output dimensions that are linked to the current emulator.")
         print("2. 'External Inputs' indicates if the current emulator has external inputs that are not provided by the feeding emulators.")

@@ -17,7 +17,10 @@
 * Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of deterministic individual computer models;
     - linking GP and DGP emulators of deterministic individual computer models;
-* **(New Feature)** Multi-core predictions from GP, DGP, and Linked (D)GP emulators.
+* Multi-core predictions from GP, DGP, and Linked (D)GP emulators.
+
+## For R users
+The `R` interface to the package is available at [`dgpsi.R`](https://github.com/mingdeyu/dgpsi.R).
 
 ## Installation
 `dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
@@ -64,7 +67,7 @@ conda activate dgp_si
     conda install dgpsi
     ```
 
-## Demo and Documentation
+## Demo and documentation
 Please see [demo](https://github.com/mingdeyu/DGP/tree/master/demo) for some illustrative examples of the method. The API reference 
 of the package can be accessed from [https://dgpsi.readthedocs.io](https://dgpsi.readthedocs.io), and some tutorials will be soon added there.
 
@@ -78,6 +81,6 @@ Please feel free to email me with any questions and feedbacks:
 Deyu Ming <[deyu.ming.16@ucl.ac.uk](mailto:deyu.ming.16@ucl.ac.uk)>.
 
 ## References
-> [Ming, D., Williamson, D., and Guillas, S. (2021) Deep Gaussian process emulation using stochastic imputation.](https://arxiv.org/abs/2107.01590)
+> [Ming, D., Williamson, D., and Guillas, S. (2022) Deep Gaussian process emulation using stochastic imputation. <i>Technometrics</i> (to appear).](https://arxiv.org/abs/2107.01590)
 
 > [Ming, D. and Guillas, S. (2021) Linked Gaussian process emulation for systems of computer models using Mat&eacute;rn kernels and adaptive design, <i>SIAM/ASA Journal on Uncertainty Quantification</i>. 9(4), 1615-1642.](https://epubs.siam.org/doi/abs/10.1137/20M1323771)

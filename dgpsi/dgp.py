@@ -18,10 +18,12 @@ class dgp:
             The 2d-array has it rows being output data points and columns being output dimensions 
             (with the number of columns equals to the number of GP nodes in the final layer). 
         all_layer (list, optional): a list contains *L* (the number of layers) sub-lists, each of which contains 
-            the GPs defined by the kernel class in that layer. The sub-lists are placed in the list 
-            in the same order of the specified DGP model. Defaults to `None`. If a DGP structure is not provided, 
-            an input-connected two-layered DGP structure (for deterministic model emulation) with the number 
-            of GP nodes in the first layer equal to the dimension of **X** is automatically constructed.
+            the GPs defined by the :class:`.kernel` class in that layer. The sub-lists are placed in the list 
+            in the same order of the specified DGP model. The final layer of DGP hierarchy can be set to a likelihood
+            layer by putting an object created by a likelihood class (in :mod:`likelihood_class`) into the final sub-list of **all_layer**. 
+            Defaults to `None`. If a DGP structure is not provided, an input-connected two-layered DGP 
+            structure (for deterministic model emulation) with the number of GP nodes in the first layer equal 
+            to the dimension of **X** is automatically constructed.
         check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
             position has multiple outputs. Defaults to `True`.
         rff (bool, optional): whether to use random Fourier features to approximate the correlation matrices 
@@ -187,7 +189,7 @@ class dgp:
         self.N += N
 
     def estimate(self,burnin=None):
-        """Compute the point estimates of model parameters and output the trained DGP.
+        """Compute the point estimates of the DGP model parameters and output the trained DGP.
 
         Args:
             burnin (int, optional): the number of SEM iterations to be discarded for
@@ -223,19 +225,22 @@ class dgp:
             hspace (float, optional): the space between sub-plots. Defaults to `0.1`.
         """
         kernel=self.all_layer[layer_no-1][ker_no-1]
-        n_para=np.shape(kernel.para_path)[1]
-        fig, axes = plt.subplots(n_para,figsize=(width,n_para*height), dpi= 100,sharex=True)
-        fig.tight_layout()
-        fig.subplots_adjust(hspace = hspace)
-        for p in range(n_para):
-            axes[p].plot(kernel.para_path[:,p])
-            axes[p].tick_params(axis = 'both', which = 'major', labelsize = ticksize)
-            if p==0:
-                axes[p].set_ylabel(r'$\sigma^2$',fontsize = labelsize)
-            elif p==n_para-1:
-                axes[p].set_ylabel(r'$\eta$',fontsize = labelsize)
-            else:
-                axes[p].set_ylabel(r'$\gamma_{%i}$' %p, fontsize = labelsize)
-        plt.show()
+        if kernel.type == 'gp':
+            n_para=np.shape(kernel.para_path)[1]
+            fig, axes = plt.subplots(n_para,figsize=(width,n_para*height), dpi= 100,sharex=True)
+            fig.tight_layout()
+            fig.subplots_adjust(hspace = hspace)
+            for p in range(n_para):
+                axes[p].plot(kernel.para_path[:,p])
+                axes[p].tick_params(axis = 'both', which = 'major', labelsize = ticksize)
+                if p==0:
+                    axes[p].set_ylabel(r'$\sigma^2$',fontsize = labelsize)
+                elif p==n_para-1:
+                    axes[p].set_ylabel(r'$\eta$',fontsize = labelsize)
+                else:
+                    axes[p].set_ylabel(r'$\gamma_{%i}$' %p, fontsize = labelsize)
+            plt.show()
+        else:
+            print('There is nothing to plot for a likelihood node, please choose a GP node instead.')
 
     

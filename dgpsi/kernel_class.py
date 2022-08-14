@@ -450,13 +450,15 @@ class kernel:
         self.Rinv_y=np.dot(self.Rinv,self.output)
 
 def combine(*layers):
-    """Combine layers into one list as a DGP structure.
+    """Combine layers into one list as a DGP or linked (D)GP structure.
 
     Args:
-        layers (list): a sequence of lists, each of which contains the GPs (defined by the :class:`.kernel` class) in that layer.
+        layers (list): a sequence of lists, each of which contains the GP nodes (defined by the :class:`.kernel` class), 
+            likelihood nodes (e.g., defined by the :class:`.Poisson` class), or containers (defined by the :class:`.container` class)
+            in that layer.
 
     Returns:
-        list: a list of layers defining the DGP structure.
+        list: a list of layers defining the DGP or linked (D)GP structure.
     """
     all_layer=[]
     for layer in layers:
