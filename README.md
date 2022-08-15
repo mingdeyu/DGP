@@ -20,7 +20,7 @@
 * Multi-core predictions from GP, DGP, and Linked (D)GP emulators.
 
 ## For R users
-The `R` interface to the package is available at [`dgpsi.R`](https://github.com/mingdeyu/dgpsi.R).
+The `R` interface to the package is available at [`dgpsi-R`](https://github.com/mingdeyu/dgpsi-R).
 
 ## Installation
 `dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
