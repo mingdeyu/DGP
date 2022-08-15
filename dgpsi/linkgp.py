@@ -181,6 +181,7 @@ class lgp:
         Returns:
             tuple_or_list: 
                 if the argument **method** = '`mean_var`', a tuple is returned:
+
                     1. If **full_layer** = `False`, the tuple contains two lists, one for the predictive means 
                        and another for the predictive variances. Each list contains a number (same number of emulators in the
                        final layer of the system) of numpy 2d-arrays. Each 2d-array has its rows corresponding to global testing 
@@ -191,6 +192,7 @@ class lgp:
                        layer of the system) of numpy 2d-arrays. Each array has its rows corresponding to global testing positions and columns 
                        corresponding to output dimensions of the associated GP/DGP emulator in the corresponding layer.
                 if the argument **method** = '`sampling`', a list is returned:
+                    
                     1. If **full_layer** = `False`, the list contains a number (same number of emulators in the final layer of the system) of numpy 
                        3d-arrays. Each array corresponds to an emulator in the final layer, and has its 0-axis corresponding to the output 
                        dimensions of the GP/DGP emulator, 1-axis corresponding to global testing positions, and 2-axis 

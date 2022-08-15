@@ -41,7 +41,8 @@ def summary(obj, tablefmt='fancy_grid'):
             3. an instance of :class:`.dgp` class;
             4. an instance of :class:`.emulator` class;
             5. an instance of :class:`.lgp` class
-        tablefmt (strings): the style of output summary table. See <https://pypi.org/project/tabulate/> for different options.
+        tablefmt (str): the style of output summary table. See https://pypi.org/project/tabulate/ for different options.
+            Defaults to `fancy_grid`.
     
     Returns:
         string: a table summarizing key information contained in **obj**.

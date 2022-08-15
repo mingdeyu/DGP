@@ -96,7 +96,9 @@ class emulator:
                  Defaults to `50`.
             
         Returns:
-            tuple_or_list: if the argument **method** = '`mean_var`', a tuple is returned:
+            tuple_or_list: 
+            if the argument **method** = '`mean_var`', a tuple is returned:
+
                 1. If **full_layer** = `False`, the tuple contains two numpy 2d-arrays, one for the predictive means 
                    and another for the predictive variances. Each array has its rows corresponding to testing 
                    positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
@@ -105,7 +107,9 @@ class emulator:
                    numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns 
                    corresponding to output dimensions (i.e., the number of GP nodes from the associated layer and in case of the final layer, 
                    it may be the number of the likelihood nodes).
+
             if the argument **method** = '`sampling`', a list is returned:
+                
                 1. If **full_layer** = `False`, the list contains *D* (i.e., the number of GP/likelihood nodes in the final layer) numpy 
                    2d-arrays. Each array has its rows corresponding to testing positions and columns corresponding to samples of
                    size: **N** * **sample_size**;
