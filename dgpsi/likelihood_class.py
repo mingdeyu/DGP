@@ -61,8 +61,7 @@ class Poisson:
 
     @staticmethod    
     def prediction(m,v):
-        """Compute mean and variance of the DGP+Poisson model given the predictive
-           mean and variance of DGP model for Poisson parameter.
+        """Compute mean and variance of the DGP+Poisson model given the predictive mean and variance of DGP model for Poisson parameter.
         
         Args:
             m (ndarray): a numpy 2d-array of predictive mean from the DGP model for the Poisson parameter.
