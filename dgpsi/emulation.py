@@ -27,6 +27,7 @@ class emulator:
             (self.imp).sample()
             (self.imp).key_stats()
             (self.all_layer_set).append(copy.deepcopy(self.all_layer))
+        self.all_layer_set_copy = copy.deepcopy(self.all_layer_set)
         self.nb_parallel=nb_parallel
         #if len(self.all_layer[0][0].input)>=500 and self.nb_parallel==False:
         #    print('Your training data size is greater than %i, you might want to set "nb_parallel=True" to accelerate the prediction.' % (500))
@@ -36,6 +37,107 @@ class emulator:
             when the :class:`.emulator` class has already been built.
         """
         self.nb_parallel=nb_parallel
+    
+    def loo(self, X, method='mean_var', sample_size=50):
+        """Implement the Leave-One-Out cross-validation from a DGP emulator.
+
+        Args:
+            X (ndarray): the training input data used to build the DGP emulator via the :class:`.dgp` class.
+            method (str, optional): the prediction approach: mean-variance (`mean_var`) or sampling 
+                (`sampling`) approach for the LOO. Defaults to `mean_var`.
+            sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
+                 Defaults to `50`.
+            
+        Returns:
+            tuple_or_list: 
+            if the argument **method** = '`mean_var`', a tuple is returned. The tuple contains two numpy 2d-arrays, one for the predictive means 
+                and another for the predictive variances. Each array has its rows corresponding to training input
+                positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
+
+            if the argument **method** = '`sampling`', a list is returned. The list contains *D* (i.e., the number of GP/likelihood nodes in the 
+                final layer) numpy 2d-arrays. Each array has its rows corresponding to training input positions and columns corresponding to samples 
+                of size: **N** * **sample_size**;
+        """
+        isrep = len(X) != len(self.all_layer[0][0].input)
+        if isrep:
+            X, indices = np.unique(X, return_inverse=True, axis=0)
+        res = []
+        for i in range(len(X)):
+            res.append(self.loo_calculation(i, X, method, sample_size))
+        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
+        final_res = list(np.concatenate(res_i) for res_i in zip(*res)) 
+        if isrep:
+            for j in range(len(final_res)):
+                final_res[j] = final_res[j][indices,:]
+        if method == 'mean_var':
+            return tuple(final_res)
+        elif method == 'sampling':
+            return final_res
+
+    def ploo(self, X, method='mean_var', sample_size=50, core_num=None):
+        """Implement the parallel Leave-One-Out cross-validation from a DGP emulator.
+
+        Args:
+            X, method, sample_size: see descriptions of the method :meth:`.emulator.loo`.
+            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``(max physical cores available - 1)``.
+
+        Returns:
+            Same as the method :meth:`.emulator.loo`.
+        """
+        if platform.system()=='Darwin':
+            ctx._force_start_method('forkserver')
+        if core_num==None:
+            core_num=psutil.cpu_count(logical = False)-1
+        isrep = len(X) != len(self.all_layer[0][0].input)
+        if isrep:
+            X, indices = np.unique(X, return_inverse=True, axis=0)
+        f=lambda x: self.loo_calculation(*x) 
+        z=list(np.arange(len(X)))
+        with Pool(core_num) as pool:
+            #pool.restart()
+            res = pool.map(f, [[x, X, method, sample_size] for x in z])
+            pool.close()
+            pool.join()
+            pool.clear()
+        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
+        final_res = list(np.concatenate(worker) for worker in zip(*res)) 
+        if isrep:
+            for j in range(len(final_res)):
+                final_res[j] = final_res[j][indices,:]
+        if method == 'mean_var':
+            return tuple(final_res)
+        elif method == 'sampling':
+            return final_res
+            
+    def loo_calculation(self, i, X, method, sample_size):
+        for s in range(len(self.all_layer_set)):
+            one_imputed_all_layer=self.all_layer_set[s]
+            for l in range(self.n_layer):
+                layer=one_imputed_all_layer[l]
+                n_kerenl=len(layer)
+                for k in range(n_kerenl):
+                    kernel=layer[k]
+                    kernel_ref=self.all_layer_set_copy[s][l][k]
+                    if kernel_ref.rep is None:
+                        kernel.input = np.delete(kernel_ref.input, i, 0)
+                        kernel.output = np.delete(kernel_ref.output, i, 0)
+                        if kernel.type == 'gp':
+                            if kernel_ref.global_input is not None:
+                                kernel.global_input = np.delete(kernel_ref.global_input, i, 0)
+                            kernel.Rinv = kernel_ref.cv_stats(i)
+                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output)
+                    else:
+                        idx = kernel_ref.rep!=i
+                        kernel.input = (kernel_ref.input[idx,:]).copy()
+                        kernel.output = (kernel_ref.output[idx,:]).copy()
+                        if kernel.type == 'gp':
+                            if kernel_ref.global_input is not None:
+                                kernel.global_input = (kernel_ref.global_input[idx,:]).copy()
+                            kernel.Rinv = kernel_ref.cv_stats(i)
+                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output)
+        res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
+        return(res)
 
     def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
@@ -260,10 +362,10 @@ class emulator:
             all testing data points. The second one is the negative predicted log-likelihood for each testing data point.
         """
         if len(self.all_layer[-1])!=1:
-            raise Exception('The method is only applicable to DGP with the final layer formed by only ONE node, which must be a likelihood node.')
+            raise Exception('The method is only applicable to a DGP with the final layer formed by only ONE node, which must be a likelihood node.')
         else:
             if self.all_layer[-1][0].type!='likelihood':
-                raise Exception('The method is only applicable to DGP with the final layer formed by only ONE likelihood node, which must be a likelihood node.')
+                raise Exception('The method is only applicable to a DGP with the final layer formed by only ONE node, which must be a likelihood node.')
         M=len(x)
         #start predictions
         predicted_lik=[]

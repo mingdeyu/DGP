@@ -67,7 +67,7 @@ def summary(obj, tablefmt='fancy_grid'):
         f"{np.array2string(ker.input_dim+1, separator=', ')}"])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
-        print("'Input Dims' indicates the dimensions (i.e., columns) of your input data that are actually used for GP training.")
+        print("'Input Dims' indicates the dimensions (i.e., column indices) of your input data that are used for GP emulator training.")
     elif type(obj).__name__=='dgp':
         if obj.N!=0:
             print('To get the summary of the trained DGP model, construct an emulator instance using the emulator() class and then apply summary() to it.')
@@ -87,8 +87,8 @@ def summary(obj, tablefmt='fancy_grid'):
                     'NA' if ker.type=='likelihood' else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
-        print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs are used as the input to the current GP.")
-        print("2. 'Global Connection' indicates the dimensions (i.e., column numbers) of the global input data that are used as additional input dimensions to the current GP.")
+        print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs feed into the GP node referred by 'Layer No.' and 'Node No.'.")
+        print("2. 'Global Connection' indicates the dimensions (i.e., column indices) of the global input data that are used as additional input dimensions to the GP node referred by 'Layer No.' and 'Node No.'.")
     elif type(obj).__name__=='emulator':
         all_layer = obj.all_layer
         info.append(['Layer No.', 'Node No.', 'Type', 'Length-scale(s)', 'Variance', 'Nugget', 'Input Dims', 'Global Connection'])
@@ -105,8 +105,8 @@ def summary(obj, tablefmt='fancy_grid'):
                     'NA' if ker.type=='likelihood' else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
-        print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs are used as the input to the current GP.")
-        print("2. 'Global Connection' indicates the dimensions (i.e., column numbers) of the global input data that are used as additional input dimensions to the current GP.")
+        print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs feed into the GP node referred by 'Layer No.' and 'Node No.'.")
+        print("2. 'Global Connection' indicates the dimensions (i.e., column indices) of the global input data that are used as additional input dimensions to the GP node referred by 'Layer No.' and 'Node No.'.")
     elif type(obj).__name__=='lgp':
         all_layer = obj.all_layer
         info.append(['Layer No.', 'Emulator No.', 'Type', 'Connection', 'External Inputs'])
@@ -135,5 +135,5 @@ def summary(obj, tablefmt='fancy_grid'):
                     ])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
-        print("1. 'Connection' gives the indices of emulators and the associated output dimensions that are linked to the current emulator.")
-        print("2. 'External Inputs' indicates if the current emulator has external inputs that are not provided by the feeding emulators.")
+        print("1. 'Connection' gives the indices of emulators and the associated output dimensions that are linked to the emulator referred by 'Layer No.' and 'Emulator No.'.")
+        print("2. 'External Inputs' indicates if the emulator (referred by 'Layer No.' and 'Emulator No.') has external inputs that are not provided by the feeding emulators.")

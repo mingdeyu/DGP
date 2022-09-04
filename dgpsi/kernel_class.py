@@ -4,7 +4,7 @@ from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh
 from scipy.spatial.distance import pdist, squareform
-from .functions import gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct
+from .functions import gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp
 
 class kernel:
     """
@@ -448,6 +448,19 @@ class kernel:
         #self.Rinv_y=cho_solve((L, True), self.output, check_finite=False)
         self.Rinv=pinvh(R,check_finite=False)
         self.Rinv_y=np.dot(self.Rinv,self.output)
+
+    def cv_stats(self, i):
+        """Compute the inversion for the LOO.
+        """
+        if self.rep is not None:
+            R=self.k_matrix()
+            idx = self.rep!=i
+            R_loo_i = R[idx,:][:,idx]
+            LOOinv = pinvh(R_loo_i,check_finite=False)
+        else:
+            LOOinv = inv_swp(self.Rinv, i)
+        return(LOOinv)
+
 
 def combine(*layers):
     """Combine layers into one list as a DGP or linked (D)GP structure.

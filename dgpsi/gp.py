@@ -23,6 +23,7 @@ class gp:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
         self.kernel=kernel
         self.initialize()
+        self.kernel.compute_stats()
 
     def initialize(self):
         """Assign input/output data to the kernel for training.
@@ -49,6 +50,36 @@ class gp:
         """
         final_struct=copy.deepcopy(self.kernel)
         return [final_struct]
+
+    def loo(self, method='mean_var', sample_size=50):
+        """Implement the Leave-One-Out cross-validation of a GP model.
+
+        Args:
+            method (str, optional): the prediction approach: mean-variance (`mean_var`) or sampling 
+                (`sampling`) approach for the LOO. Defaults to `mean_var`.
+            sample_size (int, optional): the number of samples to draw from the predictive distribution of
+                 GP if **method** = '`sampling`'. Defaults to `50`.
+
+        Returns:
+            tuple_or_ndarray: 
+            
+            if the argument **method** = '`mean_var`', a tuple is returned. The tuple contains two numpy 2d-arrays, one for the predictive means 
+                and another for the predictive variances. Each array has only one column with its rows corresponding to training data positions.
+
+            if the argument **method** = '`sampling`', a numpy 2d-array is returned. The array has its rows corresponding to to training data positions 
+                and columns corresponding to `sample_size` number of samples drawn from the predictive distribution of GP.
+        """
+        scale = self.kernel.scale
+        Rinv = self.kernel.Rinv
+        Rinv_y = self.kernel.Rinv_y
+        sigma2 = (1/np.diag(Rinv)).reshape(-1,1)
+        mu = self.Y - Rinv_y*sigma2
+        sigma2 = scale*sigma2
+        if method=='mean_var':
+            return mu, sigma2
+        elif method=='sampling':
+            samples=np.random.normal(mu.flatten(),np.sqrt(sigma2.flatten()),size=(sample_size,len(mu))).T
+            return samples
 
     def ppredict(self,x,method='mean_var',sample_size=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained GP model.

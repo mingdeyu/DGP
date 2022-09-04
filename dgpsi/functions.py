@@ -149,6 +149,28 @@ def ghdiag(fct,mu,var,y):
     llik=fct(y[:,None],fn)
     return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
 
+######Inverse Sweep for LOO######
+@jit(nopython=True,cache=True)
+def inv_swp(X,k):
+    T = np.empty_like(X)
+    n = len(X)
+    mask=np.ones(n,dtype=np.bool8)
+    mask[k]=False
+    d = -1/X[k,k]
+    #T[:,k] = X[:,k] * d
+    #T[k,:] = X[k,:] * d
+    for i in range(n):
+        for j in range(i+1):
+            if i!=k and j!=k:
+                temp = d * X[i,k] * X[k,j]
+                if i==j:
+                    T[i,j] = X[i,j] + temp
+                else:
+                    T[i,j] = X[i,j] + temp 
+                    T[j,i] = X[j,i] + temp
+    #T[k,k] = d
+    return T[:,mask][mask,:]
+
 ######functions for predictions########
 #@jit(nopython=True,cache=True,fastmath=True)
 def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
