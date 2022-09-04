@@ -17,7 +17,8 @@
 * Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of deterministic individual computer models;
     - linking GP and DGP emulators of deterministic individual computer models;
-* Multi-core predictions from GP, DGP, and Linked (D)GP emulators.
+* Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
+* Leave-One-Out (LOO) cross validations for GP and DGP emulators.
 
 ## For R users
 The `R` interface to the package is available at [`dgpsi-R`](https://github.com/mingdeyu/dgpsi-R).
