@@ -66,7 +66,7 @@ class lgp:
         self.num_model=[]
         for l in range(1,self.L):
             self.num_model.append(len(all_layer[l]))
-        if np.sum([[cont.type=='dgp' for cont in all_layer[l]] for l in range(self.L)])==0:
+        if np.sum(np.concatenate([[cont.type=='dgp' for cont in all_layer[l]] for l in range(self.L)]))==0:
             N=1
         self.all_layer_set=[]
         for _ in range(N):
