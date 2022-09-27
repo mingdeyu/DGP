@@ -15,7 +15,7 @@ class container:
             this is the list exported from the :meth:`.export` method of the :class:`.gp` class. For DGP, this is the list exported 
             from the :meth:`.estimate` of the :class:`.dgp` class.
         local_input_idx (ndarray_or_list): a numpy 1d-array or a list:
-        
+
             1. If **local_input_idx** is a 1d-array, it specifies the indices of outputs (a 2d-array) 
                produced by all emulators in the feeding layer that are input to the emulator
                represented by the **structure** argument. The indices should be ordered in such a way that the extracted
