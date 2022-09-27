@@ -118,15 +118,30 @@ def summary(obj, tablefmt='fancy_grid'):
                     links = f"Global input: {np.array2string(cont.local_input_idx+1, separator=', ')}"
                     external = 'No'
                 else:
-                    emu_idx, output_idx, emu_count = [], [], 0
-                    for feeding_cont in all_layer[l-1]:
-                        n = 1 if feeding_cont.type=='gp' else len(feeding_cont.structure[-1])
-                        emu_idx, output_idx = np.concatenate((emu_idx, np.array([emu_count]*n))), np.concatenate((output_idx, np.arange(n)))
-                        emu_count += 1
-                    connected_emu, connected_output = emu_idx[cont.local_input_idx], output_idx[cont.local_input_idx]
+                    if isinstance(cont.local_input_idx, list):
+                        local_input_idx = cont.local_input_idx
+                    else:
+                        local_input_idx=[None]*(l-1)
+                        local_input_idx.append(cont.local_input_idx)
+                    connected_emu, connected_output = [], []
+                    for i in range(l):
+                        emu_idx, output_idx, emu_count = [], [], 0
+                        for feeding_cont in all_layer[i]:
+                            n = 1 if feeding_cont.type=='gp' else len(feeding_cont.structure[-1])
+                            emu_idx, output_idx = np.concatenate((emu_idx, np.array([emu_count]*n))), np.concatenate((output_idx, np.arange(n)))
+                            emu_count += 1
+                        idx = local_input_idx[i]
+                        if idx is not None:
+                            connected_emu.append( emu_idx[idx] )
+                            connected_output.append( output_idx[idx] )
+                        else:
+                            connected_emu.append( None )
+                            connected_output.append( None )
                     links = ''
-                    for i in range(len(cont.local_input_idx)):
-                        links += f"Emu {np.int64(connected_emu[i]+1)} in Layer {l}: output {np.int64(connected_output[i]+1)}\n"
+                    for i in range(len(local_input_idx)):
+                        if local_input_idx[i] is not None:
+                            for j in range(len(local_input_idx[i])):
+                                links += f"Emu {np.int64(connected_emu[i][j]+1)} in Layer {i+1}: output {np.int64(connected_output[i][j]+1)}\n"
                     if cont.type == 'gp':
                         external = 'No' if cont.structure.connect is None else 'Yes'
                     else:

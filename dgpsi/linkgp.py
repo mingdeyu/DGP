@@ -14,14 +14,21 @@ class container:
         structure (list): a list that contains the trained structure of GP or DGP of a computer model. For GP, 
             this is the list exported from the :meth:`.export` method of the :class:`.gp` class. For DGP, this is the list exported 
             from the :meth:`.estimate` of the :class:`.dgp` class.
-        local_input_idx (ndarray): a numpy 1d-array that specifies the indices of outputs (a 2d-array) 
-            produced by all models in the feeding layer that are input to the emulator
-            represented by the **structure** argument. The indices should be ordered in such a way that the extracted
-            output from the feeding layer is sorted in the same order as the training input used for the GP/DGP 
-            emulator that the **structure** argument represents. When the emulator is in the first
-            layer, **local_input_idx** gives the indices of its input in the global testing input set, see :meth:`.lgp.predict`
-            for descriptions of the global testing input set. Defaults to `None`. When the
-            argument is `None`, one needs to set its value using the :meth:`.set_local_input`. 
+        local_input_idx (ndarray_or_list): a numpy 1d-array or a list:
+            1. If **local_input_idx** is a 1d-array, it specifies the indices of outputs (a 2d-array) 
+               produced by all emulators in the feeding layer that are input to the emulator
+               represented by the **structure** argument. The indices should be ordered in such a way that the extracted
+               output from the feeding layer is sorted in the same order as the training input used for the GP/DGP 
+               emulator that the **structure** argument represents. When the emulator is in the first
+               layer, **local_input_idx** gives the indices of its input in the global testing input set, see :meth:`.lgp.predict`
+               for descriptions of the global testing input set. 
+            2. If **local_input_idx** is a list, the emulator must be in layer 2 or deeper layers. The list should have a number 
+               (the same number of preceding layers, e.g., when an emulator is in the second layer, the list is of length 1) of elements. Each
+               element is a 1d-array that specifies the indices of outputs produced by all emulators in the corresponding layer 
+               that feed to the emulator represented by the **structure** argument. If there is no output connections from a certain layer,
+               set `None` instead in the list. 
+               
+            Defaults to `None`. When the argument is `None`, one needs to set its value using the :meth:`.set_local_input`. 
     """
     def __init__(self, structure, local_input_idx=None):
         if len(structure)==1:
@@ -160,17 +167,17 @@ class lgp:
         Args:
             x (ndarray_or_list): a numpy 2d-array or a list.
             
-                1. If **x** is a 2d-array, it is the global testing input set to the computer models in the first layer where 
-                   each rows are input testing data points and columns are input dimensions across all computer models in 
+                1. If **x** is a 2d-array, it is the global testing input set to the computer emulators in the first layer where 
+                   each rows are input testing data points and columns are input dimensions across all computer emulators in 
                    the first layer of the system. In this case, it is assumed that **x** is the only global input to the computer 
-                   system, i.e., there are no external global input to computer models in layers other than the first layer.
-                2. If **x** is a list, it has *L* (the number of layers of a systems of computer models) elements. The first element
-                   is a numpy 2d-array that represents the global testing input set to the computer models in the first layer. 
+                   system, i.e., there are no external global input to computer emulators in layers other than the first layer.
+                2. If **x** is a list, it has *L* (the number of layers of a systems of emulators) elements. The first element
+                   is a numpy 2d-array that represents the global testing input set to the computer emulators in the first layer. 
                    The remaining *L-1* elements are *L-1* sub-lists, each of which contains a number (same as the number of computer
-                   models in the corresponding layer) of numpy 2d-arrays (rows being testing points and columns being input 
+                   emulators in the corresponding layer) of numpy 2d-arrays (rows being testing points and columns being input 
                    dimensions) that represent the external global testing input to the computer models in the corresponding layer. 
                    The order of 2d-arrays in each sub-list must be the same order of the emulators placed in the corresponding layer
-                   of **all_layer** argument to :class:`.lgp` class. If there is no external global input to a certain computer model of the 
+                   of **all_layer** argument to :class:`.lgp` class. If there is no external global input to a certain computer emulator of the 
                    system, set `None` in the corresponding sub-list (i.e., layer) of **x**.   
             method (str, optional): the prediction approach: mean-variance (`mean_var`) or sampling 
                 (`sampling`) approach. Defaults to `mean_var`.
@@ -240,6 +247,8 @@ class lgp:
                 if l==0:
                     for k in range(n_model):
                         model=layer[k]
+                        if isinstance(model.local_input_idx, list):
+                            raise Exception('When an emulator is in the first layer, local_input_idx must be a 1d-array.') 
                         input_lk=x[l][:,model.local_input_idx]
                         if model.type=='gp':
                             m_lk, v_lk = self.gp_pred(input_lk,None,None,None,model.structure,self.nb_parallel)
@@ -257,12 +266,26 @@ class lgp:
                             variance_pred_oneN.append(v_l)
                         elif method=='sampling':
                             sample_pred_oneN.append(sample_l)
-                    m_l_next, v_l_next=np.concatenate(m_l,axis=1), np.concatenate(v_l,axis=1)
+                    m_l_next, v_l_next=[np.concatenate(m_l,axis=1)], [np.concatenate(v_l,axis=1)]
                 elif l==self.L-1:
                     for k in range(n_model):
                         model=layer[k]
+                        if isinstance(model.local_input_idx, list):
+                            if len(model.local_input_idx)!=self.L-1:
+                                raise Exception('local_input_idx should be a list that has length of %i.' % (self.L-1))
+                            else:
+                                local_input_idx = model.local_input_idx
+                        else:
+                            local_input_idx=[None]*(self.L-2)
+                            local_input_idx.append(model.local_input_idx)
                         external_input_lk=x[l][k]
-                        m_input_lk, v_input_lk = m_l_next[:,model.local_input_idx], v_l_next[:,model.local_input_idx]
+                        m_input_lk, v_input_lk = [], []
+                        for i in range(l):
+                            idx = local_input_idx[i]
+                            if idx is not None:
+                                m_input_lk.append( m_l_next[i][:,idx] )
+                                v_input_lk.append( v_l_next[i][:,idx] )
+                        m_input_lk, v_input_lk = np.concatenate(m_input_lk, axis=1), np.concatenate(v_input_lk, axis=1)
                         if model.type=='gp':
                             m_lk, v_lk=self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,self.nb_parallel)
                             if method=='sampling':
@@ -293,8 +316,22 @@ class lgp:
                 else:
                     for k in range(n_model):
                         model=layer[k]
+                        if isinstance(model.local_input_idx, list):
+                            if len(model.local_input_idx)!=l:
+                                raise Exception('local_input_idx should be a list that has length of %i.' % (l))
+                            else:
+                                local_input_idx = model.local_input_idx
+                        else:
+                            local_input_idx=[None]*(l-1)
+                            local_input_idx.append(model.local_input_idx)
                         external_input_lk=x[l][k]
-                        m_input_lk, v_input_lk = m_l_next[:,model.local_input_idx], v_l_next[:,model.local_input_idx]
+                        m_input_lk, v_input_lk = [], []
+                        for i in range(l):
+                            idx = local_input_idx[i]
+                            if idx is not None:
+                                m_input_lk.append( m_l_next[i][:,idx] )
+                                v_input_lk.append( v_l_next[i][:,idx] )
+                        m_input_lk, v_input_lk = np.concatenate(m_input_lk, axis=1), np.concatenate(v_input_lk, axis=1)
                         if model.type=='gp':
                             m_lk, v_lk = self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,self.nb_parallel)
                         elif model.type=='dgp':
@@ -311,7 +348,8 @@ class lgp:
                             variance_pred_oneN.append(v_l)
                         elif method=='sampling':
                             sample_pred_oneN.append(sample_l)
-                    m_l_next, v_l_next=np.concatenate(m_l,axis=1), np.concatenate(v_l,axis=1)
+                    m_l_next.append(np.concatenate(m_l,axis=1))
+                    v_l_next.append(np.concatenate(v_l,axis=1))
             if full_layer:
                 if method=='mean_var':
                     mean_pred.append(mean_pred_oneN)
