@@ -130,7 +130,7 @@ class lgp:
                         z_l=x[l]
                         z_m=[[]]*chunk_num
                         for m in range(len(z_l)):
-                            if z_l[m]==None:
+                            if z_l[m] is None:
                                 z_m=[i+j for i, j in zip(z_m,[[None]]*chunk_num)]
                             else:
                                 z_m=[i+[j] for i, j in zip(z_m,np.array_split(z_l[m],chunk_num))]
