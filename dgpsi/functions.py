@@ -2,6 +2,7 @@ from numba import jit, vectorize, float64, prange, config
 import numpy as np
 from math import erf, exp, sqrt, pi
 from numpy.random import randn
+from scipy.linalg import pinvh
 import itertools
 config.THREADING_LAYER = 'workqueue'
 #######functions for optim#########
@@ -170,6 +171,20 @@ def inv_swp(X,k):
                     T[j,i] = X[j,i] + temp
     #T[k,k] = d
     return T[:,mask][mask,:]
+
+######MICE smooth pred var calculation######
+def mice_var(x, x_extra, kernel, nugget_s):
+    """Calculate smoothed predictive variances of the GP using the candidate design set.
+    """
+    kernel.input=x[:,kernel.input_dim]
+    if kernel.connect is not None:
+        kernel.global_input=x_extra[:,kernel.connect]
+    kernel.nugget=max(nugget_s,kernel.nugget)
+    R=kernel.k_matrix()
+    Rinv=pinvh(R,check_finite=False)
+    sigma2 = (1/np.diag(Rinv)).reshape(-1,1)
+    sigma2 = kernel.scale*sigma2
+    return sigma2
 
 ######functions for predictions########
 #@jit(nopython=True,cache=True,fastmath=True)

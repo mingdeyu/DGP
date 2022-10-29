@@ -1,6 +1,7 @@
 import multiprocess.context as ctx
 import platform
 import numpy as np
+from .functions import mice_var
 from pathos.multiprocessing import ProcessingPool as Pool
 import psutil 
 import copy
@@ -51,6 +52,53 @@ class gp:
         final_struct=copy.deepcopy(self.kernel)
         return [final_struct]
 
+    def pmetric(self, x_cand, method='MICE',nugget_s=1.,chunk_num=None,core_num=None):
+        """Implement parallel computation of the ALM or MICE criterion for sequential designs.
+
+        Args:
+            x_cand, method, nugget_s: see descriptions of the method :meth:`.gp.metric`.
+            chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
+                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
+            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``(max physical cores available - 1)``.
+
+        Returns:
+            Same as the method :meth:`.gp.metric`.
+        """
+        _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+        if method == 'ALM':
+            idx = np.argmax(sigma2)
+            return idx, sigma2[idx]
+        elif method == 'MICE':
+            sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
+            mice_val = sigma2/sigma2_s
+            idx = np.argmax(mice_val)
+            return idx, mice_val[idx]
+
+    def metric(self, x_cand, method='MICE',nugget_s=1.):
+        """Compute the value of the ALM or MICE criterion for sequential designs.
+
+        Args:
+            x_cand (ndarray): a numpy 2d-array that represents a candidate input design where each row is a design point and 
+                each column is a design input dimension.
+            method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
+                (`ALM`). Defaults to `MICE`.
+            nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
+
+        Returns:
+            tuple: a tuple of two elements. The first one is an integer giving the index (i.e., row number) of the design point in
+            the candidate design set **x_cand** that has the largest criterion value, which is given by the second element.
+        """
+        _, sigma2 = self.predict(x=x_cand)
+        if method == 'ALM':
+            idx = np.argmax(sigma2)
+            return idx, sigma2[idx]
+        elif method == 'MICE':
+            sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
+            mice_val = sigma2/sigma2_s
+            idx = np.argmax(mice_val)
+            return idx, mice_val[idx]
+
     def loo(self, method='mean_var', sample_size=50):
         """Implement the Leave-One-Out cross-validation of a GP model.
 
@@ -96,9 +144,9 @@ class gp:
         """
         if platform.system()=='Darwin':
             ctx._force_start_method('forkserver')
-        if core_num==None:
+        if core_num is None:
             core_num=psutil.cpu_count(logical = False)-1
-        if chunk_num==None:
+        if chunk_num is None:
             chunk_num=core_num
         if chunk_num<core_num:
             core_num=chunk_num

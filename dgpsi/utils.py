@@ -64,7 +64,7 @@ def summary(obj, tablefmt='fancy_grid'):
         f"{np.array2string(ker.length, precision=3, floatmode='fixed', separator=', ')}", 
         f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')}" if ker.scale_est else f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')} (fixed)", 
         f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')}" if ker.nugget_est else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
-        f"{np.array2string(ker.input_dim+1, separator=', ')}"])
+        f"{np.array2string(ker.input_dim+1, separator=', ')}" if ker.connect is None else f"{np.array2string(np.concatenate((ker.input_dim+1,ker.connect+1)), separator=', ')}"])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("'Input Dims' indicates the dimensions (i.e., column indices) of your input data that are used for GP emulator training.")
@@ -83,8 +83,8 @@ def summary(obj, tablefmt='fancy_grid'):
                     'NA' if ker.type=='likelihood' else f"{np.array2string(ker.length, precision=3, floatmode='fixed', separator=', ')}", 
                     'NA' if ker.type=='likelihood' else f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')}" if ker.scale_est else f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')} (fixed)", 
                     'NA' if ker.type=='likelihood' else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')}" if ker.nugget_est else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
-                    f"{np.array2string(ker.input_dim+1, separator=', ')}",
-                    'NA' if ker.type=='likelihood' else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
+                    f"{np.array2string(ker.input_dim+1, separator=', ')}" if l!=0 else f"{np.array2string(ker.input_dim+1, separator=', ')}" if ker.connect is None else f"{np.array2string(np.concatenate((ker.input_dim+1,ker.connect+1)), separator=', ')}",
+                    'NA' if ker.type=='likelihood' else 'No' if l==0 else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs feed into the GP node referred by 'Layer No.' and 'Node No.'.")
@@ -101,8 +101,8 @@ def summary(obj, tablefmt='fancy_grid'):
                     'NA' if ker.type=='likelihood' else f"{np.array2string(ker.length, precision=3, floatmode='fixed', separator=', ')}", 
                     'NA' if ker.type=='likelihood' else f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')}" if ker.scale_est else f"{np.array2string(np.atleast_1d(ker.scale)[0], precision=3, floatmode='fixed')} (fixed)", 
                     'NA' if ker.type=='likelihood' else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')}" if ker.nugget_est else f"{np.array2string(np.atleast_1d(ker.nugget)[0], precision=3, floatmode='fixed')} (fixed)",
-                    f"{np.array2string(ker.input_dim+1, separator=', ')}",
-                    'NA' if ker.type=='likelihood' else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
+                    f"{np.array2string(ker.input_dim+1, separator=', ')}" if l!=0 else f"{np.array2string(ker.input_dim+1, separator=', ')}" if ker.connect is None else f"{np.array2string(np.concatenate((ker.input_dim+1,ker.connect+1)), separator=', ')}",
+                    'NA' if ker.type=='likelihood' else 'No' if l==0 else f"{np.array2string(ker.connect+1, separator=', ')}" if ker.connect is not None else 'No'])
         table = tabulate(info, headers='firstrow', tablefmt=tablefmt)
         print(table)
         print("1. 'Input Dims' presents the indices of GP nodes in the feeding layer whose outputs feed into the GP node referred by 'Layer No.' and 'Node No.'.")

@@ -5,7 +5,7 @@ from pathos.multiprocessing import ProcessingPool as Pool
 import psutil   
 from .imputation import imputer
 import copy
-from .functions import ghdiag
+from .functions import ghdiag, mice_var
 
 class emulator:
     """Class to make predictions from the trained DGP model.
@@ -87,7 +87,7 @@ class emulator:
         """
         if platform.system()=='Darwin':
             ctx._force_start_method('forkserver')
-        if core_num==None:
+        if core_num is None:
             core_num=psutil.cpu_count(logical = False)-1
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
@@ -139,6 +139,157 @@ class emulator:
         res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
         return(res)
 
+    def pmetric(self, x_cand, method='ALM',nugget_s=1.,chunk_num=None,core_num=None):
+        """Compute the value of the ALM or MICE criterion for sequential designs in parallel.
+
+        Args:
+            x_cand, method, nugget_s: see descriptions of the method :meth:`.emulator.metric`.
+            chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
+                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
+            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``(max physical cores available - 1)``.
+
+        Returns:
+            Same as the method :meth:`.emulator.metric`.
+        """
+        if x_cand.ndim==1:
+            raise Exception('The candidate design set has to be a numpy 2d-array.')
+        if self.all_layer[self.n_layer-1][0].type=='likelihood':
+            raise Exception('The method is only applicable to DGPs without likelihood layers.')
+        if method == 'ALM':
+            _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            idx = np.argmax(sigma2, axis=0)
+            return idx, sigma2[idx,np.arange(sigma2.shape[1])]
+        elif method == 'MICE':
+            if platform.system()=='Darwin':
+                ctx._force_start_method('forkserver')
+            if core_num is None:
+                core_num=psutil.cpu_count(logical = False)-1
+            if chunk_num is None:
+                chunk_num=core_num
+            if chunk_num<core_num:
+                core_num=chunk_num
+            f=lambda x: self.predict_mice(*x) 
+            z=np.array_split(x_cand,chunk_num)
+            with Pool(core_num) as pool:
+                res = pool.map(f, [[x] for x in z])
+                pool.close()
+                pool.join()
+                pool.clear()
+            combined_res=[]
+            for element in zip(*res):
+                combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
+            predicted_input, sigma2 = combined_res[0], combined_res[1]   
+            M=len(x_cand)
+            D=len(self.all_layer[-1])
+            mice=np.zeros((M,D))
+            S=len(self.all_layer_set)
+            for i in range(S):
+                last_layer=self.all_layer_set[i][-1]
+                sigma2_s_i=np.empty((M,D))
+                for k in range(D):
+                    kernel = last_layer[k]
+                    sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                with np.errstate(divide='ignore'):
+                    mice =+ np.log(sigma2[i]/sigma2_s_i)
+            avg_mice=mice/S
+            idx = np.argmax(avg_mice, axis=0)
+            return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+
+    def metric(self, x_cand, method='ALM',nugget_s=1.):
+        """Compute the value of the ALM or MICE criterion for sequential designs.
+
+        Args:
+            x_cand (ndarray): a numpy 2d-array that represents a candidate input design where each row is a design point and 
+                each column is a design input dimension.
+            method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
+                (`ALM`). Defaults to `ALM`.
+            nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
+
+        Returns:
+            tuple: a tuple of two numpy 1d-arrays. The first one array gives the indices (i.e., row numbers) of the design points in
+            the candidate design set **x_cand** that have the largest criterion values, which are given by the second array, corresponding
+            to the outputs of the DGP emulator.
+        """
+        if x_cand.ndim==1:
+            raise Exception('The candidate design set has to be a numpy 2d-array.')
+        if self.all_layer[self.n_layer-1][0].type=='likelihood':
+            raise Exception('The method is only applicable to DGPs without likelihood layers.')
+        if method == 'ALM':
+            _, sigma2 = self.predict(x=x_cand)
+            idx = np.argmax(sigma2, axis=0)
+            return idx, sigma2[idx,np.arange(sigma2.shape[1])]
+        elif method == 'MICE':
+            predicted_input, sigma2 = self.predict_mice(x_cand)
+            M=len(x_cand)
+            D=len(self.all_layer[-1])
+            mice=np.zeros((M,D))
+            S=len(self.all_layer_set)
+            for i in range(S):
+                last_layer=self.all_layer_set[i][-1]
+                sigma2_s_i=np.empty((M,D))
+                for k in range(D):
+                    kernel = last_layer[k]
+                    sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                with np.errstate(divide='ignore'):
+                    mice =+ np.log(sigma2[i]/sigma2_s_i)
+            avg_mice=mice/S
+            idx = np.argmax(avg_mice, axis=0)
+            return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+            
+    def predict_mice(self,x_cand):
+        """Implement predictions from the trained DGP model that are required to calculate the MICE criterion.
+        """
+        S=len(self.all_layer_set)
+        M=len(x_cand)
+        D=len(self.all_layer[-1])
+        variance_pred_set=[]
+        pred_input_set=[]
+        #start calculation
+        for i in range(S):
+            one_imputed_all_layer=self.all_layer_set[i]
+            variance_pred=np.empty((M,D))
+            overall_global_test_input=x_cand
+            for l in range(self.n_layer):
+                layer=one_imputed_all_layer[l]
+                n_kerenl=len(layer)
+                overall_test_output_mean=np.empty((M,n_kerenl))
+                overall_test_output_var=np.empty((M,n_kerenl))
+                if l==0:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+                elif l==self.n_layer-1:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        _,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        variance_pred[:,k]=v_k
+                else:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+            variance_pred_set.append(variance_pred)
+            pred_input_set.append(overall_test_input_mean)
+        return pred_input_set, variance_pred_set
+
     def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
 
@@ -154,9 +305,9 @@ class emulator:
         """
         if platform.system()=='Darwin':
             ctx._force_start_method('forkserver')
-        if core_num==None:
+        if core_num is None:
             core_num=psutil.cpu_count(logical = False)-1
-        if chunk_num==None:
+        if chunk_num is None:
             chunk_num=core_num
         if chunk_num<core_num:
             core_num=chunk_num
