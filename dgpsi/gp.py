@@ -40,6 +40,30 @@ class gp:
             self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
         self.kernel.output=copy.deepcopy(self.Y)
 
+    def update_xy(self,X,Y):
+        """Update the trained GP emulator with new input and output data without changing the hyperparameter values.
+
+        Args:
+            X (ndarray): a numpy 2d-array where each row is an input data point and each column is an input dimension.
+            Y (ndarray): a numpy 2d-array with only one column and each row being an input data point.
+        """
+        self.X=X
+        self.Y=Y
+        if (self.Y).ndim==1 or X.ndim==1:
+            raise Exception('The input and output data have to be numpy 2d-arrays.')
+        self.update_kernel()
+        self.kernel.compute_stats()
+    
+    def update_kernel(self):
+        """Assign new input/output data to the kernel.
+        """
+        self.kernel.input=copy.deepcopy(self.X[:,self.kernel.input_dim])
+        if self.kernel.connect is not None:
+            if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
+                raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
+            self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
+        self.kernel.output=copy.deepcopy(self.Y)
+
     def train(self):
         """Train the GP model.
         """
