@@ -222,7 +222,8 @@ def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name,nb_parallel)
         mi=m[i,:]
         vi=v[i,:]
         if z is not None:
-            zi=np.expand_dims(z[i,:],axis=0)
+            #zi=np.expand_dims(z[i,:],axis=0)
+            zi=z[[i],:]
             if nb_parallel:
                 I,J=IJ_parallel(w1,mi,vi,length[:-Dz],name)
             else:
