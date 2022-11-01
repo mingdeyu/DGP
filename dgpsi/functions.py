@@ -234,8 +234,8 @@ def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name,nb_parallel)
             I,J=I*Iz,J*Jz
         else:
             I,J=IJ(w1,mi,vi,length,name)
-        #tr_RinvJ=np.sum(Rinv*J)
-        tr_RinvJ=trace_sum(Rinv,J)
+        tr_RinvJ=np.sum(Rinv*J)
+        #tr_RinvJ=trace_sum(Rinv,J)
         #IRinv_y=np.sum(I*Rinv_y)
         IRinv_y=I.T@Rinv_y
         m_new[i]=IRinv_y
