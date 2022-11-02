@@ -233,14 +233,18 @@ def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name,nb_parallel)
             Jz=np.dot(Iz,Iz.T)
             I,J=I*Iz,J*Jz
         else:
-            I,J=IJ(w1,mi,vi,length,name)
+            if nb_parallel:
+                I,J=IJ_parallel(w1,mi,vi,length,name)
+            else:
+                I,J=IJ(w1,mi,vi,length,name)
         #tr_RinvJ=np.sum(Rinv*J)
         tr_RinvJ=trace_sum(Rinv,J)
         #IRinv_y=np.sum(I*Rinv_y)
         IRinv_y=I.T@Rinv_y
         m_new[i]=IRinv_y
         #v_new[i]=np.abs(np.sum(np.sum(Rinv_y*J,axis=0)*Rinv_y.flatten())-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-        v_new[i]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+        #v_new[i]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+        v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
     return m_new.flatten(),v_new.flatten()
 
 @jit(nopython=True,cache=True)
@@ -255,6 +259,19 @@ def trace_sum(A,B):
                 a += 2*A[k,l]*B[k,l]
     return a
 
+@jit(nopython=True,cache=True)
+def quad(A,B):
+    n = len(A)
+    B=B.flatten()
+    a = 0
+    for k in range(n):
+        for l in range(k+1):
+            if k==l:
+                a += A[k,l]*B[k]**2
+            else:
+                a += 2*A[k,l]*B[l]*B[k]
+    return a
+
 @jit(nopython=True,cache=True,fastmath=True)
 def k_one_vec(X,z,length,name):
     """Compute cross-correlation matrix between the testing and training input data.
@@ -263,7 +280,7 @@ def k_one_vec(X,z,length,name):
         X_l=X/length
         z_l=z/length
         L_X=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
-        L_z=np.expand_dims(np.sum(z_l**2,axis=1,),axis=1)
+        L_z=np.expand_dims(np.sum(z_l**2,axis=1),axis=1)
         dis2=L_X-2*np.dot(X_l,z_l.T)+L_z.T
         k=np.exp(-dis2)
     elif name=='matern2.5':
