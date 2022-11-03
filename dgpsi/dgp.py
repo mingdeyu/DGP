@@ -93,6 +93,7 @@ class dgp:
         self.imp=imputer(self.all_layer)
         (self.imp).sample(burnin=10)
         self.N=0
+        self.burnin=None
 
     def initialize(self):
         """Initialise all_layer attribute for training.
@@ -289,12 +290,14 @@ class dgp:
             list: an updated list that represents the trained DGP hierarchy.
         """
         if burnin==None:
-            burnin=int(self.N*(3/4))
+            self.burnin=int(self.N*(3/4))
+        else:
+            self.burnin=burnin
         final_struct=copy.deepcopy(self.all_layer)
         for l in range(len(final_struct)):
             for kernel in final_struct[l]:
                 if kernel.type=='gp':
-                    point_est=np.mean(kernel.para_path[burnin:,:],axis=0)
+                    point_est=np.mean(kernel.para_path[self.burnin:,:],axis=0)
                     kernel.scale=point_est[0]
                     kernel.length=point_est[1:-1]
                     kernel.nugget=point_est[-1]
