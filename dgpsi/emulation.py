@@ -139,11 +139,11 @@ class emulator:
         res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
         return(res)
 
-    def pmetric(self, x_cand, method='ALM',nugget_s=1.,chunk_num=None,core_num=None):
+    def pmetric(self, x_cand, method='ALM',nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
         """Compute the value of the ALM or MICE criterion for sequential designs in parallel.
 
         Args:
-            x_cand, method, nugget_s: see descriptions of the method :meth:`.emulator.metric`.
+            x_cand, method, nugget_s, score_only: see descriptions of the method :meth:`.emulator.metric`.
             chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
@@ -158,8 +158,11 @@ class emulator:
             raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
             _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
-            idx = np.argmax(sigma2, axis=0)
-            return idx, sigma2[idx,np.arange(sigma2.shape[1])]
+            if score_only:
+                return sigma2
+            else:
+                idx = np.argmax(sigma2, axis=0)
+                return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             if platform.system()=='Darwin':
                 ctx._force_start_method('forkserver')
@@ -193,10 +196,13 @@ class emulator:
                 with np.errstate(divide='ignore'):
                     mice =+ np.log(sigma2[i]/sigma2_s_i)
             avg_mice=mice/S
-            idx = np.argmax(avg_mice, axis=0)
-            return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+            if score_only:
+                return avg_mice
+            else:
+                idx = np.argmax(avg_mice, axis=0)
+                return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
 
-    def metric(self, x_cand, method='ALM',nugget_s=1.):
+    def metric(self, x_cand, method='ALM',nugget_s=1.,score_only=False):
         """Compute the value of the ALM or MICE criterion for sequential designs.
 
         Args:
@@ -205,11 +211,17 @@ class emulator:
             method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
                 (`ALM`). Defaults to `ALM`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
+            score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
+                Defaults to `False`.
 
         Returns:
-            tuple: a tuple of two numpy 1d-arrays. The first one array gives the indices (i.e., row numbers) of the design points in
-            the candidate design set **x_cand** that have the largest criterion values, which are given by the second array, corresponding
-            to the outputs of the DGP emulator.
+            ndarray_or_tuple: 
+            if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM or MICE criterion with rows
+               corresponding to design points in the candidate design set **x_cand** and columns corresponding to output dimensions;
+
+            if the argument **score_only** = `False`, a tuple of two numpy 1d-arrays is returned. The first one gives the indices (i.e., row numbers) 
+               of the design points in the candidate design set **x_cand** that have the largest criterion values, which are given by the second array, 
+               corresponding to the outputs of the DGP emulator.
         """
         if x_cand.ndim==1:
             raise Exception('The candidate design set has to be a numpy 2d-array.')
@@ -217,8 +229,11 @@ class emulator:
             raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
             _, sigma2 = self.predict(x=x_cand)
-            idx = np.argmax(sigma2, axis=0)
-            return idx, sigma2[idx,np.arange(sigma2.shape[1])]
+            if score_only:
+                return sigma2
+            else:
+                idx = np.argmax(sigma2, axis=0)
+                return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             predicted_input, sigma2 = self.predict_mice(x_cand)
             M=len(x_cand)
@@ -234,8 +249,11 @@ class emulator:
                 with np.errstate(divide='ignore'):
                     mice =+ np.log(sigma2[i]/sigma2_s_i)
             avg_mice=mice/S
-            idx = np.argmax(avg_mice, axis=0)
-            return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+            if score_only:
+                return avg_mice
+            else:
+                idx = np.argmax(avg_mice, axis=0)
+                return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
             
     def predict_mice(self,x_cand):
         """Implement predictions from the trained DGP model that are required to calculate the MICE criterion.
