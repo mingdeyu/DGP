@@ -164,7 +164,7 @@ class emulator:
                 if batch_size==1:
                     idx = np.argmax(sigma2, axis=0)
                 else:
-                    idx = np.argsort(sigma2, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-sigma2, axis=0)[:batch_size,:]
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             if platform.system()=='Darwin':
@@ -205,7 +205,7 @@ class emulator:
                 if batch_size==1:
                     idx = np.argmax(avg_mice, axis=0)
                 else:
-                    idx = np.argsort(avg_mice, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-avg_mice, axis=0)[:batch_size,:]
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
 
     def metric(self, x_cand, method='ALM',nugget_s=1.,batch_size=1,score_only=False):
@@ -247,7 +247,7 @@ class emulator:
                 if batch_size==1:
                     idx = np.argmax(sigma2, axis=0)
                 else:
-                    idx = np.argsort(sigma2, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-sigma2, axis=0)[:batch_size,:]
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             predicted_input, sigma2 = self.predict_mice(x_cand)
@@ -270,7 +270,7 @@ class emulator:
                 if batch_size==1:
                     idx = np.argmax(avg_mice, axis=0)
                 else:
-                    idx = np.argsort(avg_mice, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-avg_mice, axis=0)[:batch_size,:]
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
             
     def predict_mice(self,x_cand):

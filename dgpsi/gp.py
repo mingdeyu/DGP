@@ -97,7 +97,7 @@ class gp:
                 if batch_size==1:
                     idx = np.argmax(sigma2, axis=0)
                 else:
-                    idx = np.argsort(sigma2, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-sigma2, axis=0)[:batch_size,:]
                 return idx, sigma2[idx,0]
         elif method == 'MICE':
             sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
@@ -108,7 +108,7 @@ class gp:
                 if batch_size==1:
                     idx = np.argmax(mice_val, axis=0)
                 else:
-                    idx = np.argsort(mice_val, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-mice_val, axis=0)[:batch_size,:]
                 return idx, mice_val[idx,0]
 
     def metric(self, x_cand, method='MICE',nugget_s=1.,batch_size=1,score_only=False):
@@ -146,7 +146,7 @@ class gp:
                 if batch_size==1:
                     idx = np.argmax(sigma2, axis=0)
                 else:
-                    idx = np.argsort(sigma2, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-sigma2, axis=0)[:batch_size,:]
                 return idx, sigma2[idx,0]
         elif method == 'MICE':
             sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
@@ -157,7 +157,7 @@ class gp:
                 if batch_size==1:
                     idx = np.argmax(mice_val, axis=0)
                 else:
-                    idx = np.argsort(mice_val, axis=0)[-batch_size:,:]
+                    idx = np.argsort(-mice_val, axis=0)[:batch_size,:]
                 return idx, mice_val[idx,0]
 
     def loo(self, method='mean_var', sample_size=50):
