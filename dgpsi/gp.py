@@ -76,11 +76,11 @@ class gp:
         final_struct=copy.deepcopy(self.kernel)
         return [final_struct]
 
-    def pmetric(self, x_cand, method='MICE',nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
+    def pmetric(self, x_cand, method='MICE',nugget_s=1.,batch_size=1,score_only=False,chunk_num=None,core_num=None):
         """Implement parallel computation of the ALM or MICE criterion for sequential designs.
 
         Args:
-            x_cand, method, nugget_s, score_only: see descriptions of the method :meth:`.gp.metric`.
+            x_cand, method, nugget_s, batch_size, score_only: see descriptions of the method :meth:`.gp.metric`.
             chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
@@ -94,18 +94,24 @@ class gp:
             if score_only:
                 return sigma2
             else:
-                idx = np.argmax(sigma2)
-                return idx, sigma2[idx]
+                if batch_size==1:
+                    idx = np.argmax(sigma2, axis=0)
+                else:
+                    idx = np.argsort(sigma2, axis=0)[-batch_size:,:]
+                return idx, sigma2[idx,0]
         elif method == 'MICE':
             sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
             mice_val = sigma2/sigma2_s
             if score_only:
                 return mice_val
             else:
-                idx = np.argmax(mice_val)
-                return idx, mice_val[idx]
+                if batch_size==1:
+                    idx = np.argmax(mice_val, axis=0)
+                else:
+                    idx = np.argsort(mice_val, axis=0)[-batch_size:,:]
+                return idx, mice_val[idx,0]
 
-    def metric(self, x_cand, method='MICE',nugget_s=1.,score_only=False):
+    def metric(self, x_cand, method='MICE',nugget_s=1.,batch_size=1,score_only=False):
         """Compute the value of the ALM or MICE criterion for sequential designs.
 
         Args:
@@ -114,6 +120,7 @@ class gp:
             method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
                 (`ALM`). Defaults to `MICE`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
+            batch_size (int, optional): the number of design points to be selected from the candidate design set. Defaults to `1`.
             score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
                 Defaults to `False`.
 
@@ -122,25 +129,36 @@ class gp:
             if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM or MICE criterion with rows
                 corresponding to design points in the candidate design set **x_cand**
 
-            if the argument **score_only** = `False`, a tuple of two elements is returned. The first one is an integer giving the index 
-                (i.e., row number) of the design point in the candidate design set **x_cand** that has the largest criterion value, 
-                which is given by the second element.
+            if the argument **score_only** = `False`, 
+
+                1. and **batch_size** = `1`, a tuple of two numpy 1d-arrays is returned. The first one gives the index (i.e., row number) 
+                   of the design point in the candidate design set **x_cand** that has the largest criterion value, 
+                   which is given by the second element.
+                2. and **batch_size** is greater than `1`, a tuple of two numpy 2d-arrays is returned. The first one gives the indices (i.e., row numbers) 
+                   of the design points in the candidate design set **x_cand** that have the **batch_size** largest criterion values, which are given by 
+                   the second 2d-array.
         """
         _, sigma2 = self.predict(x=x_cand)
         if method == 'ALM':
             if score_only:
                 return sigma2
             else:
-                idx = np.argmax(sigma2)
-                return idx, sigma2[idx]
+                if batch_size==1:
+                    idx = np.argmax(sigma2, axis=0)
+                else:
+                    idx = np.argsort(sigma2, axis=0)[-batch_size:,:]
+                return idx, sigma2[idx,0]
         elif method == 'MICE':
             sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
             mice_val = sigma2/sigma2_s
             if score_only:
                 return mice_val
             else:
-                idx = np.argmax(mice_val)
-                return idx, mice_val[idx]
+                if batch_size==1:
+                    idx = np.argmax(mice_val, axis=0)
+                else:
+                    idx = np.argsort(mice_val, axis=0)[-batch_size:,:]
+                return idx, mice_val[idx,0]
 
     def loo(self, method='mean_var', sample_size=50):
         """Implement the Leave-One-Out cross-validation of a GP model.
