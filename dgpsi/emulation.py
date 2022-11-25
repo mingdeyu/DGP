@@ -127,6 +127,9 @@ class emulator:
                                 kernel.global_input = np.delete(kernel_ref.global_input, i, 0)
                             kernel.Rinv = kernel_ref.cv_stats(i)
                             kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                            if kernel.name=='sexp':
+                                kernel.R2sexp = np.delete(np.delete(kernel_ref.R2sexp, i, 0), i, 1)
+                                kernel.Psexp = np.delete(np.delete(kernel_ref.Psexp, i, 1), i, 2)
                     else:
                         idx = kernel_ref.rep!=i
                         kernel.input = (kernel_ref.input[idx,:]).copy()
@@ -136,6 +139,9 @@ class emulator:
                                 kernel.global_input = (kernel_ref.global_input[idx,:]).copy()
                             kernel.Rinv = kernel_ref.cv_stats(i)
                             kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                            if kernel.name=='sexp':
+                                kernel.R2sexp = (kernel_ref.R2sexp[idx,:][:,idx]).copy()
+                                kernel.Psexp = (kernel_ref.Psexp[:,idx,:][:,:,idx]).copy()
         res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
         return(res)
 
