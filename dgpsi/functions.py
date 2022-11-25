@@ -265,7 +265,7 @@ def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget,name
             v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
     return m_new,v_new
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget):
     """Make linked GP predictions for sexp kernels.
     """
@@ -292,14 +292,14 @@ def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget
             J=J_sexp(w1,mi,vi,length[:-Dz],Psexp,R2sexp)
             Izi=Iz[i]
             Jzi=np.outer(Izi,Izi)
-            J=J*Jzi
+            J*=Jzi
         else:
             J=J_sexp(w1,mi,vi,length,Psexp,R2sexp)
         tr_RinvJ=trace_sum(Rinv,J)
         v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y[i]**2+scale*(1+nugget-tr_RinvJ))
     return IRinv_y,v_new
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def I_sexp(X,z_m,z_v,length):
     v_l=1/(1+2*z_v/length**2)
     X_l=X/length
@@ -312,7 +312,7 @@ def I_sexp(X,z_m,z_v,length):
     I=np.exp(dist.T)
     return I
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def J_sexp(X,z_m,z_v,length,Psexp,R2sexp):
     X=X.T
     d=len(X)
@@ -323,7 +323,7 @@ def J_sexp(X,z_m,z_v,length,Psexp,R2sexp):
         J*=1/np.sqrt(1+4*vli[i])*np.exp(-(Psexp[i]-2*mli[i])**2/(2+8*vli[i]))
     return J
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def trace_sum(A,B):
     n = len(A)
     a = 0
@@ -335,7 +335,7 @@ def trace_sum(A,B):
                 a += 2*A[k,l]*B[k,l]
     return a
 
-@jit(nopython=True,cache=True)
+@jit(nopython=True,cache=True,fastmath=True)
 def quad(A,B):
     n = len(A)
     a = 0
