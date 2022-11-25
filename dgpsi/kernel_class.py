@@ -4,7 +4,7 @@ from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh
 from scipy.spatial.distance import pdist, squareform
-from .functions import gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp
+from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp
 
 class kernel:
     """
@@ -70,7 +70,7 @@ class kernel:
             in the global input, i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position 
             has multiple outputs. Otherwise, it is `None`. Defaults to `None`. 
         Rinv (ndarray): a numpy 2d-array that stores the inversion of correlation matrix. Defaults to `None`.
-        Rinv_y (ndarray): a numpy 2d-array that stores the product of correlation matrix inverse and the output Y. Defaults to `None`.
+        Rinv_y (ndarray): a numpy 1d-array that stores the product of correlation matrix inverse and the output Y. Defaults to `None`.
         rff (bool): indicates weather random Fourier features are used. Defaults to `None`.
         D (int): the dimension of input data to the GP node. Defaults to `None`.
         M (int): the number of features in random Fourier approximation. Defaults to `None`.
@@ -103,6 +103,8 @@ class kernel:
         self.rep=None
         self.Rinv=None
         self.Rinv_y=None
+        self.R2sexp=None
+        self.Psexp=None
         self.rff=None
         self.D=None
         self.M=None
@@ -407,7 +409,7 @@ class kernel:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
             represented by predictive means and variances).
         """
-        m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name,nb_parallel)
+        m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.R2sexp,self.Psexp,self.scale,self.length,self.nugget,self.name,nb_parallel)
         return m,v
 
     def linkgp_prediction_full(self,m,v,m_z,v_z,z,nb_parallel):
@@ -435,7 +437,21 @@ class kernel:
         idx1=np.arange(np.shape(m_z)[1])
         idx2=np.arange(np.shape(m_z)[1],np.shape(self.global_input)[1])
         overall_input=np.concatenate((self.input,self.global_input[:,idx1]),axis=1)
-        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name,nb_parallel)
+        if self.name=='sexp':
+            if len(self.length)==1:
+                global_input_l=self.global_input[:,idx1]/self.length
+            else:
+                D=np.shape(self.input)[1]
+                global_input_l=self.global_input[:,idx1]/(self.length[D::][idx1])
+            dists = pdist(global_input_l, metric="sqeuclidean")
+            R2sexp_global = squareform(np.exp(-dists/2))
+            np.fill_diagonal(R2sexp_global, 1)
+            R2sexp = self.R2sexp*R2sexp_global
+            Psexp_global = Pmatrix(global_input_l)
+            Psexp = np.concatenate((self.Psexp,Psexp_global),axis=0)
+        else:
+            R2sexp, Psexp = self.R2sexp, self.Psexp
+        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,R2sexp,Psexp,self.scale,self.length,self.nugget,self.name,nb_parallel)
         return m,v
 
     def compute_stats(self):
@@ -447,7 +463,20 @@ class kernel:
         #L=np.linalg.cholesky(R)
         #self.Rinv_y=cho_solve((L, True), self.output, check_finite=False)
         self.Rinv=pinvh(R,check_finite=False)
-        self.Rinv_y=np.dot(self.Rinv,self.output)
+        self.Rinv_y=np.dot(self.Rinv,self.output).flatten()
+        if self.name=='sexp':
+            if self.global_input is None:
+                X_l=self.input/self.length
+            else:
+                if len(self.length)==1:
+                    X_l=self.input/self.length
+                else:
+                    D=np.shape(self.input)[1]
+                    X_l=self.input/self.length[:D]
+            dists = pdist(X_l, metric="sqeuclidean")
+            self.R2sexp = squareform(np.exp(-dists/2))
+            np.fill_diagonal(self.R2sexp, 1)
+            self.Psexp = Pmatrix(X_l)
 
     def cv_stats(self, i):
         """Compute the inversion for the LOO.

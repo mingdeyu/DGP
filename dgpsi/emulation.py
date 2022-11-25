@@ -126,7 +126,7 @@ class emulator:
                             if kernel_ref.global_input is not None:
                                 kernel.global_input = np.delete(kernel_ref.global_input, i, 0)
                             kernel.Rinv = kernel_ref.cv_stats(i)
-                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output)
+                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
                     else:
                         idx = kernel_ref.rep!=i
                         kernel.input = (kernel_ref.input[idx,:]).copy()
@@ -135,15 +135,15 @@ class emulator:
                             if kernel_ref.global_input is not None:
                                 kernel.global_input = (kernel_ref.global_input[idx,:]).copy()
                             kernel.Rinv = kernel_ref.cv_stats(i)
-                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output)
+                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
         res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
         return(res)
 
-    def pmetric(self, x_cand, method='ALM',nugget_s=1.,batch_size=1,score_only=False,chunk_num=None,core_num=None):
+    def pmetric(self, x_cand, method='ALM',nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
         """Compute the value of the ALM or MICE criterion for sequential designs in parallel.
 
         Args:
-            x_cand, method, nugget_s, batch_size, score_only: see descriptions of the method :meth:`.emulator.metric`.
+            x_cand, method, nugget_s, score_only: see descriptions of the method :meth:`.emulator.metric`.
             chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
@@ -161,10 +161,7 @@ class emulator:
             if score_only:
                 return sigma2
             else:
-                if batch_size==1:
-                    idx = np.argmax(sigma2, axis=0)
-                else:
-                    idx = np.argsort(-sigma2, axis=0)[:batch_size,:]
+                idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             if platform.system()=='Darwin':
@@ -202,13 +199,10 @@ class emulator:
             if score_only:
                 return avg_mice
             else:
-                if batch_size==1:
-                    idx = np.argmax(avg_mice, axis=0)
-                else:
-                    idx = np.argsort(-avg_mice, axis=0)[:batch_size,:]
+                idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
 
-    def metric(self, x_cand, method='ALM',nugget_s=1.,batch_size=1,score_only=False):
+    def metric(self, x_cand, method='ALM',nugget_s=1.,score_only=False):
         """Compute the value of the ALM or MICE criterion for sequential designs.
 
         Args:
@@ -217,7 +211,6 @@ class emulator:
             method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
                 (`ALM`). Defaults to `ALM`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
-            batch_size (int, optional): the number of design points to be selected from the candidate design set. Defaults to `1`.
             score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
                 Defaults to `False`.
 
@@ -226,14 +219,9 @@ class emulator:
             if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM or MICE criterion with rows
                corresponding to design points in the candidate design set **x_cand** and columns corresponding to output dimensions;
 
-            if the argument **score_only** = `False`
-            
-                1. and **batch_size** = `1`, a tuple of two numpy 1d-arrays is returned. The first one gives the indices (i.e., row numbers) 
-                   of the design points in the candidate design set **x_cand** that have the largest criterion values, which are given by the second array, 
-                   across different outputs of the DGP emulator.
-                2. and **batch_size** is greater than `1`, a tuple of two numpy 2d-arrays is returned. The first one gives the indices (i.e., row numbers) 
-                   of the design points in the candidate design set **x_cand** that have the **batch_size** largest criterion values, which are given by the second 2d-array, 
-                   across different outputs of the DGP emulator.
+            if the argument **score_only** = `False`, a tuple of two numpy 1d-arrays is returned. The first one gives the indices (i.e., row numbers) 
+                of the design points in the candidate design set **x_cand** that have the largest criterion values, which are given by the second array, 
+                across different outputs of the DGP emulator.
         """
         if x_cand.ndim==1:
             raise Exception('The candidate design set has to be a numpy 2d-array.')
@@ -244,10 +232,7 @@ class emulator:
             if score_only:
                 return sigma2
             else:
-                if batch_size==1:
-                    idx = np.argmax(sigma2, axis=0)
-                else:
-                    idx = np.argsort(-sigma2, axis=0)[:batch_size,:]
+                idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             predicted_input, sigma2 = self.predict_mice(x_cand)
@@ -267,10 +252,7 @@ class emulator:
             if score_only:
                 return avg_mice
             else:
-                if batch_size==1:
-                    idx = np.argmax(avg_mice, axis=0)
-                else:
-                    idx = np.argsort(-avg_mice, axis=0)[:batch_size,:]
+                idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
             
     def predict_mice(self,x_cand):

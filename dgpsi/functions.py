@@ -187,6 +187,21 @@ def mice_var(x, x_extra, kernel, nugget_s):
     return sigma2
 
 ######functions for predictions########
+@jit(nopython=True,cache=True)
+def Pmatrix(X):
+    N,D=np.shape(X)
+    P=np.empty((D,N,N))
+    for d in range(D):
+        for k in range(N):
+            for l in range(k+1):
+                temp = X[k,d]+X[l,d]
+                if k==l:
+                    P[d,k,l] = temp
+                else:
+                    P[d,k,l] = temp
+                    P[d,l,k] = temp
+    return P
+
 #@jit(nopython=True,cache=True,fastmath=True)
 def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     """Make GP predictions.
@@ -199,53 +214,114 @@ def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     r_Rinv_r=np.sum(r*Rinv_r,axis=0)
     v=np.abs(scale*(1+nugget-r_Rinv_r))
     #m=np.sum(r*Rinv_y,axis=0) 
-    m=(r.T@Rinv_y).flatten()
+    m=np.dot(Rinv_y, r)
     return m, v
 
 #@jit(nopython=True,cache=True,fastmath=True)
-def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name,nb_parallel):
+def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget,name,nb_parallel):
     """Make linked GP predictions.
     """
+    if name=='sexp':
+        m_new, v_new = link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget)
+    else:
+        M=len(m)
+        m_new=np.empty((M))
+        v_new=np.empty((M))
+        if z is not None:
+            Dw=np.shape(w1)[1]
+            Dz=np.shape(z)[1]
+            if len(length)==1:
+                length=length*np.ones(Dw+Dz)
+            Iz=k_one_vec(z,global_w1,length[-Dz::],'matern2.5')
+        else:
+            Dw=np.shape(w1)[1]
+            if len(length)==1:
+                length=length*np.ones(Dw)
+        for i in range(M):
+            mi=m[i]
+            vi=v[i]
+            if z is not None:
+                #zi=np.expand_dims(z[i,:],axis=0)
+                Izi=Iz[i]
+                if nb_parallel:
+                    I,J=IJ_parallel(w1,mi,vi,length[:-Dz])
+                else:
+                    I,J=IJ(w1,mi,vi,length[:-Dz])
+                #Iz_T=np.expand_dims(Iz.flatten(),axis=0)
+                Jzi=np.outer(Izi,Izi)
+                I,J=I*Izi,J*Jzi
+            else:
+                if nb_parallel:
+                    I,J=IJ_parallel(w1,mi,vi,length)
+                else:
+                    I,J=IJ(w1,mi,vi,length)
+            #tr_RinvJ=np.sum(Rinv*J)
+            tr_RinvJ=trace_sum(Rinv,J)
+            #IRinv_y=np.sum(I*Rinv_y)
+            IRinv_y=np.dot(I,Rinv_y)
+            m_new[i]=IRinv_y
+            #v_new[i]=np.abs(np.sum(np.sum(Rinv_y*J,axis=0)*Rinv_y.flatten())-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+            #v_new[i]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+            v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+    return m_new,v_new
+
+@jit(nopython=True,cache=True)
+def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget):
+    """Make linked GP predictions for sexp kernels.
+    """
     M=len(m)
-    m_new=np.empty((M,1))
-    v_new=np.empty((M,1))
+    v_new=np.empty((M))
     if z is not None:
         Dw=np.shape(w1)[1]
         Dz=np.shape(z)[1]
         if len(length)==1:
             length=length*np.ones(Dw+Dz)
+        Iz=k_one_vec(z,global_w1,length[-Dz::],'sexp')
+        I=I_sexp(w1,m,v,length[:-Dz])
+        I*=Iz
     else:
         Dw=np.shape(w1)[1]
         if len(length)==1:
             length=length*np.ones(Dw)
+        I=I_sexp(w1,m,v,length)
+    IRinv_y=np.dot(I,Rinv_y)  
     for i in range(M):
-        mi=m[i,:]
-        vi=v[i,:]
+        mi=m[i]
+        vi=v[i]
         if z is not None:
-            #zi=np.expand_dims(z[i,:],axis=0)
-            zi=z[[i],:]
-            if nb_parallel:
-                I,J=IJ_parallel(w1,mi,vi,length[:-Dz],name)
-            else:
-                I,J=IJ(w1,mi,vi,length[:-Dz],name)
-            Iz=k_one_vec(global_w1,zi,length[-Dz::],name)
-            #Iz_T=np.expand_dims(Iz.flatten(),axis=0)
-            Jz=np.dot(Iz,Iz.T)
-            I,J=I*Iz,J*Jz
+            J=J_sexp(w1,mi,vi,length[:-Dz],Psexp,R2sexp)
+            Izi=Iz[i]
+            Jzi=np.outer(Izi,Izi)
+            J=J*Jzi
         else:
-            if nb_parallel:
-                I,J=IJ_parallel(w1,mi,vi,length,name)
-            else:
-                I,J=IJ(w1,mi,vi,length,name)
-        #tr_RinvJ=np.sum(Rinv*J)
+            J=J_sexp(w1,mi,vi,length,Psexp,R2sexp)
         tr_RinvJ=trace_sum(Rinv,J)
-        #IRinv_y=np.sum(I*Rinv_y)
-        IRinv_y=I.T@Rinv_y
-        m_new[i]=IRinv_y
-        #v_new[i]=np.abs(np.sum(np.sum(Rinv_y*J,axis=0)*Rinv_y.flatten())-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-        #v_new[i]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-        v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-    return m_new.flatten(),v_new.flatten()
+        v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y[i]**2+scale*(1+nugget-tr_RinvJ))
+    return IRinv_y,v_new
+
+@jit(nopython=True,cache=True)
+def I_sexp(X,z_m,z_v,length):
+    v_l=1/(1+2*z_v/length**2)
+    X_l=X/length
+    m_l=z_m/length
+    cross1=np.dot(X_l**2,v_l.T)
+    cross2=2*np.dot(X_l,(m_l*v_l).T)
+    L_z=np.sum(m_l**2*v_l,axis=1)
+    coef = 0.5*np.sum(np.log(v_l),axis=1)
+    dist=coef-cross1+cross2-L_z
+    I=np.exp(dist.T)
+    return I
+
+@jit(nopython=True,cache=True)
+def J_sexp(X,z_m,z_v,length,Psexp,R2sexp):
+    X=X.T
+    d=len(X)
+    vli=z_v/length**2
+    mli=z_m/length
+    J=R2sexp.copy()
+    for i in range(d):
+        J*=1/np.sqrt(1+4*vli[i])*np.exp(-(Psexp[i]-2*mli[i])**2/(2+8*vli[i]))
+    return J
 
 @jit(nopython=True,cache=True)
 def trace_sum(A,B):
@@ -262,7 +338,6 @@ def trace_sum(A,B):
 @jit(nopython=True,cache=True)
 def quad(A,B):
     n = len(A)
-    B=B.flatten()
     a = 0
     for k in range(n):
         for l in range(k+1):
@@ -280,8 +355,8 @@ def k_one_vec(X,z,length,name):
         X_l=X/length
         z_l=z/length
         L_X=np.expand_dims(np.sum(X_l**2,axis=1),axis=1)
-        L_z=np.expand_dims(np.sum(z_l**2,axis=1),axis=1)
-        dis2=L_X-2*np.dot(X_l,z_l.T)+L_z.T
+        L_z=np.sum(z_l**2,axis=1)
+        dis2=L_X-2*np.dot(X_l,z_l.T)+L_z
         k=np.exp(-dis2)
     elif name=='matern2.5':
         n=np.shape(X)[0]
@@ -300,51 +375,51 @@ def k_one_vec(X,z,length,name):
     return k
 
 @jit(nopython=True,cache=True,parallel=True)
-def IJ_parallel(X,z_m,z_v,length,name):
+def IJ_parallel(X,z_m,z_v,length):
     """Compute I and J involved in linked GP predictions.
     """
     n = X.shape[0]
-    if name=='sexp':
-        X_z=X-z_m
-        I=np.ones((n,1))
-        J=np.ones((n,n))
-        for i in prange(n):
-            I[i]=I_sexp_parallel(z_v,length,X_z[i])
-            for j in range(i+1):
-                temp = J_sexp_parallel(z_v,length,X_z[i],X_z[j])
-                if i==j:
-                    J[i,j]=temp
-                else:
-                    J[i,j], J[j,i]=temp, temp
-    elif name=='matern2.5':
-        zX=z_m-X
-        muA, muB=zX-sqrt(5)*z_v/length, zX+sqrt(5)*z_v/length
-        I=np.ones((n,1))
-        J=np.ones((n,n))
-        for i in prange(n):
-            I[i]=I_matern_parallel(z_v,length,muA[i],muB[i],zX[i])
-            for j in range(i+1):
-                temp = J_matern_parallel(z_m, z_v, length, X[i], X[j], zX[i], zX[j])
-                if i==j:
-                    J[i,j]=temp
-                else:
-                    J[i,j], J[j,i]=temp, temp 
+#    if name=='sexp':
+#        X_z=X-z_m
+#        I=np.ones((n,1))
+#        J=np.ones((n,n))
+#        for i in prange(n):
+#            I[i]=I_sexp_parallel(z_v,length,X_z[i])
+#            for j in range(i+1):
+#                temp = J_sexp_parallel(z_v,length,X_z[i],X_z[j])
+#                if i==j:
+#                    J[i,j]=temp
+#                else:
+#                    J[i,j], J[j,i]=temp, temp
+#    elif name=='matern2.5':
+    zX=z_m-X
+    muA, muB=zX-sqrt(5)*z_v/length, zX+sqrt(5)*z_v/length
+    I=np.ones((n))
+    J=np.ones((n,n))
+    for i in prange(n):
+        I[i]=I_matern_parallel(z_v,length,muA[i],muB[i],zX[i])
+        for j in range(i+1):
+            temp = J_matern_parallel(z_m, z_v, length, X[i], X[j], zX[i], zX[j])
+            if i==j:
+                J[i,j]=temp
+            else:
+                J[i,j], J[j,i]=temp, temp 
     return I,J
 
-@jit(nopython=True,cache=True)
-def I_sexp_parallel(z_v,length,X_zi):
-    Id=1
-    for d in range(len(length)):
-        Id*=1/np.sqrt(1+2*z_v[d]/length[d]**2)*np.exp(-X_zi[d]**2/(2*z_v[d]+length[d]**2))
-    return Id
+#@jit(nopython=True,cache=True)
+#def I_sexp_parallel(z_v,length,X_zi):
+#    Id=1
+#    for d in range(len(length)):
+#        Id*=1/np.sqrt(1+2*z_v[d]/length[d]**2)*np.exp(-X_zi[d]**2/(2*z_v[d]+length[d]**2))
+#    return Id
 
-@jit(nopython=True,cache=True)
-def J_sexp_parallel(z_v,length,X_zi,X_zj):
-    Jd=1
-    for d in range(len(length)):
-        dis1, dis2 = (X_zi[d]+X_zj[d])**2, (X_zi[d]-X_zj[d])**2
-        Jd*=1/np.sqrt(1+4*z_v[d]/length[d]**2)*np.exp(-dis1/(2*length[d]**2+8*z_v[d])-dis2/(2*length[d]**2))
-    return Jd
+#@jit(nopython=True,cache=True)
+#def J_sexp_parallel(z_v,length,X_zi,X_zj):
+#    Jd=1
+#    for d in range(len(length)):
+#        dis1, dis2 = (X_zi[d]+X_zj[d])**2, (X_zi[d]-X_zj[d])**2
+#        Jd*=1/np.sqrt(1+4*z_v[d]/length[d]**2)*np.exp(-dis1/(2*length[d]**2+8*z_v[d])-dis2/(2*length[d]**2))
+#    return Jd
 
 @jit(nopython=True,cache=True)
 def I_matern_parallel(z_v,length,muA,muB,zXi):
@@ -374,60 +449,60 @@ def J_matern_parallel(z_m, z_v, length, Xi, Xj, zXi, zXj):
     return J_d
 
 @jit(nopython=True,cache=True,fastmath=True)
-def IJ(X,z_m,z_v,length,name):
+def IJ(X,z_m,z_v,length):
     """Compute I and J involved in linked GP predictions.
     """
     n,d=X.shape
-    if name=='sexp':
-        X_z=(X-z_m).T
-        I=np.ones((n))
-        J=np.ones((n,n))
-        for i in range(d):
-            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-X_z[i]**2/(2*z_v[i]+length[i]**2))
+#    if name=='sexp':
+#        X_z=(X-z_m).T
+#        I=np.ones((n))
+#        J=np.ones((n,n))
+#        for i in range(d):
+#            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-X_z[i]**2/(2*z_v[i]+length[i]**2))
+#            for k in range(n):
+#                for l in range(k+1):
+#                    temp = J_sexp(z_v[i],length[i],X_z[i,k],X_z[i,l])
+#                    if k==l:
+#                        J[k,l]*=temp
+#                    else:
+#                        J[k,l]*=temp
+#                        J[l,k]*=temp
+#        return I.reshape(-1,1),J
+#    elif name=='matern2.5':
+    zX=z_m-X
+    muA=(zX-sqrt(5)*z_v/length).T
+    muB=(zX+sqrt(5)*z_v/length).T
+    zX=zX.T
+    X=X.T
+    I=np.ones((n))
+    J=np.ones((n,n))
+    for i in range(d):    
+        if z_v[i]!=0:
+            I*=np.exp((5*z_v[i]-2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
+                ((1+sqrt(5)*muA[i]/length[i]+5*(muA[i]**2+z_v[i])/(3*length[i]**2))*pnorm(muA[i]/sqrt(z_v[i]))+ \
+                (sqrt(5)+(5*muA[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muA[i]**2/z_v[i]))+ \
+                np.exp((5*z_v[i]+2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
+                ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
+                (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muB[i]**2/z_v[i]))
             for k in range(n):
                 for l in range(k+1):
-                    temp = J_sexp(z_v[i],length[i],X_z[i,k],X_z[i,l])
-                    if k==l:
-                        J[k,l]*=temp
+                    J_lk=Jd(X[i,l],X[i,k],z_m[i],z_v[i],length[i])
+                    if l==k:
+                        J[l,k]*=J_lk
                     else:
-                        J[k,l]*=temp
-                        J[l,k]*=temp
-        return I.reshape(-1,1),J
-    elif name=='matern2.5':
-        zX=z_m-X
-        muA=(zX-sqrt(5)*z_v/length).T.reshape((d,n,1))
-        muB=(zX+sqrt(5)*z_v/length).T.reshape((d,n,1))
-        zX=zX.T.reshape((d,n,1))
-        X=X.T.reshape((d,n,1))
-        I=np.ones((n,1))
-        J=np.ones((n,n))
-        for i in range(d):    
-            if z_v[i]!=0:
-                I*=np.exp((5*z_v[i]-2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
-                    ((1+sqrt(5)*muA[i]/length[i]+5*(muA[i]**2+z_v[i])/(3*length[i]**2))*pnorm(muA[i]/sqrt(z_v[i]))+ \
-                    (sqrt(5)+(5*muA[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muA[i]**2/z_v[i]))+ \
-                   np.exp((5*z_v[i]+2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
-                    ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
-                    (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muB[i]**2/z_v[i]))
-                for k in range(n):
-                    for l in range(k+1):
-                        J_lk=Jd(X[i][l][0],X[i][k][0],z_m[i],z_v[i],length[i])
-                        if l==k:
-                            J[l,k]*=J_lk
-                        else:
-                            J[l,k]*=J_lk
-                            J[k,l]*=J_lk
-            else:
-                Id=(1+sqrt(5)*np.abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*np.exp(-sqrt(5)*np.abs(zX[i])/length[i])
-                I*=Id
-                J*=np.dot(Id,Id.T)
-        return I,J
+                        J[l,k]*=J_lk
+                        J[k,l]*=J_lk
+        else:
+            Id=(1+sqrt(5)*np.abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*np.exp(-sqrt(5)*np.abs(zX[i])/length[i])
+            I*=Id
+            J*=np.outer(Id,Id)
+    return I,J
 
-@jit(nopython=True,cache=True,fastmath=True)
-def J_sexp(z_v,length,X_zi,X_zj):
-    dis1, dis2 = (X_zi+X_zj)**2, (X_zi-X_zj)**2
-    Jd=1/sqrt(1+4*z_v/length**2)*exp(-dis1/(2*length**2+8*z_v)-dis2/(2*length**2))
-    return Jd
+#@jit(nopython=True,cache=True,fastmath=True)
+#def J_sexp(z_v,length,X_zi,X_zj):
+#    dis1, dis2 = (X_zi+X_zj)**2, (X_zi-X_zj)**2
+#    Jd=1/sqrt(1+4*z_v/length**2)*exp(-dis1/(2*length**2+8*z_v)-dis2/(2*length**2))
+#    return Jd
 
 @vectorize([float64(float64)],nopython=True,cache=True,fastmath=True)
 def pnorm(x):
