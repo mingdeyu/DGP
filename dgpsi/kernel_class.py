@@ -26,6 +26,7 @@ class kernel:
             the lengthscales and nugget term. Set `None` to disable the prior. Defaults to `ga`.
         prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
             parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to ``np.array([1.6,0.3])``.
+        bds (ndarray, optional): a numpy 1d-array of length two that gives the lower and upper bounds of the lengthscales. Default to `None`.
         nugget_est (bool, optional): set to `True` to estimate nugget term or to `False` to fix the nugget term as specified
             by the argument **nugget**. If set to `True`, the value set to the argument **nugget** is used as the initial
             value. Defaults to `False`.
@@ -78,7 +79,7 @@ class kernel:
         b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
     """
 
-    def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), nugget_est=False, scale_est=False, input_dim=None, connect=None):
+    def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), bds=None, nugget_est=False, scale_est=False, input_dim=None, connect=None):
         self.type='gp'
         self.length=length
         self.scale=np.atleast_1d(scale)
@@ -110,6 +111,7 @@ class kernel:
         self.M=None
         self.W=None
         self.b=None
+        self.bds=bds
 
     def sample_basis(self):
         """Sample **W** and **b** to construct random Fourier approximations to correlation matrices.
@@ -348,23 +350,45 @@ class kernel:
         initial_theta_trans=self.log_t()
         if self.nugget_est:
             if self.rff:
-                lb=np.concatenate((-5.*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                ub=5.*np.ones(len(initial_theta_trans))
+                if self.bds is None:
+                    lb=np.concatenate((-5.*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                    ub=5.*np.ones(len(initial_theta_trans))
+                else:
+                    with np.errstate(divide='ignore'):
+                        lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                    ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),5.))
                 bd=Bounds(lb, ub)
                 _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
             else:
-                lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                ub=np.inf*np.ones(len(initial_theta_trans))
+                if self.bds is None:
+                    lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                    ub=np.inf*np.ones(len(initial_theta_trans))
+                else:
+                    with np.errstate(divide='ignore'):
+                        lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                    ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),np.inf))
                 bd=Bounds(lb, ub)
                 _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
         else:
             if self.rff:
-                lb=-5.*np.ones(len(initial_theta_trans))
-                ub=5.*np.ones(len(initial_theta_trans))
+                if self.bds is None:
+                    lb=-5.*np.ones(len(initial_theta_trans))
+                    ub=5.*np.ones(len(initial_theta_trans))
+                else:
+                    with np.errstate(divide='ignore'):
+                        lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
+                    ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
                 bd=Bounds(lb, ub)
                 _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
             else:
-                _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
+                if self.bds is None:
+                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
+                else:
+                    with np.errstate(divide='ignore'):
+                        lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
+                    ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
+                    bd=Bounds(lb, ub)
+                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
         self.add_to_path()
         
     def add_to_path(self):
