@@ -39,6 +39,13 @@ class gp:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
         self.kernel.output=copy.deepcopy(self.Y)
+        if self.kernel.prior_name=='ref':
+            p=np.shape(self.kernel.input)[1]
+            if self.kernel.global_input is not None:
+                p+=np.shape(self.kernel.global_input)[1]
+            b=1/len(self.kernel.output)**(1/p)*(self.kernel.prior_coef+p)
+            self.kernel.prior_coef=np.concatenate((self.kernel.prior_coef, b))
+            self.kernel.compute_cl()
 
     def update_xy(self,X,Y):
         """Update the trained GP emulator with new input and output data without changing the hyperparameter values.
@@ -63,6 +70,8 @@ class gp:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
         self.kernel.output=copy.deepcopy(self.Y)
+        if self.kernel.prior_name=='ref':
+            self.kernel.compute_cl()
 
     def train(self):
         """Train the GP model.

@@ -22,10 +22,12 @@ class kernel:
         nugget (float, optional): the nugget term of a GP. Defaults to `1e-6`.
         name (str, optional): kernel function to be used. Either `sexp` for squared exponential kernel or
             `matern2.5` for Matern2.5 kernel. Defaults to `sexp`.
-        prior_name (str, optional): prior options for the lengthscales and nugget term. Either gamma (`ga`) or inverse gamma (`inv_ga`) distribution for 
-            the lengthscales and nugget term. Set `None` to disable the prior. Defaults to `ga`.
-        prior_coef (ndarray, optional): a numpy 1d-array that contains two values specifying the shape and rate 
-            parameters of gamma prior, shape and scale parameters of inverse gamma prior. Defaults to ``np.array([1.6,0.3])``.
+        prior_name (str, optional): prior options for the lengthscales and nugget term. Either gamma (`ga`), inverse gamma (`inv_ga`) or the reference
+            prior (`ref`) for the lengthscales and nugget term. Set `None` to disable the prior. Defaults to `ga`.
+        prior_coef (ndarray, optional): if **prior_name** is either `ga` or `inv_ga`, it is a numpy 1d-array that contains two values specifying the shape 
+            and rate parameters of gamma prior, or shape and scale parameters of inverse gamma prior. If  **prior_name** is `ref`, it is a numpy 1d-array
+            that gives the value of the coefficient **a** in the reference prior. When set to `None`, it defaults to ``np.array([1.6,0.3])`` for gamma or 
+            inverse gamma priors. When set to the reference prior, it defaults to ``np.array([0.2])``. Defaults to `None`.
         bds (ndarray, optional): a numpy 1d-array of length two that gives the lower and upper bounds of the lengthscales. Default to `None`.
         nugget_est (bool, optional): set to `True` to estimate nugget term or to `False` to fix the nugget term as specified
             by the argument **nugget**. If set to `True`, the value set to the argument **nugget** is used as the initial
@@ -79,20 +81,33 @@ class kernel:
         b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
     """
 
-    def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=np.array([1.6,0.3]), bds=None, nugget_est=False, scale_est=False, input_dim=None, connect=None):
+    def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=None, bds=None, nugget_est=False, scale_est=False, input_dim=None, connect=None):
         self.type='gp'
         self.length=length
         self.scale=np.atleast_1d(scale)
         self.nugget=np.atleast_1d(nugget)
         self.name=name
         self.prior_name=prior_name
-        self.prior_coef=prior_coef
         if self.prior_name=='ga':
+            if prior_coef is None:
+                self.prior_coef=np.array([1.6,0.3])
+            else:
+                self.prior_coef=prior_coef
             self.g=lambda x: (self.prior_coef[0]-1)*np.log(x)-self.prior_coef[1]*x
             self.gfod=lambda x: (self.prior_coef[0]-1)-self.prior_coef[1]*x
         elif self.prior_name=='inv_ga':
+            if prior_coef is None:
+                self.prior_coef=np.array([1.6,0.3])
+            else:
+                self.prior_coef=prior_coef
             self.g=lambda x: -(self.prior_coef[0]+1)*np.log(x)-self.prior_coef[1]/x
             self.gfod=lambda x: -(self.prior_coef[0]+1)+self.prior_coef[1]/x
+        elif self.prior_name=='ref':
+            if prior_coef is None:
+                self.prior_coef=np.array([0.2])
+            else:
+                self.prior_coef=prior_coef
+            self.cl=None
         self.nugget_est=nugget_est
         self.scale_est=scale_est
         self.input_dim=input_dim
@@ -112,6 +127,21 @@ class kernel:
         self.W=None
         self.b=None
         self.bds=bds
+
+    def compute_cl(self):
+        if len(self.length)==1:
+            if self.global_input is not None:
+                X=np.concatenate((self.input, self.global_input),1)
+            else:
+                X=self.input
+            dists = pdist(X, metric="euclidean")
+            self.cl=np.max(dists)/len(self.output)
+        else:
+            input_range = np.max(self.input,axis=0)-np.min(self.input,axis=0)
+            if self.global_input is not None:
+                g_input_range = np.max(self.global_input,axis=0)-np.min(self.global_input,axis=0)
+                input_range = np.concatenate((input_range, g_input_range))
+            self.cl=input_range/len(self.output)**(1/len(self.length))
 
     def sample_basis(self):
         """Sample **W** and **b** to construct random Fourier approximations to correlation matrices.
@@ -172,7 +202,8 @@ class kernel:
             X=np.concatenate((self.input, self.global_input),1)
         else:
             X=self.input
-        X_l=X/self.length
+        with np.errstate(divide='ignore'):
+            X_l=X/self.length
         if self.name=='sexp':
             dists = pdist(X_l, metric="sqeuclidean")
             K = squareform(np.exp(-dists))
@@ -209,9 +240,14 @@ class kernel:
         Returns:
             ndarray: a numpy 1d-array giving the sum of log priors of the lengthscales and nugget. 
         """
-        lp=np.sum(self.g(self.length),keepdims=True)
-        if self.nugget_est:
-            lp+=self.g(self.nugget)
+        if self.prior_name=='ref':
+            a, b=self.prior_coef[0], self.prior_coef[1]
+            t=np.sum(self.cl/self.length)+self.nugget
+            lp=a*np.log(t)-b*t
+        else:
+            lp=np.sum(self.g(self.length),keepdims=True)
+            if self.nugget_est:
+                lp+=self.g(self.nugget)
         return lp
 
     def log_prior_fod(self):
@@ -221,9 +257,17 @@ class kernel:
             ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
             giving the first order derivatives of log priors wrt the log-transformed lengthscales and nugget.
         """
-        fod=self.gfod(self.length)
-        if self.nugget_est:
-            fod=np.concatenate((fod,self.gfod(self.nugget)))
+        if self.prior_name=='ref':
+            a, b=self.prior_coef[0], self.prior_coef[1]
+            t=np.sum(self.cl/self.length)+self.nugget
+            fod=(b-a/t)*self.cl/self.length
+            if self.nugget_est:
+                fod_nugget=(a/t-b)*self.nugget
+                fod=np.concatenate((fod,fod_nugget))
+        else:  
+            fod=self.gfod(self.length)
+            if self.nugget_est:
+                fod=np.concatenate((fod,self.gfod(self.nugget)))
         return fod
 
     def llik(self,x):
@@ -248,7 +292,7 @@ class kernel:
         else:
             neg_llik=0.5*(logdet+YKinvY/self.scale) 
         neg_llik=neg_llik.flatten()
-        if self.prior_name!=None:
+        if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
         return neg_llik
     
@@ -280,7 +324,7 @@ class kernel:
         else:
             neg_llik=0.5*(logdet+quad/(self.scale*self.nugget)+(n-self.M)*np.log(self.nugget)) 
         neg_llik=neg_llik.flatten()
-        if self.prior_name!=None:
+        if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
         return neg_llik
 
@@ -312,7 +356,7 @@ class kernel:
             neg_St=-P1-P2/scale
         else:
             neg_St=-P1-P2/self.scale
-        if self.prior_name!=None:
+        if self.prior_name is not None:
             neg_St=neg_St-self.log_prior_fod()
         return neg_St
 
@@ -322,6 +366,9 @@ class kernel:
         logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         quad=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
         llik=-0.5*(logdet+quad)
+        if self.prior_name=='ref':
+            self.compute_cl()
+            llik+=self.log_prior()
         return llik
 
     def log_likelihood_func_rff(self):
@@ -339,6 +386,9 @@ class kernel:
         quad=-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
         #quad=-(Zt_y.T@cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
         llik=-0.5*(logdet+quad)
+        if self.prior_name=='ref':
+            self.compute_cl()
+            llik+=self.log_prior()
         return llik
 
     def maximise(self, method='L-BFGS-B'):
@@ -362,11 +412,14 @@ class kernel:
             else:
                 if self.bds is None:
                     lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                    ub=np.inf*np.ones(len(initial_theta_trans))
+                    if self.prior_name=='ref':
+                        ub=np.concatenate((5.*np.ones(len(initial_theta_trans)-1), [np.inf]))
+                    else:
+                        ub=np.inf*np.ones(len(initial_theta_trans))
                 else:
                     with np.errstate(divide='ignore'):
                         lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                    ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),np.inf))
+                    ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),[np.inf]))
                 bd=Bounds(lb, ub)
                 _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
         else:
@@ -382,7 +435,13 @@ class kernel:
                 _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
             else:
                 if self.bds is None:
-                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
+                    if self.prior_name=='ref':
+                        lb=-np.inf*np.ones(len(initial_theta_trans))
+                        ub=5.*np.ones(len(initial_theta_trans))
+                        bd=Bounds(lb, ub)
+                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+                    else:
+                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
                 else:
                     with np.errstate(divide='ignore'):
                         lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))

@@ -165,6 +165,14 @@ class dgp:
                     kernel.output=copy.deepcopy(self.Y[:,[k]])
                 else:
                     kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
+                if kernel.type=='gp':
+                    if kernel.prior_name=='ref':
+                        p=np.shape(kernel.input)[1]
+                        if kernel.global_input is not None:
+                            p+=np.shape(kernel.global_input)[1]
+                        b=1/len(kernel.output)**(1/p)*(kernel.prior_coef+p)
+                        kernel.prior_coef=np.concatenate((kernel.prior_coef, b))
+                        kernel.compute_cl()
             if l!=self.n_layer-1:
                 In=copy.deepcopy(Out)
 
@@ -252,6 +260,9 @@ class dgp:
                     kernel.output=copy.deepcopy(self.Y[:,[k]])
                 else:
                     kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
+                if kernel.type=='gp':
+                    if kernel.prior_name=='ref':
+                        kernel.compute_cl()
             if l!=self.n_layer-1:
                 In=copy.deepcopy(Out)
        
@@ -273,6 +284,8 @@ class dgp:
             for l in range(self.n_layer):
                 for kernel in self.all_layer[l]:
                     if kernel.type=='gp':
+                        if kernel.prior_name=='ref':
+                            kernel.compute_cl()
                         kernel.maximise()
                 pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
         self.N += N
