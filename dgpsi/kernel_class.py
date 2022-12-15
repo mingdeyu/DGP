@@ -202,8 +202,8 @@ class kernel:
             X=np.concatenate((self.input, self.global_input),1)
         else:
             X=self.input
-        with np.errstate(divide='ignore'):
-            X_l=X/self.length
+        #with np.errstate(divide='ignore'):
+        X_l=X/self.length
         if self.name=='sexp':
             dists = pdist(X_l, metric="sqeuclidean")
             K = squareform(np.exp(-dists))
