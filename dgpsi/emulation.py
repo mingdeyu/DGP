@@ -37,6 +37,126 @@ class emulator:
             when the :class:`.emulator` class has already been built.
         """
         self.nb_parallel=nb_parallel
+
+    def esloo(self, X, Y):
+        """Compute the (normalised) expected squared LOO from a DGP emulator.
+
+        Args:
+            X (ndarray): the training input data used to build the DGP emulator via the :class:`.dgp` class.
+            Y (ndarray): the training output data used to build the DGP emulator via the :class:`.dgp` class.
+            
+        Returns:
+            ndarray: a numpy 2d-array is returned. The array has its rows corresponding to training input
+                positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
+        """
+        isrep = len(X) != len(self.all_layer[0][0].input)
+        if isrep:
+            X, indices = np.unique(X, return_inverse=True, axis=0)
+        else:
+            indices = None
+        res = []
+        for i in range(len(X)):
+            res.append(self.esloo_calculation(i, X, Y, indices))
+        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
+        final_res = np.concatenate(res)
+        if isrep:
+            idx=[]
+            seq=np.arange(len(Y))
+            for i in range(len(X)):
+                idx.append(seq[indices==i])
+            idx=np.concatenate(idx)
+            final_res_cp=np.empty_like(final_res)
+            final_res_cp[idx,:]=final_res
+            return final_res_cp
+        else:
+            return final_res
+
+    def pesloo(self, X, Y, core_num=None):
+        """Compute in parallel the (normalised) expected squared LOO from a DGP emulator.
+
+        Args:
+            X, Y: see descriptions of the method :meth:`.emulator.esloo`.
+            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``(max physical cores available - 1)``.
+
+        Returns:
+            Same as the method :meth:`.emulator.esloo`.
+        """
+        if platform.system()=='Darwin':
+            ctx._force_start_method('forkserver')
+        if core_num is None:
+            core_num=psutil.cpu_count(logical = False)-1
+        isrep = len(X) != len(self.all_layer[0][0].input)
+        if isrep:
+            X, indices = np.unique(X, return_inverse=True, axis=0)
+        else:
+            indices = None
+        f=lambda x: self.esloo_calculation(*x) 
+        z=list(np.arange(len(X)))
+        with Pool(core_num) as pool:
+            #pool.restart()
+            res = pool.map(f, [[x, X, Y, indices] for x in z])
+            pool.close()
+            pool.join()
+            pool.clear()
+        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
+        final_res = np.concatenate(res)
+        if isrep:
+            idx=[]
+            seq=np.arange(len(Y))
+            for i in range(len(X)):
+                idx.append(seq[indices==i])
+            idx=np.concatenate(idx)
+            final_res_cp=np.empty_like(final_res)
+            final_res_cp[idx,:]=final_res
+            return final_res_cp
+        else:
+            return final_res
+
+    def esloo_calculation(self, i, X, Y, indices):
+        for s in range(len(self.all_layer_set)):
+            one_imputed_all_layer=self.all_layer_set[s]
+            for l in range(self.n_layer):
+                layer=one_imputed_all_layer[l]
+                n_kerenl=len(layer)
+                for k in range(n_kerenl):
+                    kernel=layer[k]
+                    kernel_ref=self.all_layer_set_copy[s][l][k]
+                    if kernel_ref.rep is None:
+                        kernel.input = np.delete(kernel_ref.input, i, 0)
+                        kernel.output = np.delete(kernel_ref.output, i, 0)
+                        if kernel.type == 'gp':
+                            if kernel_ref.global_input is not None:
+                                kernel.global_input = np.delete(kernel_ref.global_input, i, 0)
+                            kernel.Rinv = kernel_ref.cv_stats(i)
+                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                            if kernel.name=='sexp':
+                                kernel.R2sexp = np.delete(np.delete(kernel_ref.R2sexp, i, 0), i, 1)
+                                kernel.Psexp = np.delete(np.delete(kernel_ref.Psexp, i, 1), i, 2)
+                    else:
+                        idx = kernel_ref.rep!=i
+                        kernel.input = (kernel_ref.input[idx,:]).copy()
+                        kernel.output = (kernel_ref.output[idx,:]).copy()
+                        if kernel.type == 'gp':
+                            if kernel_ref.global_input is not None:
+                                kernel.global_input = (kernel_ref.global_input[idx,:]).copy()
+                            kernel.Rinv = kernel_ref.cv_stats(i)
+                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                            if kernel.name=='sexp':
+                                kernel.R2sexp = (kernel_ref.R2sexp[idx,:][:,idx]).copy()
+                                kernel.Psexp = (kernel_ref.Psexp[:,idx,:][:,:,idx]).copy()
+        mu_i, var_i = self.predict(x=X[[i],:], aggregation=False)
+        mu=np.mean(mu_i,axis=0)
+        sigma2=np.mean((np.square(mu_i)+var_i),axis=0)-mu**2
+        if indices is not None:
+            f=Y[indices==i,:]
+        else:
+            f=Y[[i],:]
+        esloo=sigma2+(mu-f)**2
+        error=(mu_i-f)**2
+        normaliser=np.mean(error**2+6*error*var_i+3*np.square(var_i),axis=0)-esloo**2
+        nesloo=esloo/np.sqrt(normaliser)
+        return(nesloo)
     
     def loo(self, X, method='mean_var', sample_size=50):
         """Implement the Leave-One-Out cross-validation from a DGP emulator.
@@ -339,7 +459,7 @@ class emulator:
         z=np.array_split(x,chunk_num)
         with Pool(core_num) as pool:
             #pool.restart()
-            res = pool.map(f, [[x, method, full_layer, sample_size] for x in z])
+            res = pool.map(f, [[x, method, full_layer, sample_size, True] for x in z])
             pool.close()
             pool.join()
             pool.clear()
@@ -360,7 +480,7 @@ class emulator:
             else:
                 return list(np.concatenate(worker) for worker in zip(*res))
 
-    def predict(self,x,method='mean_var',full_layer=False,sample_size=50):
+    def predict(self,x,method='mean_var',full_layer=False,sample_size=50,aggregation=True):
         """Implement predictions from the trained DGP model.
 
         Args:
@@ -371,15 +491,21 @@ class emulator:
             full_layer (bool, optional): whether to output the predictions of all layers. Defaults to `False`.
             sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
                  Defaults to `50`.
+            aggregation (bool, optional): whether to aggregate mean and variance predictions from imputed linked GPs
+                when **method** = '`mean_var`' and **full_layer** = `False`. Defaults to `True`.
             
         Returns:
             tuple_or_list: 
             if the argument **method** = '`mean_var`', a tuple is returned:
 
-                1. If **full_layer** = `False`, the tuple contains two numpy 2d-arrays, one for the predictive means 
+                1. If **full_layer** = `False` and **aggregation** = `True`, the tuple contains two numpy 2d-arrays, one for the predictive means 
                    and another for the predictive variances. Each array has its rows corresponding to testing 
                    positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
-                2. If **full_layer** = `True`, the tuple contains two lists, one for the predictive means 
+                2. If **full_layer** = `False` and **aggregation** = `False`, the tuple contains two lists, one for the predictive means 
+                   and another for the predictive variances from the imputed linked GPs. Each list contains *N* (i.e., the number of imputations) 
+                   numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns corresponding to DGP output dimensions 
+                   (i.e., the number of GP/likelihood nodes in the final layer);
+                3. If **full_layer** = `True`, the tuple contains two lists, one for the predictive means 
                    and another for the predictive variances. Each list contains *L* (i.e., the number of layers) 
                    numpy 2d-arrays. Each array has its rows corresponding to testing positions and columns 
                    corresponding to output dimensions (i.e., the number of GP nodes from the associated layer and in case of the final layer, 
@@ -520,8 +646,12 @@ class emulator:
                 mu.append(np.mean(likelihood_mean,axis=0))
                 sigma2.append(np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-np.mean(likelihood_mean,axis=0)**2)
             else:
-                mu=np.mean(likelihood_mean,axis=0)
-                sigma2=np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-mu**2
+                if aggregation:
+                    mu=np.mean(likelihood_mean,axis=0)
+                    sigma2=np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-mu**2
+                else:
+                    mu=likelihood_mean
+                    sigma2=likelihood_variance
             return mu, sigma2
 
     def nllik(self,x,y):

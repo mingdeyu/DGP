@@ -151,6 +151,19 @@ class gp:
                 idx = np.argmax(mice_val, axis=0)
                 return idx, mice_val[idx,0]
 
+    def esloo(self):
+        """Compute the (normalised) expected squared LOO of a GP model.
+
+        Returns:
+            ndarray: a numpy 2d-array is returned. The array has only one column with its rows corresponding to training data positions.
+        """
+        mu, sigma2 = self.loo()
+        error=(mu-self.Y)**2
+        esloo=sigma2+error
+        normaliser=2*sigma2**2+4*sigma2*error
+        nesloo=esloo/np.sqrt(normaliser)
+        return nesloo
+
     def loo(self, method='mean_var', sample_size=50):
         """Implement the Leave-One-Out cross-validation of a GP model.
 
