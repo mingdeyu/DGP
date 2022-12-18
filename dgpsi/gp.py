@@ -39,6 +39,9 @@ class gp:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
         self.kernel.output=copy.deepcopy(self.Y)
+        self.kernel.D=np.shape(self.kernel.input)[1]
+        if self.kernel.connect is not None:
+            self.kernel.D+=len(self.kernel.connect)
         if self.kernel.prior_name=='ref':
             p=np.shape(self.kernel.input)[1]
             if self.kernel.global_input is not None:
