@@ -408,12 +408,12 @@ class kernel:
                         lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
                     ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),5.))
                 bd=Bounds(lb, ub)
-                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
             else:
                 if self.bds is None:
                     lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
                     if self.prior_name=='ref':
-                        ub=np.concatenate((5.*np.ones(len(initial_theta_trans)-1), [np.inf]))
+                        ub=np.concatenate((13.*np.ones(len(initial_theta_trans)-1), [np.inf]))
                     else:
                         ub=np.inf*np.ones(len(initial_theta_trans))
                 else:
@@ -421,7 +421,7 @@ class kernel:
                         lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
                     ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),[np.inf]))
                 bd=Bounds(lb, ub)
-                _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+                _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         else:
             if self.rff:
                 if self.bds is None:
@@ -432,22 +432,22 @@ class kernel:
                         lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
                     ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
                 bd=Bounds(lb, ub)
-                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
             else:
                 if self.bds is None:
                     if self.prior_name=='ref':
                         lb=-np.inf*np.ones(len(initial_theta_trans))
-                        ub=5.*np.ones(len(initial_theta_trans))
+                        ub=13.*np.ones(len(initial_theta_trans))
                         bd=Bounds(lb, ub)
-                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                     else:
-                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': 125})
+                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                 else:
                     with np.errstate(divide='ignore'):
                         lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
                     ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
                     bd=Bounds(lb, ub)
-                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': 125})
+                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         self.add_to_path()
         
     def add_to_path(self):
