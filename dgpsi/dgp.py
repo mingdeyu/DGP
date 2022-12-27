@@ -5,7 +5,9 @@ import copy
 from .imputation import imputer
 from .kernel_class import kernel as ker
 from .kernel_class import combine
+from .functions import cond_mean
 from sklearn.decomposition import KernelPCA
+from scipy.linalg import cho_solve
 
 class dgp:
     """
@@ -195,6 +197,7 @@ class dgp:
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
         self.indices=None
+        origin_X=(self.X).copy()
         if self.check_rep:
             X0, indices = np.unique(X, return_inverse=True,axis=0)
             if len(X0) != len(X):
@@ -204,13 +207,109 @@ class dgp:
                 self.X=X
         else:
             self.X=X
-        self.M=max(100, int(np.ceil(np.sqrt(len(self.X))*np.log(len(self.X)))))
-        self.update_all_layer()
-        self.imp=imputer(self.all_layer)
-        (self.imp).sample(burnin=50)
+        if (self.X[:, None] == origin_X).all(-1).any(-1).all():
+            sub_idx=np.where((origin_X==self.X[:,None]).all(-1))[1]
+            self.update_all_layer_smaller(sub_idx)
+            self.imp=imputer(self.all_layer)
+            (self.imp).sample(burnin=50)
+        elif (origin_X[:, None] == self.X).all(-1).any(-1).all():
+            sub_idx=np.where((self.X==origin_X[:,None]).all(-1))[1]
+            self.update_all_layer_larger(sub_idx)
+            self.imp=imputer(self.all_layer)
+            (self.imp).sample(burnin=50)
+        else:
+            self.reinit_all_layer()
+            self.imp=imputer(self.all_layer)
+            (self.imp).sample(burnin=200)
 
-    def update_all_layer(self):
-        """Update **all_layer** attribute with new input and output.
+    def update_all_layer_larger(self, sub_idx):
+        """Update **all_layer** attribute with new input and output when the original input is a subset of the new one.
+        """
+        global_in=(self.X).copy()
+        In=(self.X).copy()
+        mask=np.zeros(len(self.X),dtype=bool)
+        mask[sub_idx]=True
+        for l in range(self.n_layer):
+            layer=self.all_layer[l]
+            num_kernel=len(layer)
+            if l!=self.n_layer-1:
+                Out=np.empty((len(In),num_kernel))
+            for k in range(num_kernel):
+                kernel=layer[k]
+                if l!=self.n_layer-1:
+                    R=kernel.k_matrix()
+                    L=np.linalg.cholesky(R)
+                    Rinv_y=cho_solve((L, True), kernel.output, check_finite=False).flatten()
+                    if kernel.connect is not None:
+                        mu=cond_mean(In[~mask,:][:,kernel.input_dim],global_in[~mask,:][:,kernel.connect],kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
+                    else:
+                        mu=cond_mean(In[~mask,:][:,kernel.input_dim],None,kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
+                    kernel.input=(In[:,kernel.input_dim]).copy()
+                    Out[sub_idx,k]=kernel.output.flatten()
+                    Out[~mask,k]=mu
+                    kernel.output=Out[:,[k]].copy()
+                    if kernel.connect is not None:
+                        kernel.global_input=(global_in[:,kernel.connect]).copy()
+                else:
+                    kernel.rep=self.indices
+                    if kernel.rep is None:
+                        kernel.input=(In[:,kernel.input_dim]).copy()
+                    else:
+                        kernel.input=(In[kernel.rep,:][:,kernel.input_dim]).copy()
+                    if kernel.type=='gp':
+                        if kernel.connect is not None:
+                            if kernel.rep is None:
+                                kernel.global_input=(global_in[:,kernel.connect]).copy()
+                            else:
+                                kernel.global_input=(global_in[kernel.rep,:][:,kernel.connect]).copy()
+                    kernel.output=(self.Y[:,[k]]).copy()
+                if kernel.type=='gp':
+                    if kernel.prior_name=='ref':
+                        kernel.compute_cl()
+            if l!=self.n_layer-1:
+                In=(Out).copy()
+
+    def update_all_layer_smaller(self, sub_idx):
+        """Update **all_layer** attribute with new input and output when the new input is a subset of the original one.
+        """
+        for l in range(self.n_layer):
+            layer=self.all_layer[l]
+            num_kernel=len(layer)
+            for k in range(num_kernel):
+                kernel=layer[k]
+                if l==self.n_layer-1:
+                    if kernel.rep is None:
+                        kernel.input=kernel.input[sub_idx,:]
+                        if self.indices is not None:
+                            kernel.input=kernel.input[self.indices,:]
+                    else:
+                        kernel.input=np.concatenate([np.unique(kernel.input[kernel.rep==i,:],axis=0) for i in range(np.max(kernel.rep))], axis=0)[sub_idx,:]
+                        if self.indices is not None:
+                            kernel.input=kernel.input[self.indices,:]
+                    kernel.rep=self.indices
+                else:
+                    kernel.input=kernel.input[sub_idx,:]
+                if kernel.type=='gp':
+                    if kernel.connect is not None:
+                        if l==self.n_layer-1:
+                            if kernel.rep is None:
+                                kernel.global_input=(self.X[:,kernel.connect]).copy()
+                            else:
+                                kernel.global_input=(self.X[kernel.rep,:][:,kernel.connect]).copy()
+                        else:
+                            if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
+                                raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
+                            kernel.global_input=(self.X[:,kernel.connect]).copy()
+                if l==self.n_layer-1:
+                    kernel.output=(self.Y[:,[k]]).copy()
+                else:
+                    kernel.output=(kernel.output[sub_idx,:]).copy()
+                if kernel.type=='gp':
+                    if kernel.prior_name=='ref':
+                        kernel.compute_cl()
+
+    def reinit_all_layer(self):
+        """Reinitialise **all_layer** attribute with new input and output.
         """
         global_in=self.X
         In=self.X
@@ -231,11 +330,6 @@ class dgp:
                 if l==self.n_layer-1 and self.indices is not None:
                     kernel.rep=self.indices
                 if l==self.n_layer-1:
-                    if kernel.type=='likelihood':
-                        if kernel.name=='Poisson' and len(kernel.input_dim)!=1:
-                            raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
-                        elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
-                            raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
                     if kernel.rep is None:
                         kernel.input=copy.deepcopy(In[:,kernel.input_dim])
                     else:
@@ -253,9 +347,6 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
-                    kernel.M = self.M
-                    if kernel.rff:
-                        kernel.sample_basis()
                 if l==self.n_layer-1:
                     kernel.output=copy.deepcopy(self.Y[:,[k]])
                 else:

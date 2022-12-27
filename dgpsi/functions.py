@@ -202,6 +202,16 @@ def Pmatrix(X):
                     P[d,l,k] = temp
     return P
 
+def cond_mean(x,z,w1,global_w1,Rinv_y,length,name):
+    """Make GP predictions.
+    """
+    if z is not None:
+        x=np.concatenate((x, z),1)
+        w1=np.concatenate((w1, global_w1),1)
+    r=k_one_vec(w1,x,length,name)
+    m=np.dot(Rinv_y, r)
+    return m
+
 #@jit(nopython=True,cache=True,fastmath=True)
 def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     """Make GP predictions.
