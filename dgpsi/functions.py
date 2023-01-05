@@ -306,7 +306,7 @@ def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget
         else:
             J=J_sexp(w1,mi,vi,length,Psexp,R2sexp)
         tr_RinvJ=trace_sum(Rinv,J)
-        v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y[i]**2+scale*(1+nugget-tr_RinvJ))
+        v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y[i]**2+scale*(1+nugget-tr_RinvJ)).item()
     return IRinv_y,v_new
 
 @jit(nopython=True,cache=True,fastmath=True)
