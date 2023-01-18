@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.random import randn, uniform, standard_t
-from numpy.linalg import LinAlgError
 from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh
@@ -542,15 +541,12 @@ class kernel:
         """Compute and store key statistics for the GP predictions
         """
         R=self.k_matrix()
-        try:
-            #U, s, Vh = np.linalg.svd(R)
-            #self.Rinv=Vh.T@np.diag(s**-1)@U.T
-            L=np.linalg.cholesky(R)
-            self.Rinv=cho_solve((L, True), np.eye(len(R)), check_finite=False)
-            self.Rinv_y=cho_solve((L, True), self.output, check_finite=False).flatten()
-        except LinAlgError:
-            self.Rinv=pinvh(R,check_finite=False)
-            self.Rinv_y=np.dot(self.Rinv,self.output).flatten()
+        #U, s, Vh = np.linalg.svd(R)
+        #self.Rinv=Vh.T@np.diag(s**-1)@U.T
+        #L=np.linalg.cholesky(R)
+        #self.Rinv_y=cho_solve((L, True), self.output, check_finite=False)
+        self.Rinv=pinvh(R,check_finite=False)
+        self.Rinv_y=np.dot(self.Rinv,self.output).flatten()
         if self.name=='sexp':
             if self.global_input is None:
                 X_l=self.input/self.length
@@ -572,11 +568,7 @@ class kernel:
             R=self.k_matrix()
             idx = self.rep!=i
             R_loo_i = R[idx,:][:,idx]
-            try:
-                L=np.linalg.cholesky(R_loo_i)
-                LOOinv = cho_solve((L, True), np.eye(len(R_loo_i)), check_finite=False)
-            except LinAlgError:
-                LOOinv = pinvh(R_loo_i,check_finite=False)
+            LOOinv = pinvh(R_loo_i,check_finite=False)
         else:
             LOOinv = inv_swp(self.Rinv, i)
         return(LOOinv)
