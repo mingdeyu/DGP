@@ -397,6 +397,8 @@ class lgp:
         else:
             M=len(x)
         L=len(structure)
+        internal_idx=structure[0][0].input_dim
+        external_idx=structure[0][0].connect
         for l in range(L):
             layer=structure[l]
             n_kerenl=len(layer)
@@ -422,14 +424,18 @@ class lgp:
                     if kernel.type=='gp':
                         if kernel.connect is not None:
                             if x is None:
-                                D=np.shape(m)[1]
-                                idx1,idx2=kernel.connect[kernel.connect<=(D-1)],kernel.connect[kernel.connect>(D-1)]
-                                if idx1.size==0:
-                                    m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,idx2-D],nb_parallel=nb_parallel)
-                                elif idx2.size==0:
-                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=None,nb_parallel=nb_parallel)
+                                if external_idx is None:
+                                    idx=np.where(kernel.connect[:, None] == internal_idx[None, :])[1]
+                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx],v_z=v[:,idx],z=None,nb_parallel=nb_parallel)
                                 else:
-                                    m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=z[:,idx2-D],nb_parallel=nb_parallel)
+                                    idx1 = np.where(kernel.connect[:, None] == internal_idx[None, :])[1]
+                                    idx2 = np.where(kernel.connect[:, None] == external_idx[None, :])[1]
+                                    if idx1.size==0:
+                                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,idx2],nb_parallel=nb_parallel)
+                                    elif idx2.size==0:
+                                        m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=None,nb_parallel=nb_parallel)
+                                    else:
+                                        m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx1],v_z=v[:,idx1],z=z[:,idx2],nb_parallel=nb_parallel)
                             else:
                                 m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=x[:,kernel.connect],nb_parallel=nb_parallel)
                         else:
