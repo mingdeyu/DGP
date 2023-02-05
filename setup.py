@@ -3,7 +3,7 @@ import pathlib
 
 here = pathlib.Path(__file__).parent.resolve()
 
-VERSION = '2.1.5'
+VERSION = '2.1.6'
 PACKAGE_NAME = 'dgpsi'
 AUTHOR = 'Deyu Ming'
 AUTHOR_EMAIL = 'deyu.ming.16@ucl.ac.uk'
