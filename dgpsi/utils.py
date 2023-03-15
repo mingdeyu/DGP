@@ -1,5 +1,6 @@
 from dill import dump, load
 from tabulate import tabulate
+from numba import jit
 import numpy as np
 
 ######Save and Load Emulators#######
@@ -28,6 +29,13 @@ def read(pkl_file):
     """
     emu = load(open(pkl_file+".pkl", "rb"))
     return emu
+
+######seed function#######
+@jit(nopython=True,cache=True)
+def nb_seed(value):
+    """Set seed for Numba functions.
+    """
+    np.random.seed(value)
 
 ######summary function#######
 def summary(obj, tablefmt='fancy_grid'):
