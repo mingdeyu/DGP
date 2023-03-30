@@ -30,15 +30,16 @@ class container:
                set `None` instead in the list. 
                
             Defaults to `None`. When the argument is `None`, one needs to set its value using the :meth:`.set_local_input`. 
+        block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations. Defaults to `True`.
     """
-    def __init__(self, structure, local_input_idx=None):
+    def __init__(self, structure, local_input_idx=None, block=True):
         if len(structure)==1:
             self.type='gp'
             self.structure=structure[0]
         else:
             self.type='dgp'
             self.structure=structure
-            self.imp=imputer(self.structure)
+            self.imp=imputer(self.structure, block)
             self.imp.sample(burnin=50)
         self.local_input_idx=local_input_idx
 

@@ -8,6 +8,10 @@ from .kernel_class import combine
 from .functions import cond_mean
 from sklearn.decomposition import KernelPCA
 from scipy.linalg import cho_solve
+import multiprocess.context as ctx
+import platform
+from pathos.multiprocessing import ProcessingPool as Pool
+import psutil  
 
 class dgp:
     """
@@ -28,6 +32,7 @@ class dgp:
             to the dimension of **X** is automatically constructed.
         check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
             position has multiple outputs. Defaults to `True`.
+        block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations during the training. Defaults to `True`.
         rff (bool, optional): whether to use random Fourier features to approximate the correlation matrices 
             during the imputation in training. Defaults to `False`.
         M (int, optional): the number of features to be used by random Fourier approximation. It is only used
@@ -55,7 +60,7 @@ class dgp:
 
     """
 
-    def __init__(self, X, Y, all_layer=None, check_rep=True, rff=False, M=None):
+    def __init__(self, X, Y, all_layer=None, check_rep=True, block=True, rff=False, M=None):
         self.Y=Y
         if isinstance(self.Y, list):
             if len(self.Y)==1:
@@ -92,7 +97,8 @@ class dgp:
         self.all_layer=all_layer
         self.n_layer=len(self.all_layer)
         self.initialize()
-        self.imp=imputer(self.all_layer)
+        self.block=block
+        self.imp=imputer(self.all_layer, self.block)
         (self.imp).sample(burnin=10)
         self.N=0
         self.burnin=None
@@ -210,16 +216,16 @@ class dgp:
         if (self.X[:, None] == origin_X).all(-1).any(-1).all():
             sub_idx=np.where((origin_X==self.X[:,None]).all(-1))[1]
             self.update_all_layer_smaller(sub_idx)
-            self.imp=imputer(self.all_layer)
+            self.imp=imputer(self.all_layer, self.block)
             (self.imp).sample(burnin=50)
         elif (origin_X[:, None] == self.X).all(-1).any(-1).all():
             sub_idx=np.where((self.X==origin_X[:,None]).all(-1))[1]
             self.update_all_layer_larger(sub_idx)
-            self.imp=imputer(self.all_layer)
+            self.imp=imputer(self.all_layer, self.block)
             (self.imp).sample(burnin=50)
         else:
             self.reinit_all_layer()
-            self.imp=imputer(self.all_layer)
+            self.imp=imputer(self.all_layer, self.block)
             (self.imp).sample(burnin=200)
 
     def update_all_layer_larger(self, sub_idx):
@@ -380,6 +386,42 @@ class dgp:
                         kernel.maximise()
                 pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
         self.N += N
+
+    def ptrain(self, N=500, ess_burn=10, disable=False, core_num=None):
+        """Train the DGP model with parallel GP optimizations in each layer.
+
+        Args:
+            N (int): number of iterations for stochastic EM. Defaults to `500`.
+            ess_burn (int, optional): number of burnin steps for the ESS-within-Gibbs
+                at each I-step of the SEM. Defaults to `10`.
+            disable (bool, optional): whether to disable the training progress bar. 
+                Defaults to `False`.
+            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``(max physical cores available - 1)``.
+        """
+        def pmax(kernel):
+            if kernel.type=='gp':
+                if kernel.prior_name=='ref':
+                    kernel.compute_cl()
+                kernel.maximise()
+            return kernel
+        if platform.system()=='Darwin':
+            ctx._force_start_method('forkserver')
+        if core_num is None:
+            core_num=psutil.cpu_count(logical = False)-1
+        pool = Pool(core_num)
+        pgb=trange(1,N+1,disable=disable)
+        for i in pgb:
+            #I-step           
+            (self.imp).sample(burnin=ess_burn)
+            #M-step
+            for l in range(self.n_layer):
+                self.all_layer[l] = pool.map(pmax, self.all_layer[l])
+                pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
+        self.N += N
+        pool.close()
+        pool.join()
+        pool.clear()
 
     def estimate(self,burnin=None):
         """Compute the point estimates of the DGP model parameters and output the trained DGP.

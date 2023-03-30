@@ -16,11 +16,12 @@ class emulator:
         N (int, optional): the number of imputations to produce the predictions. Increase the value to account for
             more imputation uncertainties. Defaults to `50`.
         nb_parallel (bool, optional): whether to use *Numba*'s multi-threading to accelerate the predictions. Defaults to `False`.
+        block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations. Defaults to `True`.
     """
-    def __init__(self, all_layer, N=50, nb_parallel=False):
+    def __init__(self, all_layer, N=50, nb_parallel=False, block=True):
         self.all_layer=all_layer
         self.n_layer=len(all_layer)
-        self.imp=imputer(self.all_layer)
+        self.imp=imputer(self.all_layer, block)
         (self.imp).sample(burnin=50)
         self.all_layer_set=[]
         for _ in range(N):
