@@ -3,8 +3,9 @@
 [![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
 [![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
 ![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?color=orange&style=flat-square)
-[![REF](https://img.shields.io/badge/DOC-Linked%20GP-informational)](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
-[![REF](https://img.shields.io/badge/DOC-Deep%20GP-informational)](https://doi.org/10.1080/00401706.2022.2124311)
+[![REF](https://img.shields.io/badge/REF-Linked%20GP-informational)](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
+[![REF](https://img.shields.io/badge/REF-Deep%20GP-informational)](https://doi.org/10.1080/00401706.2022.2124311)
+[![REF](https://img.shields.io/badge/REF-Linked%20DGP-informational)](https://arxiv.org/abs/2306.01212)
 [![GitHub R package version](https://img.shields.io/github/r-package/v/mingdeyu/dgpsi-R)](https://github.com/mingdeyu/dgpsi-R)
 
 ## For R users
@@ -85,6 +86,8 @@ Please feel free to email me with any questions and feedbacks:
 Deyu Ming <[deyu.ming.16@ucl.ac.uk](mailto:deyu.ming.16@ucl.ac.uk)>.
 
 ## References
-> [Ming, D., Williamson, D., and Guillas, S. (2022) Deep Gaussian process emulation using stochastic imputation. <i>Technometrics</i>. 0(0), 1-12.](https://doi.org/10.1080/00401706.2022.2124311)
+> [Ming, D. and Williamson, D. (2023) Linked deep Gaussian process emulation for model networks. arXiv:2306.01212.](https://arxiv.org/abs/2306.01212)
+
+> [Ming, D., Williamson, D., and Guillas, S. (2023) Deep Gaussian process emulation using stochastic imputation. <i>Technometrics</i>. 65(2), 150-161.](https://doi.org/10.1080/00401706.2022.2124311)
 
 > [Ming, D. and Guillas, S. (2021) Linked Gaussian process emulation for systems of computer models using Mat&eacute;rn kernels and adaptive design, <i>SIAM/ASA Journal on Uncertainty Quantification</i>. 9(4), 1615-1642.](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
