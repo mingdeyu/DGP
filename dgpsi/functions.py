@@ -1,4 +1,4 @@
-from numba import jit, vectorize, float64, prange, config
+from numba import njit, vectorize, float64, prange, config
 import numpy as np
 from math import erf, exp, sqrt, pi
 from numpy.random import randn
@@ -6,10 +6,10 @@ from scipy.linalg import pinvh
 import itertools
 config.THREADING_LAYER = 'workqueue'
 #######functions for optim#########
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def pdist_matern_coef(X):
     n = X.shape[0]
-    out_size = np.int((n * (n - 1)) / 2)
+    out_size = np.int32((n * (n - 1)) / 2)
     dm = np.empty(out_size)
     k = 0
     for i in range(n - 1):
@@ -18,7 +18,7 @@ def pdist_matern_coef(X):
             k += 1
     return dm
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def matern_coef(v,u):
     dist = 1
     for r in range(len(v)):
@@ -26,7 +26,7 @@ def matern_coef(v,u):
         dist *= 1+np.sqrt(5)*disi+(5/3)*disi**2
     return dist
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def fod_exp(X,K):
     n, D = X.shape
     dm = np.zeros((D,n,n))
@@ -37,7 +37,7 @@ def fod_exp(X,K):
                 dm[d,i,j], dm[d,j,i] = temp, temp
     return dm
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def pdist_matern_one(X):
     n = X.shape[0]
     dm = np.zeros((n,n))
@@ -49,7 +49,7 @@ def pdist_matern_one(X):
             dm1[:,i,j], dm1[:,j,i] = temp2, temp2
     return dm, dm1
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def pdist_matern_multi(X):
     n, D = X.shape
     dm = np.zeros((n,n))
@@ -61,7 +61,7 @@ def pdist_matern_multi(X):
             dm2[:,i,j], dm2[:,j,i] = temp2, temp2
     return dm, dm2
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def matern_one(v,u):
     dist = 1
     dist1 = 0
@@ -73,7 +73,7 @@ def matern_one(v,u):
         dist1 += coefi1
     return dist, dist1
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def matern_multi(v,u):
     dist = 1
     dist1=np.zeros(len(v)) 
@@ -86,7 +86,7 @@ def matern_multi(v,u):
     return dist, dist1
 
 ######functions for imputer########
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def fmvn_mu(mu,cov):
     """Generate multivariate Gaussian random samples with means.
     """
@@ -96,7 +96,7 @@ def fmvn_mu(mu,cov):
     samp=(L@sn).flatten()+mu
     return samp
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def fmvn(cov):
     """Generate multivariate Gaussian random samples without means.
     """
@@ -126,14 +126,14 @@ def fmvn(cov):
 #    samp=((U*np.sqrt(s))@sn).flatten()
 #    return samp
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def update_f(f,nu,theta):
     """Update ESS proposal samples.
     """
     fp=f*np.cos(theta) + nu*np.sin(theta)
     return fp
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def Z_fct(X,W,b,length,M):
     W=W/length
     Z=np.dot(X,W.T)+b
@@ -151,7 +151,7 @@ def ghdiag(fct,mu,var,y):
     return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
 
 ######Inverse Sweep for LOO######
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def inv_swp(X,k):
     T = np.empty_like(X)
     n = len(X)
@@ -187,7 +187,7 @@ def mice_var(x, x_extra, kernel, nugget_s):
     return sigma2
 
 ######functions for predictions########
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def Pmatrix(X):
     N,D=np.shape(X)
     P=np.empty((D,N,N))
@@ -275,7 +275,7 @@ def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget,name
             v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
     return m_new,v_new
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget):
     """Make linked GP predictions for sexp kernels.
     """
@@ -309,7 +309,7 @@ def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget
         v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y[i]**2+scale*(1+nugget-tr_RinvJ)).item()
     return IRinv_y,v_new
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def I_sexp(X,z_m,z_v,length):
     v_l=1/(1+2*z_v/length**2)
     X_l=X/length
@@ -322,7 +322,7 @@ def I_sexp(X,z_m,z_v,length):
     I=np.exp(dist.T)
     return I
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def J_sexp(X,z_m,z_v,length,Psexp,R2sexp):
     X=X.T
     d=len(X)
@@ -333,7 +333,7 @@ def J_sexp(X,z_m,z_v,length,Psexp,R2sexp):
         J*=1/np.sqrt(1+4*vli[i])*np.exp(-(Psexp[i]-2*mli[i])**2/(2+8*vli[i]))
     return J
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def trace_sum(A,B):
     n = len(A)
     a = 0
@@ -345,7 +345,7 @@ def trace_sum(A,B):
                 a += 2*A[k,l]*B[k,l]
     return a
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def quad(A,B):
     n = len(A)
     a = 0
@@ -357,7 +357,7 @@ def quad(A,B):
                 a += 2*A[k,l]*B[l]*B[k]
     return a
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def k_one_vec(X,z,length,name):
     """Compute cross-correlation matrix between the testing and training input data.
     """
@@ -384,7 +384,7 @@ def k_one_vec(X,z,length,name):
         k=k1*k2
     return k
 
-@jit(nopython=True,cache=True,parallel=True)
+@njit(cache=True,parallel=True)
 def IJ_parallel(X,z_m,z_v,length):
     """Compute I and J involved in linked GP predictions.
     """
@@ -431,7 +431,7 @@ def IJ_parallel(X,z_m,z_v,length):
 #        Jd*=1/np.sqrt(1+4*z_v[d]/length[d]**2)*np.exp(-dis1/(2*length[d]**2+8*z_v[d])-dis2/(2*length[d]**2))
 #    return Jd
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def I_matern_parallel(z_v,length,muA,muB,zXi):
     Id=1
     for d in range(len(length)):
@@ -446,7 +446,7 @@ def I_matern_parallel(z_v,length,muA,muB,zXi):
             Id*=(1+sqrt(5)*np.abs(zXi[d])/length[d]+5*zXi[d]**2/(3*length[d]**2))*np.exp(-sqrt(5)*np.abs(zXi[d])/length[d])  
     return Id
 
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def J_matern_parallel(z_m, z_v, length, Xi, Xj, zXi, zXj):
     J_d=1
     for d in range(len(length)):
@@ -458,7 +458,7 @@ def J_matern_parallel(z_m, z_v, length, Xi, Xj, zXi, zXj):
             J_d*=(Idi*Idj)
     return J_d
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def IJ(X,z_m,z_v,length):
     """Compute I and J involved in linked GP predictions.
     """
@@ -520,7 +520,7 @@ def pnorm(x):
     """
     return 0.5*(1+erf(x/sqrt(2)))    
 
-@jit(nopython=True,cache=True,fastmath=True)
+@njit(cache=True,fastmath=True)
 def Jd(X1,X2,z_m,z_v,length):
     """Compute J components in different input dimensions for Matern2.5 kernel.
     """
