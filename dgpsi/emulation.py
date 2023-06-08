@@ -321,7 +321,7 @@ class emulator:
                     kernel = last_layer[k]
                     sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
                 with np.errstate(divide='ignore'):
-                    mice =+ np.log(sigma2[i]/sigma2_s_i)
+                    mice += np.log(sigma2[i]/sigma2_s_i)
             avg_mice=mice/S
             if score_only:
                 return avg_mice
@@ -374,7 +374,7 @@ class emulator:
                     kernel = last_layer[k]
                     sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
                 with np.errstate(divide='ignore'):
-                    mice =+ np.log(sigma2[i]/sigma2_s_i)
+                    mice += np.log(sigma2[i]/sigma2_s_i)
             avg_mice=mice/S
             if score_only:
                 return avg_mice
