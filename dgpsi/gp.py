@@ -50,22 +50,25 @@ class gp:
             self.kernel.prior_coef=np.concatenate((self.kernel.prior_coef, b))
             self.kernel.compute_cl()
 
-    def update_xy(self,X,Y):
-        """Update the trained GP emulator with new input and output data without changing the hyperparameter values.
+    def update_xy(self, X, Y, reset=False):
+        """Update the trained GP emulator with new input and output data.
 
         Args:
             X (ndarray): a numpy 2d-array where each row is an input data point and each column is an input dimension.
             Y (ndarray): a numpy 2d-array with only one column and each row being an input data point.
+            reset (bool, optional): whether to reset hyperparameter values of the GP emulator. Defaults to `False`. 
         """
         self.X=X
         self.Y=Y
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
-        self.update_kernel()
+        self.update_kernel(reset_lengthscale=reset)
         self.kernel.compute_stats()
     
-    def update_kernel(self):
+    def update_kernel(self, reset_lengthscale):
         """Assign new input/output data to the kernel.
+        Args: 
+            reset_lengthscale (bool): whether to reset hyperparameter of the GP emulator to the initial values.
         """
         self.kernel.input=copy.deepcopy(self.X[:,self.kernel.input_dim])
         if self.kernel.connect is not None:
@@ -73,6 +76,11 @@ class gp:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
         self.kernel.output=copy.deepcopy(self.Y)
+        if reset_lengthscale:
+            initial_hypers=self.kernel.para_path[0,:]
+            self.kernel.scale=initial_hypers[[0]]
+            self.kernel.length=initial_hypers[1:-1]
+            self.kernel.nugget=initial_hypers[[-1]]
         if self.kernel.prior_name=='ref':
             self.kernel.compute_cl()
 

@@ -184,8 +184,8 @@ class dgp:
             if l!=self.n_layer-1:
                 In=copy.deepcopy(Out)
 
-    def update_xy(self,X,Y):
-        """Update the trained DGP emulator with new input and output data without changing the hyperparameter values.
+    def update_xy(self, X, Y, reset=False):
+        """Update the trained DGP emulator with new input and output data.
 
         Args:
             X (ndarray): a numpy 2d-array where each row is an input data point and 
@@ -193,6 +193,7 @@ class dgp:
             Y (ndarray): a numpy 2d-arrays containing observed output data. 
                 The 2d-array has it rows being output data points and columns being output dimensions 
                 (with the number of columns equals to the number of GP nodes in the final layer). 
+            reset (bool, optional): whether to reset latent layers and hyperparameter values of the DGP emulator. Defaults to `False`. 
         """
         self.Y=Y
         if isinstance(self.Y, list):
@@ -213,20 +214,25 @@ class dgp:
                 self.X=X
         else:
             self.X=X
-        if (self.X[:, None] == origin_X).all(-1).any(-1).all():
-            sub_idx=np.where((origin_X==self.X[:,None]).all(-1))[1]
-            self.update_all_layer_smaller(sub_idx)
+        if reset:
+            self.reinit_all_layer(reset_lengthscale=True)
             self.imp=imputer(self.all_layer, self.block)
-            (self.imp).sample(burnin=50)
-        elif (origin_X[:, None] == self.X).all(-1).any(-1).all():
-            sub_idx=np.where((self.X==origin_X[:,None]).all(-1))[1]
-            self.update_all_layer_larger(sub_idx)
-            self.imp=imputer(self.all_layer, self.block)
-            (self.imp).sample(burnin=50)
+            (self.imp).sample(burnin=10)
         else:
-            self.reinit_all_layer()
-            self.imp=imputer(self.all_layer, self.block)
-            (self.imp).sample(burnin=200)
+            if (self.X[:, None] == origin_X).all(-1).any(-1).all():
+                sub_idx=np.where((origin_X==self.X[:,None]).all(-1))[1]
+                self.update_all_layer_smaller(sub_idx)
+                self.imp=imputer(self.all_layer, self.block)
+                (self.imp).sample(burnin=50)
+            elif (origin_X[:, None] == self.X).all(-1).any(-1).all():
+                sub_idx=np.where((self.X==origin_X[:,None]).all(-1))[1]
+                self.update_all_layer_larger(sub_idx)
+                self.imp=imputer(self.all_layer, self.block)
+                (self.imp).sample(burnin=50)
+            else:
+                self.reinit_all_layer(reset_lengthscale=False)
+                self.imp=imputer(self.all_layer, self.block)
+                (self.imp).sample(burnin=200)
 
     def update_all_layer_larger(self, sub_idx):
         """Update **all_layer** attribute with new input and output when the original input is a subset of the new one.
@@ -314,8 +320,10 @@ class dgp:
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
 
-    def reinit_all_layer(self):
+    def reinit_all_layer(self, reset_lengthscale):
         """Reinitialise **all_layer** attribute with new input and output.
+        Args: 
+            reset_lengthscale (bool): whether to reset hyperparameter of the DGP emulator to the initial values.
         """
         global_in=self.X
         In=self.X
@@ -353,6 +361,11 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                    if reset_lengthscale:
+                        initial_hypers=kernel.para_path[0,:]
+                        kernel.scale=initial_hypers[[0]]
+                        kernel.length=initial_hypers[1:-1]
+                        kernel.nugget=initial_hypers[[-1]]
                 if l==self.n_layer-1:
                     kernel.output=copy.deepcopy(self.Y[:,[k]])
                 else:
