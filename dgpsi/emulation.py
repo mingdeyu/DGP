@@ -281,12 +281,14 @@ class emulator:
         """
         if x_cand.ndim==1:
             raise Exception('The candidate design set has to be a numpy 2d-array.')
-        if self.all_layer[self.n_layer-1][0].type=='likelihood':
-            raise Exception('The method is only applicable to DGPs without likelihood layers.')
+        islikelihood = True if self.all_layer[self.n_layer-1][0].type=='likelihood' else False
+        #if self.all_layer[self.n_layer-1][0].type=='likelihood':
+        #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
-            _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            _, sigma2 = self.ppredict(x=x_cand,full_layer=True,chunk_num=chunk_num,core_num=core_num) if islikelihood else self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            sigma2 = sigma2[-2] if islikelihood else sigma2
             if score_only:
-                return sigma2
+                return sigma2 
             else:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
@@ -302,7 +304,7 @@ class emulator:
             f=lambda x: self.predict_mice(*x) 
             z=np.array_split(x_cand,chunk_num)
             with Pool(core_num) as pool:
-                res = pool.map(f, [[x] for x in z])
+                res = pool.map(f, [[x, islikelihood] for x in z])
                 pool.close()
                 pool.join()
                 pool.clear()
@@ -311,11 +313,11 @@ class emulator:
                 combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
             predicted_input, sigma2 = combined_res[0], combined_res[1]   
             M=len(x_cand)
-            D=len(self.all_layer[-1])
+            D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
             mice=np.zeros((M,D))
             S=len(self.all_layer_set)
             for i in range(S):
-                last_layer=self.all_layer_set[i][-1]
+                last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
                 sigma2_s_i=np.empty((M,D))
                 for k in range(D):
                     kernel = last_layer[k]
@@ -352,23 +354,28 @@ class emulator:
         """
         if x_cand.ndim==1:
             raise Exception('The candidate design set has to be a numpy 2d-array.')
-        if self.all_layer[self.n_layer-1][0].type=='likelihood':
-            raise Exception('The method is only applicable to DGPs without likelihood layers.')
+        islikelihood = True if self.all_layer[self.n_layer-1][0].type=='likelihood' else False
+        #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
-            _, sigma2 = self.predict(x=x_cand)
+            _, sigma2 = self.predict(x=x_cand,full_layer=True) if islikelihood else self.predict(x=x_cand)
+            sigma2 = sigma2[-2] if islikelihood else sigma2
+            #if self.all_layer[self.n_layer-1][0].type=='likelihood':
+            #    _, sigma2 = self.predict(x=x_cand,full_layer=True)
+            #else:
+            #    _, sigma2 = self.predict(x=x_cand)
             if score_only:
-                return sigma2
+                return sigma2 
             else:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
-            predicted_input, sigma2 = self.predict_mice(x_cand)
+            predicted_input, sigma2 = self.predict_mice(x_cand, islikelihood)
             M=len(x_cand)
-            D=len(self.all_layer[-1])
+            D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
             mice=np.zeros((M,D))
             S=len(self.all_layer_set)
             for i in range(S):
-                last_layer=self.all_layer_set[i][-1]
+                last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
                 sigma2_s_i=np.empty((M,D))
                 for k in range(D):
                     kernel = last_layer[k]
@@ -382,12 +389,13 @@ class emulator:
                 idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
             
-    def predict_mice(self,x_cand):
+    def predict_mice(self,x_cand,islikelihood):
         """Implement predictions from the trained DGP model that are required to calculate the MICE criterion.
         """
         S=len(self.all_layer_set)
         M=len(x_cand)
-        D=len(self.all_layer[-1])
+        D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
+        N_layer=self.n_layer-1 if islikelihood else self.n_layer
         variance_pred_set=[]
         pred_input_set=[]
         #start calculation
@@ -395,7 +403,7 @@ class emulator:
             one_imputed_all_layer=self.all_layer_set[i]
             variance_pred=np.empty((M,D))
             overall_global_test_input=x_cand
-            for l in range(self.n_layer):
+            for l in range(N_layer):
                 layer=one_imputed_all_layer[l]
                 n_kerenl=len(layer)
                 overall_test_output_mean=np.empty((M,n_kerenl))
@@ -410,7 +418,7 @@ class emulator:
                         m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-                elif l==self.n_layer-1:
+                elif l==N_layer-1:
                     for k in range(n_kerenl):
                         kernel=layer[k]
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
