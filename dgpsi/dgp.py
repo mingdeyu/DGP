@@ -295,7 +295,7 @@ class dgp:
                         if self.indices is not None:
                             kernel.input=kernel.input[self.indices,:]
                     else:
-                        kernel.input=np.concatenate([np.unique(kernel.input[kernel.rep==i,:],axis=0) for i in range(np.max(kernel.rep))], axis=0)[sub_idx,:]
+                        kernel.input=np.concatenate([np.unique(kernel.input[kernel.rep==i,:],axis=0) for i in range(np.max(kernel.rep)+1)], axis=0)[sub_idx,:]
                         if self.indices is not None:
                             kernel.input=kernel.input[self.indices,:]
                     kernel.rep=self.indices
