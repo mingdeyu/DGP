@@ -301,30 +301,48 @@ class emulator:
                 chunk_num=core_num
             if chunk_num<core_num:
                 core_num=chunk_num
-            f=lambda x: self.predict_mice(*x) 
-            z=np.array_split(x_cand,chunk_num)
-            with Pool(core_num) as pool:
-                res = pool.map(f, [[x, islikelihood] for x in z])
-                pool.close()
-                pool.join()
-                pool.clear()
-            combined_res=[]
-            for element in zip(*res):
-                combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
-            predicted_input, sigma2 = combined_res[0], combined_res[1]   
-            M=len(x_cand)
-            D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
-            mice=np.zeros((M,D))
-            S=len(self.all_layer_set)
-            for i in range(S):
-                last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
-                sigma2_s_i=np.empty((M,D))
+            if islikelihood and self.n_layer==2:
+                f=lambda x: self.predict_mice_2layer_likelihood(*x) 
+                z=np.array_split(x_cand,chunk_num)
+                with Pool(core_num) as pool:
+                    res = pool.map(f, [[x] for x in z])
+                    pool.close()
+                    pool.join()
+                    pool.clear()
+                sigma2 = np.concatenate(res)
+                M=len(x_cand)
+                last_layer = self.all_layer[0]
+                D=len(last_layer)
+                sigma2_s=np.empty((M,D))
                 for k in range(D):
                     kernel = last_layer[k]
-                    sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
-                with np.errstate(divide='ignore'):
-                    mice += np.log(sigma2[i]/sigma2_s_i)
-            avg_mice=mice/S
+                    sigma2_s[:,k] = mice_var(x_cand, x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                avg_mice = sigma2/sigma2_s
+            else:
+                f=lambda x: self.predict_mice(*x) 
+                z=np.array_split(x_cand,chunk_num)
+                with Pool(core_num) as pool:
+                    res = pool.map(f, [[x, islikelihood] for x in z])
+                    pool.close()
+                    pool.join()
+                    pool.clear()
+                combined_res=[]
+                for element in zip(*res):
+                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
+                predicted_input, sigma2 = combined_res[0], combined_res[1]   
+                M=len(x_cand)
+                D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
+                mice=np.zeros((M,D))
+                S=len(self.all_layer_set)
+                for i in range(S):
+                    last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
+                    sigma2_s_i=np.empty((M,D))
+                    for k in range(D):
+                        kernel = last_layer[k]
+                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                    with np.errstate(divide='ignore'):
+                        mice += np.log(sigma2[i]/sigma2_s_i)
+                avg_mice=mice/S
             if score_only:
                 return avg_mice
             else:
