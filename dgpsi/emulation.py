@@ -369,25 +369,54 @@ class emulator:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
-            predicted_input, sigma2 = self.predict_mice(x_cand, islikelihood)
-            M=len(x_cand)
-            D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
-            mice=np.zeros((M,D))
-            S=len(self.all_layer_set)
-            for i in range(S):
-                last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
-                sigma2_s_i=np.empty((M,D))
+            if islikelihood and self.n_layer==2:
+                sigma2 = self.predict_mice_2layer_likelihood(x_cand)
+                M=len(x_cand)
+                last_layer = self.all_layer[0]
+                D=len(last_layer)
+                sigma2_s=np.empty((M,D))
                 for k in range(D):
                     kernel = last_layer[k]
-                    sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
-                with np.errstate(divide='ignore'):
-                    mice += np.log(sigma2[i]/sigma2_s_i)
-            avg_mice=mice/S
+                    sigma2_s[:,k] = mice_var(x_cand, x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                avg_mice = sigma2/sigma2_s
+            else:
+                predicted_input, sigma2 = self.predict_mice(x_cand, islikelihood)
+                M=len(x_cand)
+                D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
+                mice=np.zeros((M,D))
+                S=len(self.all_layer_set)
+                for i in range(S):
+                    last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
+                    sigma2_s_i=np.empty((M,D))
+                    for k in range(D):
+                        kernel = last_layer[k]
+                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                    with np.errstate(divide='ignore'):
+                        mice += np.log(sigma2[i]/sigma2_s_i)
+                avg_mice=mice/S
             if score_only:
                 return avg_mice
             else:
                 idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+
+    def predict_mice_2layer_likelihood(self,x_cand):
+        """Implement predictions from the trained DGP model with 2 layers (including a likelihood layer) that are required to calculate the MICE criterion.
+        """
+        M=len(x_cand)
+        layer=self.all_layer[0]
+        D=len(layer)
+        #start calculation
+        variance_pred=np.empty((M,D))
+        for k in range(D):
+            kernel=layer[k]
+            if kernel.connect is not None:
+                z_k_in=x_cand[:,kernel.connect]
+            else:
+                z_k_in=None
+            _,v_k=kernel.gp_prediction(x=x_cand[:,kernel.input_dim],z=z_k_in)
+            variance_pred[:,k]=v_k
+        return variance_pred
             
     def predict_mice(self,x_cand,islikelihood):
         """Implement predictions from the trained DGP model that are required to calculate the MICE criterion.
