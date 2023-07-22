@@ -21,7 +21,7 @@ INSTALL_REQUIRES = [
       'scipy>=1.4.1',
       'scikit-learn>=0.22.0',
       'jupyter>=1.0.0',
-      'dill>=0.3.2',
+      'dill>=0.3.2, <=0.3.5.1',
       'pathos>=0.2.9',
       'psutil>=5.8.0',
       'cython>=0.29.30',
