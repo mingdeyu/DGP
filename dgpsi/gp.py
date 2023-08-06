@@ -1,6 +1,7 @@
 import multiprocess.context as ctx
 import platform
 import numpy as np
+from scipy.spatial.distance import cdist
 from .functions import mice_var
 from pathos.multiprocessing import ProcessingPool as Pool
 import psutil 
@@ -97,7 +98,7 @@ class gp:
         return [final_struct]
 
     def pmetric(self, x_cand, method='MICE',nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
-        """Implement parallel computation of the ALM or MICE criterion for sequential designs.
+        """Implement parallel computation of the ALM, MICE, or VIGF criterion for sequential designs.
 
         Args:
             x_cand, method, nugget_s, score_only: see descriptions of the method :meth:`.gp.metric`.
@@ -109,14 +110,15 @@ class gp:
         Returns:
             Same as the method :meth:`.gp.metric`.
         """
-        _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
         if method == 'ALM':
+            _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
             if score_only:
                 return sigma2
             else:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,0]
         elif method == 'MICE':
+            _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
             sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
             mice_val = sigma2/sigma2_s
             if score_only:
@@ -124,36 +126,51 @@ class gp:
             else:
                 idx = np.argmax(mice_val, axis=0)
                 return idx, mice_val[idx,0]
-
+        elif method == 'VIGF':
+            X0 = np.unique(self.X, axis=0)
+            if len(X0) != len(self.X):
+                raise Exception('VIGF criterion is currently not applicable to GP emulators whose training data contain replicates.')
+            Dist=cdist(x_cand, self.X, "euclidean")
+            index=np.argmin(Dist, axis=1)
+            mu, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            bias=(mu-self.Y[index,:])**2
+            vigf=4*sigma2*bias+2*sigma2**2
+            if score_only:
+                return vigf
+            else:
+                idx = np.argmax(vigf, axis=0)
+                return idx, vigf[idx,0]
+            
     def metric(self, x_cand, method='MICE',nugget_s=1.,score_only=False):
-        """Compute the value of the ALM or MICE criterion for sequential designs.
+        """Compute the value of the ALM, MICE, or VIGF criterion for sequential designs.
 
         Args:
             x_cand (ndarray): a numpy 2d-array that represents a candidate input design where each row is a design point and 
                 each column is a design input dimension.
-            method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
-                (`ALM`). Defaults to `MICE`.
+            method (str, optional): the sequential design approach: MICE (`MICE`), ALM 
+                (`ALM`) or VIGF (`VIGF`). Defaults to `MICE`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
             score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
                 Defaults to `False`.
 
         Returns:
             ndarray_or_tuple: 
-            if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM or MICE criterion with rows
+            if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM, MICE, or VIGF criterion with rows
                 corresponding to design points in the candidate design set **x_cand**
 
             if the argument **score_only** = `False`, a tuple of two numpy 1d-arrays is returned. The first one gives the index (i.e., row number) 
                 of the design point in the candidate design set **x_cand** that has the largest criterion value, 
                 which is given by the second element.
         """
-        _, sigma2 = self.predict(x=x_cand)
         if method == 'ALM':
+            _, sigma2 = self.predict(x=x_cand)
             if score_only:
                 return sigma2
             else:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,0]
         elif method == 'MICE':
+            _, sigma2 = self.predict(x=x_cand)
             sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
             mice_val = sigma2/sigma2_s
             if score_only:
@@ -161,6 +178,20 @@ class gp:
             else:
                 idx = np.argmax(mice_val, axis=0)
                 return idx, mice_val[idx,0]
+        elif method == 'VIGF':
+            X0 = np.unique(self.X, axis=0)
+            if len(X0) != len(self.X):
+                raise Exception('VIGF criterion is currently not applicable to GP emulators whose training data contain replicates.')
+            Dist=cdist(x_cand, self.X, "euclidean")
+            index=np.argmin(Dist, axis=1)
+            mu, sigma2 = self.predict(x=x_cand)
+            bias=(mu-self.Y[index,:])**2
+            vigf=4*sigma2*bias+2*sigma2**2
+            if score_only:
+                return vigf
+            else:
+                idx = np.argmax(vigf, axis=0)
+                return idx, vigf[idx,0]
 
     def esloo(self):
         """Compute the (normalised) expected squared LOO of a GP model.

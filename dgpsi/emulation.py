@@ -5,6 +5,7 @@ from pathos.multiprocessing import ProcessingPool as Pool
 import psutil   
 from .imputation import imputer
 import copy
+from scipy.spatial.distance import cdist
 from .functions import ghdiag, mice_var
 
 class emulator:
@@ -266,11 +267,11 @@ class emulator:
         res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
         return(res)
 
-    def pmetric(self, x_cand, method='ALM',nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
+    def pmetric(self, x_cand, method='ALM', obj=None, nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
         """Compute the value of the ALM or MICE criterion for sequential designs in parallel.
 
         Args:
-            x_cand, method, nugget_s, score_only: see descriptions of the method :meth:`.emulator.metric`.
+            x_cand, method, obj, nugget_s, score_only: see descriptions of the method :meth:`.emulator.metric`.
             chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
             core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
@@ -348,22 +349,69 @@ class emulator:
             else:
                 idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+        elif method == 'VIGF':
+            if platform.system()=='Darwin':
+                ctx._force_start_method('forkserver')
+            if core_num is None:
+                core_num=psutil.cpu_count(logical = False)-1
+            if chunk_num is None:
+                chunk_num=core_num
+            if chunk_num<core_num:
+                core_num=chunk_num
+            if obj is None:
+                raise Exception('The dgp object that is used to build the emulator must be supplied to the argument `obj` when VIGF criterion is chosen.')
+            if islikelihood is not True and obj.indices is not None:
+                raise Exception('VIGF criterion is currently not applicable to DGP emulators whose training data contain replicates but without a likelihood node.')
+            X=obj.X
+            Dist=cdist(x_cand, X, "euclidean")
+            index=np.argmin(Dist, axis=1)
+            if islikelihood and self.n_layer==2:
+                f=lambda x: self.predict_vigf_2layer_likelihood(*x) 
+                z=np.array_split(x_cand,chunk_num)
+                sub_indx=np.array_split(index,chunk_num)
+                with Pool(core_num) as pool:
+                    res = pool.map(f, [[x, index] for x,index in zip(z,sub_indx)])
+                    pool.close()
+                    pool.join()
+                    pool.clear()
+            else:
+                f=lambda x: self.predict_vigf(*x) 
+                z=np.array_split(x_cand,chunk_num)
+                sub_indx=np.array_split(index,chunk_num)
+                with Pool(core_num) as pool:
+                    res = pool.map(f, [[x, index, islikelihood] for x,index in zip(z,sub_indx)])
+                    pool.close()
+                    pool.join()
+                    pool.clear()
+            combined_res=[]
+            for element in zip(*res):
+                combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
+            bias, sigma2 = np.asarray(combined_res[0]), np.asarray(combined_res[1])
+            E1=np.mean(np.square(bias)+6*bias*sigma2+3*np.square(sigma2),axis=0)
+            E2=np.mean(bias+sigma2, axis=0)
+            vigf=E1-E2**2  
+            if score_only:
+                return vigf
+            else:
+                idx = np.argmax(vigf, axis=0)
+                return idx, vigf[idx,np.arange(vigf.shape[1])]
 
-    def metric(self, x_cand, method='ALM',nugget_s=1.,score_only=False):
-        """Compute the value of the ALM or MICE criterion for sequential designs.
+    def metric(self, x_cand, method='ALM', obj=None, nugget_s=1.,score_only=False):
+        """Compute the value of the ALM, MICE, or VIGF criterion for sequential designs.
 
         Args:
             x_cand (ndarray): a numpy 2d-array that represents a candidate input design where each row is a design point and 
                 each column is a design input dimension.
-            method (str, optional): the sequential design approach: MICE (`MICE`) or ALM 
-                (`ALM`). Defaults to `ALM`.
+            method (str, optional): the sequential design approach: MICE (`MICE`), ALM 
+                (`ALM`), or VIGF (`VIGF`). Defaults to `ALM`.
+            obj (class, optional): the dgp object that is used to build the DGP emulator when **method** = '`VIGF`'. Defaults to `None`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
             score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
                 Defaults to `False`.
 
         Returns:
             ndarray_or_tuple: 
-            if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM or MICE criterion with rows
+            if the argument **score_only** = `True`, a numpy 2d-array is returned that gives the scores of ALM, MICE, or VIGF criterion with rows
                corresponding to design points in the candidate design set **x_cand** and columns corresponding to output dimensions;
 
             if the argument **score_only** = `False`, a tuple of two numpy 1d-arrays is returned. The first one gives the indices (i.e., row numbers) 
@@ -417,6 +465,28 @@ class emulator:
             else:
                 idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
+        elif method == 'VIGF':
+            #To-do for the follow case
+            if obj is None:
+                raise Exception('The dgp object that is used to build the emulator must be supplied to the argument `obj` when VIGF criterion is chosen.')
+            if islikelihood is not True and obj.indices is not None:
+                raise Exception('VIGF criterion is currently not applicable to DGP emulators whose training data contain replicates but without a likelihood node.')
+            X=obj.X
+            Dist=cdist(x_cand, X, "euclidean")
+            index=np.argmin(Dist, axis=1)
+            if islikelihood and self.n_layer==2:
+                bias, sigma2 = self.predict_vigf_2layer_likelihood(x_cand, index)
+            else:
+                bias, sigma2 = self.predict_vigf(x_cand, index, islikelihood)
+            bias, sigma2 = np.asarray(bias), np.asarray(sigma2)    
+            E1=np.mean(np.square(bias)+6*bias*sigma2+3*np.square(sigma2),axis=0)
+            E2=np.mean(bias+sigma2, axis=0)
+            vigf=E1-E2**2
+            if score_only:
+                return vigf
+            else:
+                idx = np.argmax(vigf, axis=0)
+                return idx, vigf[idx,np.arange(vigf.shape[1])]
 
     def predict_mice_2layer_likelihood(self,x_cand):
         """Implement predictions from the trained DGP model with 2 layers (including a likelihood layer) that are required to calculate the MICE criterion.
@@ -489,6 +559,83 @@ class emulator:
             variance_pred_set.append(variance_pred)
             pred_input_set.append(overall_test_input_mean)
         return pred_input_set, variance_pred_set
+
+    def predict_vigf_2layer_likelihood(self,x_cand,index):
+        """Implement predictions from the trained DGP model with 2 layers (including a likelihood layer) that are required to calculate the VIGF criterion.
+        """
+        S=len(self.all_layer_set)
+        M=len(x_cand)
+        #start calculation
+        bias_pred_set=[]
+        variance_pred_set=[]
+        for i in range(S):
+            one_imputed_all_layer=self.all_layer_set[i]
+            layer=one_imputed_all_layer[0]
+            D=len(layer)
+            bias_pred=np.empty((M,D))
+            variance_pred=np.empty((M,D))
+            for k in range(D):
+                kernel=layer[k]
+                if kernel.connect is not None:
+                    z_k_in=x_cand[:,kernel.connect]
+                else:
+                    z_k_in=None
+                m_k,v_k=kernel.gp_prediction(x=x_cand[:,kernel.input_dim],z=z_k_in)
+                bias_pred[:,k]=(m_k-kernel.output[index,:].flatten())**2
+                variance_pred[:,k]=v_k
+            bias_pred_set.append(bias_pred)
+            variance_pred_set.append(variance_pred)
+        return bias_pred_set, variance_pred_set
+
+    def predict_vigf(self,x_cand,index,islikelihood):
+        """Implement predictions from the trained DGP model that are required to calculate the VIGF criterion.
+        """
+        S=len(self.all_layer_set)
+        M=len(x_cand)
+        N_layer=self.n_layer-1 if islikelihood else self.n_layer
+        bias_pred_set=[]
+        variance_pred_set=[]
+        #input_mean_pred_set=[]
+        #input_variance_pred_set=[]
+        #start calculation
+        for i in range(S):
+            one_imputed_all_layer=self.all_layer_set[i]
+            overall_global_test_input=x_cand
+            for l in range(N_layer):
+                layer=one_imputed_all_layer[l]
+                n_kerenl=len(layer)
+                overall_test_output_mean=np.empty((M,n_kerenl))
+                overall_test_output_var=np.empty((M,n_kerenl))
+                if l==0:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+                else:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        if l!=N_layer-1:
+                            overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                        else:
+                            overall_test_output_mean[:,k],overall_test_output_var[:,k]=(m_k-kernel.output[index,:].flatten())**2,v_k
+                    if l!=N_layer-1:
+                        overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+            bias_pred_set.append(overall_test_output_mean)
+            variance_pred_set.append(overall_test_output_var)
+            #input_mean_pred_set.append(overall_test_input_mean)
+            #input_variance_pred_set.append(overall_test_input_var)
+        return bias_pred_set,variance_pred_set
 
     def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
