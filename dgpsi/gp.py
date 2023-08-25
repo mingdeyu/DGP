@@ -31,15 +31,15 @@ class gp:
         """Assign input/output data to the kernel for training.
         """
         if self.kernel.input_dim is not None:
-            self.kernel.input=copy.deepcopy(self.X[:,self.kernel.input_dim])
+            self.kernel.input=self.X[:,self.kernel.input_dim]
         else:
-            self.kernel.input=copy.deepcopy(self.X)
-            self.kernel.input_dim=copy.deepcopy(np.arange(np.shape(self.X)[1]))
+            self.kernel.input=(self.X).copy()
+            self.kernel.input_dim=np.arange(np.shape(self.X)[1])
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-            self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
-        self.kernel.output=copy.deepcopy(self.Y)
+            self.kernel.global_input=self.X[:,self.kernel.connect]
+        self.kernel.output=(self.Y).copy()
         self.kernel.D=np.shape(self.kernel.input)[1]
         if self.kernel.connect is not None:
             self.kernel.D+=len(self.kernel.connect)
@@ -71,12 +71,12 @@ class gp:
         Args: 
             reset_lengthscale (bool): whether to reset hyperparameter of the GP emulator to the initial values.
         """
-        self.kernel.input=copy.deepcopy(self.X[:,self.kernel.input_dim])
+        self.kernel.input=self.X[:,self.kernel.input_dim]
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-            self.kernel.global_input=copy.deepcopy(self.X[:,self.kernel.connect])
-        self.kernel.output=copy.deepcopy(self.Y)
+            self.kernel.global_input=self.X[:,self.kernel.connect]
+        self.kernel.output=self.Y.copy()
         if reset_lengthscale:
             initial_hypers=self.kernel.para_path[0,:]
             self.kernel.scale=initial_hypers[[0]]

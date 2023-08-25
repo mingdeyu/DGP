@@ -185,7 +185,7 @@ class dgp:
                 In=copy.deepcopy(Out)
 
     def update_xy(self, X, Y, reset=False):
-        """Update the trained DGP emulator with new input and output data.
+        """Update the trained DGP with new input and output data.
 
         Args:
             X (ndarray): a numpy 2d-array where each row is an input data point and 

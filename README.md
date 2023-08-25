@@ -11,7 +11,7 @@
 ## For R users
 The `R` interface to the package is available at [`dgpsi-R`](https://github.com/mingdeyu/dgpsi-R).
 
-## A Python package for deep and linked Gaussian process emulations
+## A Python package for deep and linked Gaussian process emulations using stochastic imputation (SI)
 `dgpsi` currently implements:
 
 * Deep Gaussian process emulation with flexible architecture construction: 
@@ -19,13 +19,13 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
-    - non-Gaussian likelihoods (Poisson, Negative-Binomial, heteroskedastic Gaussian, and more to come);
+    - non-Gaussian likelihoods including Poisson, Negative-Binomial, and heteroskedastic Gaussian;
 * Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of deterministic individual computer models;
     - linking GP and DGP emulators of deterministic individual computer models;
 * Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
 * Fast Leave-One-Out (LOO) cross validations for GP and DGP emulators.
-* Calculations of ALM, MICE, and PEI sequential design criterions.
+* Calculations of ALM, MICE, PEI, and VIGF sequential design criterions.
 
 ## Installation
 `dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
