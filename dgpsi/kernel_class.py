@@ -3,7 +3,7 @@ from numpy.random import randn, uniform, standard_t
 from numpy.linalg import LinAlgError
 from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
-from scipy.linalg import cho_solve, pinvh, det
+from scipy.linalg import cho_solve, pinvh
 from scipy.spatial.distance import pdist, squareform
 from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp
 
@@ -120,7 +120,6 @@ class kernel:
         self.rep=None
         self.Rinv=None
         self.Rinv_y=None
-        self.logdet=None
         self.R2sexp=None
         self.Psexp=None
         self.rff=None
@@ -553,11 +552,9 @@ class kernel:
             L=np.linalg.cholesky(R)
             self.Rinv=cho_solve((L, True), np.eye(len(R)), check_finite=False)
             self.Rinv_y=cho_solve((L, True), self.output, check_finite=False).flatten()
-            self.logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         except LinAlgError:
             self.Rinv=pinvh(R,check_finite=False)
             self.Rinv_y=np.dot(self.Rinv,self.output).flatten()
-            self.logdet=det(R,check_finite=False)
         if self.name=='sexp':
             if self.global_input is None:
                 X_l=self.input/self.length
