@@ -2,7 +2,7 @@ numpy==1.22.4
 numba==0.55.2
 matplotlib==3.5.2
 tqdm==4.64.0
-scipy==1.8.1
+scipy>=1.10.0
 scikit-learn==1.1.1
 pathos==0.2.9
 psutil==5.9.1
