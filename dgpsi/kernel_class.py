@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.random import randn, uniform, standard_t
-from numpy.linalg import LinAlgError
+from numpy.linalg import LinAlgError, lstsq
 from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh
@@ -80,6 +80,7 @@ class kernel:
         M (int): the number of features in random Fourier approximation. Defaults to `None`.
         W (ndarray): a 2d-array (M, D) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
         b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
+        R2 (ndarray): a 2d-array that stores the R2 of the linear regression between **global_input** and **input**. Defaults to `None`.
     """
 
     def __init__(self, length, scale=1., nugget=1e-6, name='sexp', prior_name='ga', prior_coef=None, bds=None, nugget_est=False, scale_est=False, input_dim=None, connect=None):
@@ -128,6 +129,7 @@ class kernel:
         self.W=None
         self.b=None
         self.bds=bds
+        self.R2=None
 
     def compute_cl(self):
         if len(self.length)==1:
@@ -143,6 +145,18 @@ class kernel:
                 g_input_range = np.max(self.global_input,axis=0)-np.min(self.global_input,axis=0)
                 input_range = np.concatenate((input_range, g_input_range))
             self.cl=input_range/len(self.output)**(1/len(self.length))
+
+    def r2(self, overwritten = False):
+        """Compute R2 of the linear regression between **global_input** and **input**.
+        """
+        if self.global_input is not None:
+            X = np.concatenate((self.global_input, np.ones((len(self.global_input),1))), axis=1)
+            _, resids = lstsq(X, self.input, rcond = None)[:2]
+            rsq = 1 - resids / (len(self.input) * np.var(self.input, axis=0))
+            if overwritten:
+                self.R2 = rsq
+            else:
+                self.R2 = np.vstack((self.R2,rsq))
 
     def sample_basis(self):
         """Sample **W** and **b** to construct random Fourier approximations to correlation matrices.

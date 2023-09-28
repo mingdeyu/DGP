@@ -100,6 +100,7 @@ class dgp:
         self.block=block
         self.imp=imputer(self.all_layer, self.block)
         (self.imp).sample(burnin=10)
+        self.compute_r2()
         self.N=0
         self.burnin=None
 
@@ -218,6 +219,7 @@ class dgp:
             self.reinit_all_layer(reset_lengthscale=True)
             self.imp=imputer(self.all_layer, self.block)
             (self.imp).sample(burnin=10)
+            self.compute_r2()
         else:
             if (self.X[:, None] == origin_X).all(-1).any(-1).all():
                 sub_idx=np.where((origin_X==self.X[:,None]).all(-1))[1]
@@ -233,6 +235,7 @@ class dgp:
                 self.reinit_all_layer(reset_lengthscale=False)
                 self.imp=imputer(self.all_layer, self.block)
                 (self.imp).sample(burnin=200)
+            self.compute_r2()
 
     def update_all_layer_larger(self, sub_idx):
         """Update **all_layer** attribute with new input and output when the original input is a subset of the new one.
@@ -396,6 +399,8 @@ class dgp:
                     if kernel.type=='gp':
                         if kernel.prior_name=='ref':
                             kernel.compute_cl()
+                        if l!=0:
+                            kernel.r2()
                         kernel.maximise()
                 pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
         self.N += N
@@ -418,6 +423,13 @@ class dgp:
                     kernel.compute_cl()
                 kernel.maximise()
             return kernel
+        def pmax_r2(kernel):
+            if kernel.type=='gp':
+                if kernel.prior_name=='ref':
+                    kernel.compute_cl()
+                kernel.r2()
+                kernel.maximise()
+            return kernel
         if platform.system()=='Darwin':
             ctx._force_start_method('forkserver')
         if core_num is None:
@@ -429,12 +441,51 @@ class dgp:
             (self.imp).sample(burnin=ess_burn)
             #M-step
             for l in range(self.n_layer):
-                self.all_layer[l] = pool.map(pmax, self.all_layer[l])
+                if l==0:
+                    self.all_layer[l] = pool.map(pmax, self.all_layer[l])
+                else:
+                    self.all_layer[l] = pool.map(pmax_r2, self.all_layer[l])
                 pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
         self.N += N
         pool.close()
         pool.join()
         pool.clear()
+
+    def compute_r2(self):
+        for l in range(1,self.n_layer):
+            layer=self.all_layer[l]
+            for kernel in layer:
+                if kernel.type == 'gp':
+                    kernel.r2(overwritten = True)
+
+    def average_r2(self,burnin=0.75):
+        """Compute the average R2 of all GP nodes on a DGP hierarchy.
+
+        Args:
+            burnin (float, optional): a value between 0 and 1 that indicates the percentage of 
+                stored R2 values to be discarded for average R2 calculation. If this is not specified, 
+                only the last 25% of R2 values are used. Defaults to 0.75.
+
+        Returns:
+            list: a list of average R2 values that correspond to the DGP hierarchy.
+        """
+        if burnin<0 or burnin>1:
+            raise Exception('burnin must be between 0 and 1.')
+        r2_list = []
+        for l in range(self.n_layer):
+            layer=self.all_layer[l]
+            layer_r2_list = []
+            for kernel in layer:
+                if kernel.type == 'gp':
+                    if kernel.R2 is None:
+                        layer_r2_list.append(None)
+                    else:
+                        burnin_N=int(len(kernel.R2)*burnin)
+                        layer_r2_list.append(np.mean(kernel.R2[burnin_N:,:],axis=0))
+                else:
+                    layer_r2_list.append(None)
+            r2_list.append(layer_r2_list)
+        return r2_list
 
     def estimate(self,burnin=None):
         """Compute the point estimates of the DGP model parameters and output the trained DGP.
