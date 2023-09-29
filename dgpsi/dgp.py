@@ -458,13 +458,15 @@ class dgp:
                 if kernel.type == 'gp':
                     kernel.r2(overwritten = True)
 
-    def average_r2(self,burnin=0.75):
-        """Compute the average R2 of all GP nodes on a DGP hierarchy.
+    def aggregate_r2(self,burnin=0.75,agg='median'):
+        """Compute the aggregated R2 of all GP nodes on a DGP hierarchy.
 
         Args:
             burnin (float, optional): a value between 0 and 1 that indicates the percentage of 
                 stored R2 values to be discarded for average R2 calculation. If this is not specified, 
                 only the last 25% of R2 values are used. Defaults to 0.75.
+            agg (str, optional): either 'median' or 'mean' that is used to aggregate the R2 values
+                after discarding the first **burnin** percentage of the R2 sequences. Defaults to 'median'.
 
         Returns:
             list: a list of average R2 values that correspond to the DGP hierarchy.
@@ -481,7 +483,12 @@ class dgp:
                         layer_r2_list.append(None)
                     else:
                         burnin_N=int(len(kernel.R2)*burnin)
-                        layer_r2_list.append(np.mean(kernel.R2[burnin_N:,:],axis=0))
+                        if agg == 'mean':
+                            layer_r2_list.append(np.mean(kernel.R2[burnin_N:,:],axis=0))
+                        elif agg == 'median':
+                            layer_r2_list.append(np.median(kernel.R2[burnin_N:,:],axis=0))
+                        else:
+                            raise Exception("agg must be either 'median' or 'mean'.")
                 else:
                     layer_r2_list.append(None)
             r2_list.append(layer_r2_list)
