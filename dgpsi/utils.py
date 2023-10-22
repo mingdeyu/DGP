@@ -2,6 +2,8 @@ from dill import dump, load
 from tabulate import tabulate
 from numba import jit
 import numpy as np
+import copy
+from contextlib import contextmanager
 
 ######Save and Load Emulators#######
 def write(emu, pkl_file):
@@ -29,6 +31,12 @@ def read(pkl_file):
     """
     emu = load(open(pkl_file+".pkl", "rb"))
     return emu
+
+@contextmanager
+def modify_all_layer_set(instance):
+    original_all_layer_set = copy.deepcopy(instance.all_layer_set)
+    yield instance.all_layer_set
+    instance.all_layer_set = original_all_layer_set
 
 ######seed function#######
 @jit(nopython=True,cache=True)

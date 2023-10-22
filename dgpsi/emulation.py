@@ -7,6 +7,7 @@ from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
 from .functions import ghdiag, mice_var
+from .utils import modify_all_layer_set
 
 class emulator:
     """Class to make predictions from the trained DGP model.
@@ -29,7 +30,6 @@ class emulator:
             (self.imp).sample()
             (self.imp).key_stats()
             (self.all_layer_set).append(copy.deepcopy(self.all_layer))
-        self.all_layer_set_copy = copy.deepcopy(self.all_layer_set)
         self.nb_parallel=nb_parallel
         #if len(self.all_layer[0][0].input)>=500 and self.nb_parallel==False:
         #    print('Your training data size is greater than %i, you might want to set "nb_parallel=True" to accelerate the prediction.' % (500))
@@ -59,7 +59,6 @@ class emulator:
         res = []
         for i in range(len(X)):
             res.append(self.esloo_calculation(i, X, Y, indices))
-        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
         final_res = np.concatenate(res)
         if isrep:
             idx=[]
@@ -101,7 +100,6 @@ class emulator:
             pool.close()
             pool.join()
             pool.clear()
-        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
         final_res = np.concatenate(res)
         if isrep:
             idx=[]
@@ -116,49 +114,49 @@ class emulator:
             return final_res
 
     def esloo_calculation(self, i, X, Y, indices):
-        for s in range(len(self.all_layer_set)):
-            one_imputed_all_layer=self.all_layer_set[s]
-            for l in range(self.n_layer):
-                layer=one_imputed_all_layer[l]
-                n_kerenl=len(layer)
-                for k in range(n_kerenl):
-                    kernel=layer[k]
-                    kernel_ref=self.all_layer_set_copy[s][l][k]
-                    if kernel_ref.rep is None:
-                        kernel.input = np.delete(kernel_ref.input, i, 0)
-                        kernel.output = np.delete(kernel_ref.output, i, 0)
-                        if kernel.type == 'gp':
-                            if kernel_ref.global_input is not None:
-                                kernel.global_input = np.delete(kernel_ref.global_input, i, 0)
-                            kernel.Rinv = kernel_ref.cv_stats(i)
-                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                            if kernel.name=='sexp':
-                                kernel.R2sexp = np.delete(np.delete(kernel_ref.R2sexp, i, 0), i, 1)
-                                kernel.Psexp = np.delete(np.delete(kernel_ref.Psexp, i, 1), i, 2)
-                    else:
-                        idx = kernel_ref.rep!=i
-                        kernel.input = (kernel_ref.input[idx,:]).copy()
-                        kernel.output = (kernel_ref.output[idx,:]).copy()
-                        if kernel.type == 'gp':
-                            if kernel_ref.global_input is not None:
-                                kernel.global_input = (kernel_ref.global_input[idx,:]).copy()
-                            kernel.Rinv = kernel_ref.cv_stats(i)
-                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                            if kernel.name=='sexp':
-                                kernel.R2sexp = (kernel_ref.R2sexp[idx,:][:,idx]).copy()
-                                kernel.Psexp = (kernel_ref.Psexp[:,idx,:][:,:,idx]).copy()
-        mu_i, var_i = self.predict(x=X[[i],:], aggregation=False)
-        mu=np.mean(mu_i,axis=0)
-        sigma2=np.mean((np.square(mu_i)+var_i),axis=0)-mu**2
-        if indices is not None:
-            f=Y[indices==i,:]
-        else:
-            f=Y[[i],:]
-        esloo=sigma2+(mu-f)**2
-        error=(mu_i-f)**2
-        normaliser=np.mean(error**2+6*error*var_i+3*np.square(var_i),axis=0)-esloo**2
-        nesloo=esloo/np.sqrt(normaliser)
-        return(nesloo)
+        with modify_all_layer_set(self) as all_layer_set:
+            for s in range(len(all_layer_set)):
+                one_imputed_all_layer=all_layer_set[s]
+                for l in range(self.n_layer):
+                    layer=one_imputed_all_layer[l]
+                    n_kerenl=len(layer)
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        if kernel.rep is None:
+                            kernel.input = np.delete(kernel.input, i, 0)
+                            kernel.output = np.delete(kernel.output, i, 0)
+                            if kernel.type == 'gp':
+                                if kernel.global_input is not None:
+                                    kernel.global_input = np.delete(kernel.global_input, i, 0)
+                                kernel.Rinv = kernel.cv_stats(i)
+                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                                if kernel.name=='sexp':
+                                    kernel.R2sexp = np.delete(np.delete(kernel.R2sexp, i, 0), i, 1)
+                                    kernel.Psexp = np.delete(np.delete(kernel.Psexp, i, 1), i, 2)
+                        else:
+                            idx = kernel.rep!=i
+                            kernel.input = (kernel.input[idx,:]).copy()
+                            kernel.output = (kernel.output[idx,:]).copy()
+                            if kernel.type == 'gp':
+                                if kernel.global_input is not None:
+                                    kernel.global_input = (kernel.global_input[idx,:]).copy()
+                                kernel.Rinv = kernel.cv_stats(i)
+                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                                if kernel.name=='sexp':
+                                    kernel.R2sexp = (kernel.R2sexp[idx,:][:,idx]).copy()
+                                    kernel.Psexp = (kernel.Psexp[:,idx,:][:,:,idx]).copy()
+            mu_i, var_i = self.predict(x=X[[i],:], aggregation=False)
+            mu=np.mean(mu_i,axis=0)
+            sigma2=np.mean((np.square(mu_i)+var_i),axis=0)-mu**2
+            if indices is not None:
+                f=Y[indices==i,:]
+            else:
+                f=Y[[i],:]
+            esloo=sigma2+(mu-f)**2
+            error=(mu_i-f)**2
+            normaliser=np.mean(error**2+6*error*var_i+3*np.square(var_i),axis=0)-esloo**2
+            nesloo=esloo/np.sqrt(normaliser)
+            return(nesloo)
     
     def loo(self, X, method='mean_var', sample_size=50):
         """Implement the Leave-One-Out cross-validation from a DGP emulator.
@@ -186,7 +184,6 @@ class emulator:
         res = []
         for i in range(len(X)):
             res.append(self.loo_calculation(i, X, method, sample_size))
-        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
         final_res = list(np.concatenate(res_i) for res_i in zip(*res)) 
         if isrep:
             for j in range(len(final_res)):
@@ -222,7 +219,6 @@ class emulator:
             pool.close()
             pool.join()
             pool.clear()
-        self.all_layer_set=copy.deepcopy(self.all_layer_set_copy)
         final_res = list(np.concatenate(worker) for worker in zip(*res)) 
         if isrep:
             for j in range(len(final_res)):
@@ -233,39 +229,39 @@ class emulator:
             return final_res
             
     def loo_calculation(self, i, X, method, sample_size):
-        for s in range(len(self.all_layer_set)):
-            one_imputed_all_layer=self.all_layer_set[s]
-            for l in range(self.n_layer):
-                layer=one_imputed_all_layer[l]
-                n_kerenl=len(layer)
-                for k in range(n_kerenl):
-                    kernel=layer[k]
-                    kernel_ref=self.all_layer_set_copy[s][l][k]
-                    if kernel_ref.rep is None:
-                        kernel.input = np.delete(kernel_ref.input, i, 0)
-                        kernel.output = np.delete(kernel_ref.output, i, 0)
-                        if kernel.type == 'gp':
-                            if kernel_ref.global_input is not None:
-                                kernel.global_input = np.delete(kernel_ref.global_input, i, 0)
-                            kernel.Rinv = kernel_ref.cv_stats(i)
-                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                            if kernel.name=='sexp':
-                                kernel.R2sexp = np.delete(np.delete(kernel_ref.R2sexp, i, 0), i, 1)
-                                kernel.Psexp = np.delete(np.delete(kernel_ref.Psexp, i, 1), i, 2)
-                    else:
-                        idx = kernel_ref.rep!=i
-                        kernel.input = (kernel_ref.input[idx,:]).copy()
-                        kernel.output = (kernel_ref.output[idx,:]).copy()
-                        if kernel.type == 'gp':
-                            if kernel_ref.global_input is not None:
-                                kernel.global_input = (kernel_ref.global_input[idx,:]).copy()
-                            kernel.Rinv = kernel_ref.cv_stats(i)
-                            kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                            if kernel.name=='sexp':
-                                kernel.R2sexp = (kernel_ref.R2sexp[idx,:][:,idx]).copy()
-                                kernel.Psexp = (kernel_ref.Psexp[:,idx,:][:,:,idx]).copy()
-        res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
-        return(res)
+        with modify_all_layer_set(self) as all_layer_set:
+            for s in range(len(all_layer_set)):
+                one_imputed_all_layer=all_layer_set[s]
+                for l in range(self.n_layer):
+                    layer=one_imputed_all_layer[l]
+                    n_kerenl=len(layer)
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        if kernel.rep is None:
+                            kernel.input = np.delete(kernel.input, i, 0)
+                            kernel.output = np.delete(kernel.output, i, 0)
+                            if kernel.type == 'gp':
+                                if kernel.global_input is not None:
+                                    kernel.global_input = np.delete(kernel.global_input, i, 0)
+                                kernel.Rinv = kernel.cv_stats(i)
+                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                                if kernel.name=='sexp':
+                                    kernel.R2sexp = np.delete(np.delete(kernel.R2sexp, i, 0), i, 1)
+                                    kernel.Psexp = np.delete(np.delete(kernel.Psexp, i, 1), i, 2)
+                        else:
+                            idx = kernel.rep!=i
+                            kernel.input = (kernel.input[idx,:]).copy()
+                            kernel.output = (kernel.output[idx,:]).copy()
+                            if kernel.type == 'gp':
+                                if kernel.global_input is not None:
+                                    kernel.global_input = (kernel.global_input[idx,:]).copy()
+                                kernel.Rinv = kernel.cv_stats(i)
+                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
+                                if kernel.name=='sexp':
+                                    kernel.R2sexp = (kernel.R2sexp[idx,:][:,idx]).copy()
+                                    kernel.Psexp = (kernel.Psexp[:,idx,:][:,:,idx]).copy()
+            res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
+            return(res)
 
     def pmetric(self, x_cand, method='ALM', obj=None, nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
         """Compute the value of the ALM or MICE criterion for sequential designs in parallel.

@@ -185,6 +185,33 @@ class dgp:
             if l!=self.n_layer-1:
                 In=copy.deepcopy(Out)
 
+    def update_all_layer(self, all_layer):
+        """Update the class with a new dgp structure with given hyperparameter and latent layer values.
+        """
+        self.all_layer=all_layer
+        self.n_layer=len(self.all_layer)
+        for l in range(self.n_layer):
+            layer=self.all_layer[l]
+            for kernel in layer:
+                if kernel.type=='gp':
+                    kernel.para_path=np.atleast_2d(np.concatenate((kernel.scale,kernel.length,kernel.nugget)))
+                    kernel.D=np.shape(kernel.input)[1]
+                    if kernel.connect is not None:
+                        kernel.D+=len(kernel.connect)
+                    if kernel.rff:
+                        kernel.sample_basis()
+                    if kernel.prior_name=='ref':
+                        p=np.shape(kernel.input)[1]
+                        if kernel.global_input is not None:
+                            p+=np.shape(kernel.global_input)[1]
+                        kernel.prior_coef[1]=1/len(kernel.output)**(1/p)*(kernel.prior_coef[0]+p)
+                        kernel.compute_cl()
+        self.imp=imputer(self.all_layer, self.block)
+        (self.imp).sample(burnin=10)
+        self.compute_r2()
+        self.N=0
+        self.burnin=None
+
     def update_xy(self, X, Y, reset=False):
         """Update the trained DGP with new input and output data.
 
@@ -515,9 +542,9 @@ class dgp:
             for kernel in final_struct[l]:
                 if kernel.type=='gp':
                     point_est=np.mean(kernel.para_path[self.burnin:,:],axis=0)
-                    kernel.scale=point_est[0]
-                    kernel.length=point_est[1:-1]
-                    kernel.nugget=point_est[-1]
+                    kernel.scale=np.atleast_1d(point_est[0])
+                    kernel.length=np.atleast_1d(point_est[1:-1])
+                    kernel.nugget=np.atleast_1d(point_est[-1])
         return final_struct
 
     def plot(self,layer_no,ker_no,width=4.,height=1.,ticksize=5.,labelsize=8.,hspace=0.1):
