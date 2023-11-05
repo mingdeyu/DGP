@@ -139,6 +139,14 @@ def Z_fct(X,W,b,length,M):
     Z=np.dot(X,W.T)+b
     return np.sqrt(2/M)*np.cos(Z)
 
+@njit(cache=True)
+def cholesky_nb(X):
+    return np.linalg.cholesky(X)
+
+@njit(cache=True)
+def logdet_nb(L):
+    return 2*np.sum(np.log(np.abs(np.diag(L))))
+
 ######Gauss-Hermite quadrature######
 def ghdiag(fct,mu,var,y):
     x, w = np.polynomial.hermite.hermgauss(10)
