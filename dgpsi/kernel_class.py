@@ -5,7 +5,7 @@ from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh
 from scipy.spatial.distance import pdist, squareform
-from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp, cholesky_nb, logdet_nb
+from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp, logdet_nb
 
 class kernel:
     """
@@ -377,8 +377,8 @@ class kernel:
 
     def log_likelihood_func(self):
         cov=self.scale*self.k_matrix()
-        #L=np.linalg.cholesky(cov)
-        L=cholesky_nb(cov)
+        L=np.linalg.cholesky(cov)
+        #L=cholesky_nb(cov)
         #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         logdet=logdet_nb(L)
         quad=(self.output).T@cho_solve((L, True), self.output, check_finite=False)

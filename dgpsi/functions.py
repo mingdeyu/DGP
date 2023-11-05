@@ -139,9 +139,9 @@ def Z_fct(X,W,b,length,M):
     Z=np.dot(X,W.T)+b
     return np.sqrt(2/M)*np.cos(Z)
 
-@njit(cache=True)
-def cholesky_nb(X):
-    return np.linalg.cholesky(X)
+#@njit(cache=True)
+#def cholesky_nb(X):
+#    return np.linalg.cholesky(X)
 
 @njit(cache=True)
 def logdet_nb(L):
