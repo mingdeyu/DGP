@@ -3,7 +3,7 @@ from numpy.random import randn, uniform, standard_t
 from numpy.linalg import LinAlgError, lstsq
 from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
-from scipy.linalg import cho_solve, pinvh
+from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist, squareform
 from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp, logdet_nb
 
@@ -193,7 +193,8 @@ class kernel:
             self.length=theta
         if self.scale_est:
             K=self.k_matrix()
-            L=np.linalg.cholesky(K)
+            #L=np.linalg.cholesky(K)
+            L=cholesky(K,lower=True,check_finite=False)
             YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
             new_scale=YKinvY/len(self.output)
             self.scale=new_scale.flatten()
@@ -298,7 +299,8 @@ class kernel:
         self.update(x)
         n=len(self.output)
         K=self.k_matrix()
-        L=np.linalg.cholesky(K)
+        #L=np.linalg.cholesky(K)
+        L=cholesky(K,lower=True,check_finite=False)
         logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
         if self.scale_est:
@@ -329,7 +331,8 @@ class kernel:
             X=self.input
         Z=Z_fct(X,self.W,self.b,self.length,self.M)
         cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
-        L=np.linalg.cholesky(cov)
+        L=cholesky(cov,lower=True,check_finite=False)
+        #L=np.linalg.cholesky(cov)
         logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         Zt_y=np.dot(Z.T,self.output)
         quad=np.dot(self.output.T,self.output)-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))
@@ -360,7 +363,8 @@ class kernel:
         K,Kt=self.k_matrix(fod_eval=True)
         KinvKt=np.linalg.solve(K,Kt)
         tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-        L=np.linalg.cholesky(K)
+        L=cholesky(K,lower=True,check_finite=False)
+        #L=np.linalg.cholesky(K)
         KinvY=cho_solve((L, True), self.output, check_finite=False)
         YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
         P1=-0.5*tr_KinvKt
@@ -377,8 +381,8 @@ class kernel:
 
     def log_likelihood_func(self):
         cov=self.scale*self.k_matrix()
-        L=np.linalg.cholesky(cov)
-        #L=cholesky_nb(cov)
+        L=cholesky(cov, lower=True, check_finite=False)
+        #L=np.linalg.cholesky(cov)
         #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         logdet=logdet_nb(L)
         quad=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
@@ -397,8 +401,10 @@ class kernel:
             X=self.input
         Z=Z_fct(X,self.W,self.b,self.length,self.M)
         cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
-        L=np.linalg.cholesky(cov)
-        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        L=cholesky(cov, lower=True, check_finite=False)
+        #L=np.linalg.cholesky(cov)
+        #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        logdet=logdet_nb(L)
         Zt_y=np.dot(Z.T,self.output)
         quad=-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
         #quad=-(Zt_y.T@cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
