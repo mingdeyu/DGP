@@ -114,13 +114,12 @@ class dgp:
             num_kernel=len(layer)
             if l!=self.n_layer-1:
                 if np.shape(In)[1]==num_kernel:
-                    Out=In
+                    Out=copy.copy(In)
                 elif np.shape(In)[1]>num_kernel:
                     pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
                     Out=pca.fit_transform(In)
                 else:
                     Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
-                Out=copy.deepcopy(Out)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
@@ -133,37 +132,37 @@ class dgp:
                             elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
                                 raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
                         if kernel.rep is None:
-                            kernel.input=copy.deepcopy(In[:,kernel.input_dim])
+                            kernel.input=In[:,kernel.input_dim]
                         else:
-                            kernel.input=copy.deepcopy(In[kernel.rep,:][:,kernel.input_dim])
+                            kernel.input=In[kernel.rep,:][:,kernel.input_dim]
                     else:
-                        kernel.input=copy.deepcopy(In[:,kernel.input_dim])
+                        kernel.input=In[:,kernel.input_dim]
                 else:
                     if l==self.n_layer-1:
-                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
+                        kernel.input_dim=np.arange(np.shape(In)[1])
                         if kernel.type=='likelihood':
                             if kernel.name=='Poisson' and len(kernel.input_dim)!=1:
                                 raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
                             elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
                                 raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
                         if kernel.rep is None:
-                            kernel.input=copy.deepcopy(In)
+                            kernel.input=copy.copy(In)
                         else:
-                            kernel.input=copy.deepcopy(In[kernel.rep,:])
+                            kernel.input=In[kernel.rep,:]
                     else:
-                        kernel.input=copy.deepcopy(In)
-                        kernel.input_dim=copy.deepcopy(np.arange(np.shape(In)[1]))
+                        kernel.input=copy.copy(In)
+                        kernel.input_dim=np.arange(np.shape(In)[1])
                 if kernel.type=='gp':
                     if kernel.connect is not None:
                         if l==self.n_layer-1:
                             if kernel.rep is None:
-                                kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                                kernel.global_input=global_in[:,kernel.connect]
                             else:
-                                kernel.global_input=copy.deepcopy(global_in[kernel.rep,:][:,kernel.connect])
+                                kernel.global_input=global_in[kernel.rep,:][:,kernel.connect]
                         else:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-                            kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                            kernel.global_input=global_in[:,kernel.connect]
                     kernel.rff, kernel.M = self.rff, self.M
                     kernel.D=np.shape(kernel.input)[1]
                     if kernel.connect is not None:
@@ -171,9 +170,9 @@ class dgp:
                     if kernel.rff:
                         kernel.sample_basis()
                 if l==self.n_layer-1:
-                    kernel.output=copy.deepcopy(self.Y[:,[k]])
+                    kernel.output=self.Y[:,[k]]
                 else:
-                    kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
+                    kernel.output=Out[:,[k]]
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         p=np.shape(kernel.input)[1]
@@ -183,7 +182,7 @@ class dgp:
                         kernel.prior_coef=np.concatenate((kernel.prior_coef, b))
                         kernel.compute_cl()
             if l!=self.n_layer-1:
-                In=copy.deepcopy(Out)
+                In=copy.copy(Out)
 
     def update_all_layer(self, all_layer):
         """Update the class with a new dgp structure with given hyperparameter and latent layer values.
@@ -368,43 +367,43 @@ class dgp:
                     Out=pca.fit_transform(In)
                 else:
                     Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
-                Out=copy.deepcopy(Out)
+                Out=copy.copy(Out)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
                     kernel.rep=self.indices
                 if l==self.n_layer-1:
                     if kernel.rep is None:
-                        kernel.input=copy.deepcopy(In[:,kernel.input_dim])
+                        kernel.input=In[:,kernel.input_dim]
                     else:
-                        kernel.input=copy.deepcopy(In[kernel.rep,:][:,kernel.input_dim])
+                        kernel.input=In[kernel.rep,:][:,kernel.input_dim]
                 else:
-                    kernel.input=copy.deepcopy(In[:,kernel.input_dim])
+                    kernel.input=In[:,kernel.input_dim]
                 if kernel.type=='gp':
                     if kernel.connect is not None:
                         if l==self.n_layer-1:
                             if kernel.rep is None:
-                                kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                                kernel.global_input=global_in[:,kernel.connect]
                             else:
-                                kernel.global_input=copy.deepcopy(global_in[kernel.rep,:][:,kernel.connect])
+                                kernel.global_input=global_in[kernel.rep,:][:,kernel.connect]
                         else:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-                            kernel.global_input=copy.deepcopy(global_in[:,kernel.connect])
+                            kernel.global_input=global_in[:,kernel.connect]
                     if reset_lengthscale:
                         initial_hypers=kernel.para_path[0,:]
                         kernel.scale=initial_hypers[[0]]
                         kernel.length=initial_hypers[1:-1]
                         kernel.nugget=initial_hypers[[-1]]
                 if l==self.n_layer-1:
-                    kernel.output=copy.deepcopy(self.Y[:,[k]])
+                    kernel.output=self.Y[:,[k]]
                 else:
-                    kernel.output=copy.deepcopy(Out[:,k].reshape((-1,1)))
+                    kernel.output=Out[:,k].reshape((-1,1))
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
             if l!=self.n_layer-1:
-                In=copy.deepcopy(Out)
+                In=copy.copy(Out)
        
     def train(self, N=500, ess_burn=10, disable=False):
         """Train the DGP model.

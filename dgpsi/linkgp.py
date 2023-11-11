@@ -43,16 +43,40 @@ class container:
             self.imp.sample(burnin=50)
         self.local_input_idx=local_input_idx
 
-    def set_local_input(self, idx):
-        """Set the **local_input_idx** argument if it is not set when the class is constructed.
+    def set_local_input(self, idx, new = False):
+        """Set the **local_input_idx** argument and optionally output a copy of the container with a different **local_input_idx**.
+
+        Args:
+            idx (ndarray_or_list): see :class:`.container` for details.
+            new (bool, optional): whether to output a copy of the container with a different **local_input_idx**. Defaults to `False`.
 
         Remark: 
-           This method is useful when different models are emulated by different teams. Each team can create the container
-           of their model even without knowing how different models are connected together. When this information is available and
-           containers of different emulators are collected, the connections between emulators can then be set by assigning
-           values to **local_input_idx** of each container with this method.
+           This method is useful in the following scenarios:
+           
+                1. when different models are emulated by different teams. Each team can create the container
+                   of their model even without knowing how different models are connected together. When this information is available and
+                   containers of different emulators are collected, the connections between emulators can then be set by assigning
+                   values to **local_input_idx** of each container with this method.
+                2. when **local_input_idx** was not correctly specified when the container was created, one can correct **local_input_idx** 
+                   swiftly without recreating it.
+                3. when the same emulator in the container is repeatedly used in a system, one can set **new** to `True` to create copies of the
+                   container by assigning different **local_input_idx** to the copies swiftly without generating the containers repeatedly.
         """
-        self.local_input_idx=idx
+        if new:
+            container_cp = copy.copy(self)
+            container_cp.local_input_idx=idx
+            return(container_cp)
+        else:
+            self.local_input_idx=idx
+
+    def __copy__(self):
+        new_inst = type(self).__new__(self.__class__)
+        new_inst.type = self.type
+        new_inst.structure = self.structure
+        if self.type=='dgp':
+            new_inst.imp = self.imp
+        new_inst.local_input_idx = copy.copy(self.local_input_idx)
+        return new_inst
 
 class lgp:
     """
