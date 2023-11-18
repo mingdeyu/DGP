@@ -85,6 +85,9 @@ Please feel free to email me with any questions and feedbacks:
 
 Deyu Ming <[deyu.ming.16@ucl.ac.uk](mailto:deyu.ming.16@ucl.ac.uk)>.
 
+## Research Notice
+This package is part of an ongoing research initiative. For detailed information about the research aspects and guidelines for use, please refer to our [Research Notice](./RESEARCH-NOTICE.md).
+
 ## References
 > [Ming, D. and Williamson, D. (2023) Linked deep Gaussian process emulation for model networks. arXiv:2306.01212.](https://arxiv.org/abs/2306.01212)
 
