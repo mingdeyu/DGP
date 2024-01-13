@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath("../.."))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Deep and Linked Gaussian Process Emulations'
-copyright = '2023, Deyu Ming'
+copyright = '2024, Deyu Ming'
 author = 'Deyu Ming'
 release = '2.4.0'
 
