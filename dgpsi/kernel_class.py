@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.random import randn, uniform, standard_t
-from numpy.linalg import LinAlgError, lstsq
+from numpy.linalg import LinAlgError, lstsq, matrix_rank
 from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
@@ -151,6 +151,8 @@ class kernel:
         """
         if self.global_input is not None:
             X = np.concatenate((self.global_input, np.ones((len(self.global_input),1))), axis=1)
+            if matrix_rank(self.global_input) == matrix_rank(X):
+                X = self.global_input
             _, resids = lstsq(X, self.input, rcond = None)[:2]
             rsq = 1 - resids / (len(self.input) * np.var(self.input, axis=0))
             if overwritten:
