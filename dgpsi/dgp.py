@@ -181,6 +181,9 @@ class dgp:
                         b=1/len(kernel.output)**(1/p)*(kernel.prior_coef+p)
                         kernel.prior_coef=np.concatenate((kernel.prior_coef, b))
                         kernel.compute_cl()
+                    if kernel.scale_est:
+                        kernel.compute_scale() 
+                    kernel.para_path=np.atleast_2d(np.concatenate((kernel.scale,kernel.length,kernel.nugget)))
             if l!=self.n_layer-1:
                 In=copy.copy(Out)
 

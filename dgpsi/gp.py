@@ -43,6 +43,9 @@ class gp:
         self.kernel.D=np.shape(self.kernel.input)[1]
         if self.kernel.connect is not None:
             self.kernel.D+=len(self.kernel.connect)
+        if self.kernel.scale_est:
+            self.kernel.compute_scale() 
+        self.kernel.para_path=np.atleast_2d(np.concatenate((self.kernel.scale,self.kernel.length,self.kernel.nugget)))
         if self.kernel.prior_name=='ref':
             p=np.shape(self.kernel.input)[1]
             if self.kernel.global_input is not None:

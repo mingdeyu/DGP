@@ -5,7 +5,7 @@ from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist, squareform
-from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp, logdet_nb
+from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp, logdet_nb, trace_nb, g
 
 class kernel:
     """
@@ -95,15 +95,13 @@ class kernel:
                 self.prior_coef=np.array([1.6,0.3])
             else:
                 self.prior_coef=prior_coef
-            self.g=lambda x: (self.prior_coef[0]-1)*np.log(x)-self.prior_coef[1]*x
-            self.gfod=lambda x: (self.prior_coef[0]-1)-self.prior_coef[1]*x
+            self.prior_coef[0] -= 1
         elif self.prior_name=='inv_ga':
             if prior_coef is None:
                 self.prior_coef=np.array([1.6,0.3])
             else:
                 self.prior_coef=prior_coef
-            self.g=lambda x: -(self.prior_coef[0]+1)*np.log(x)-self.prior_coef[1]/x
-            self.gfod=lambda x: -(self.prior_coef[0]+1)+self.prior_coef[1]/x
+            self.prior_coef[0] += 1
         elif self.prior_name=='ref':
             if prior_coef is None:
                 self.prior_coef=np.array([0.2])
@@ -114,7 +112,7 @@ class kernel:
         self.scale_est=scale_est
         self.input_dim=input_dim
         self.connect=connect
-        self.para_path=np.atleast_2d(np.concatenate((self.scale,self.length,self.nugget)))
+        self.para_path=None
         self.global_input=None
         self.input=None
         self.output=None
@@ -182,7 +180,7 @@ class kernel:
         return log_theta
 
     def update(self,log_theta):
-        """Update the model parameters (scale, lengthscales and nugget).
+        """Update the model parameters (lengthscales and nugget).
 
         Args:
             log_theta (ndarray): optimised numpy 1d-array of log-transformed lengthscales and nugget.
@@ -193,13 +191,15 @@ class kernel:
             self.nugget=theta[[-1]]
         else:
             self.length=theta
-        if self.scale_est:
-            K=self.k_matrix()
-            #L=np.linalg.cholesky(K)
-            L=cholesky(K,lower=True,check_finite=False)
-            YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
-            new_scale=YKinvY/len(self.output)
-            self.scale=new_scale.flatten()
+
+    def compute_scale(self):
+        """Compute the scale parameter.
+        """
+        K=self.k_matrix()
+        L=cholesky(K,lower=True,check_finite=False)
+        YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
+        new_scale=YKinvY/len(self.output)
+        self.scale=new_scale.flatten()
             
     def k_matrix(self,fod_eval=False):
         """Compute the correlation matrix and/or first order derivatives of the correlation matrix wrt log-transformed lengthscales and nugget.
@@ -251,6 +251,12 @@ class kernel:
             return K, fod
         else:
             return K
+        
+    def gfod(self, x):
+        if self.prior_name=='ga':
+            return self.prior_coef[0]-self.prior_coef[1]*x
+        else:
+            -self.prior_coef[0]+self.prior_coef[1]/x
     
     def log_prior(self):
         """Compute the value of log priors specified to the lengthscales and nugget. 
@@ -263,9 +269,9 @@ class kernel:
             t=np.sum(self.cl/self.length)+self.nugget
             lp=a*np.log(t)-b*t
         else:
-            lp=np.sum(self.g(self.length),keepdims=True)
+            lp=g(self.prior_coef[0], self.prior_coef[1], self.length, self.prior_name)
             if self.nugget_est:
-                lp+=self.g(self.nugget)
+                lp+=g(self.prior_coef[0], self.prior_coef[1], self.nugget, self.prior_name)
         return lp
 
     def log_prior_fod(self):
@@ -285,35 +291,46 @@ class kernel:
         else:  
             fod=self.gfod(self.length)
             if self.nugget_est:
-                fod=np.concatenate((fod,self.gfod(self.nugget)))
+                fod=np.concatenate((fod, self.gfod(self.nugget)))
         return fod
-
+    
     def llik(self,x):
-        """Compute the negative log-likelihood function of the GP.
+        """Compute the negative log-likelihood function of the GP and the first order derivatives of the negative log-likelihood function wrt log-transformed model parameters..
 
         Args:
             x (ndarray): a numpy 1d-array that contains the values of log-transformed model parameters: 
                 log-transformed lengthscales followed by the log-transformed nugget. 
 
         Returns:
-            ndarray: a numpy 1d-array giving negative log-likelihood.
+            tuple: a tuple is returned. The tuple contains two numpy 1d-arrays. The first one gives the negative log-likelihood. The second one (whose length equal to the total number of lengthscales and nugget)
+            contains first order derivatives of the negative log-likelihood function wrt log-transformed lengthscales and nugget.
         """
         self.update(x)
         n=len(self.output)
-        K=self.k_matrix()
-        #L=np.linalg.cholesky(K)
+        K,Kt=self.k_matrix(fod_eval=True)
         L=cholesky(K,lower=True,check_finite=False)
-        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-        YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
+        KinvKt=np.array([cho_solve((L, True), Kt_i, check_finite=False) for Kt_i in Kt])
+        #tr_KinvKt=np.trace(KinvKt, axis1=1, axis2=2)
+        #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
+        tr_KinvKt=trace_nb(KinvKt)
+        logdet=logdet_nb(L)
+        KinvY=cho_solve((L, True), self.output, check_finite=False)
+        YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
+        YKinvY=(self.output).T@KinvY
+        P1=-0.5*tr_KinvKt
+        P2=0.5*YKinvKtKinvY
         if self.scale_est:
-            scale=YKinvY/n
-            neg_llik=0.5*(logdet+n*np.log(scale))
+            self.scale=(YKinvY/n).flatten()
+            neg_llik=0.5*(logdet+n*np.log(self.scale))
+            neg_St=-P1-P2/self.scale
         else:
             neg_llik=0.5*(logdet+YKinvY/self.scale) 
+            neg_St=-P1-P2/self.scale
         neg_llik=neg_llik.flatten()
         if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
-        return neg_llik
+            neg_St=neg_St-self.log_prior_fod()
+        return neg_llik, neg_St
     
     def llik_rff(self,x):
         """Compute the negative log-likelihood function of the GP under RFF.
@@ -347,39 +364,6 @@ class kernel:
         if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
         return neg_llik
-
-    def llik_der(self,x):
-        """Compute first order derivatives of the negative log-likelihood function wrt log-transformed model parameters.
-
-        Args:
-            x (ndarray): a numpy 1d-array that contains the values of log-transformed model parameters: 
-                log-transformed lengthscales followed by the log-transformed nugget.
-
-        Returns:
-            ndarray: a numpy 1d-array (whose length equal to the total number of lengthscales and nugget)
-            that contains first order derivatives of the negative log-likelihood function wrt log-transformed 
-            lengthscales and nugget.
-        """
-        self.update(x)
-        n=len(self.output)
-        K,Kt=self.k_matrix(fod_eval=True)
-        KinvKt=np.linalg.solve(K,Kt)
-        tr_KinvKt=np.trace(KinvKt,axis1=1, axis2=2)
-        L=cholesky(K,lower=True,check_finite=False)
-        #L=np.linalg.cholesky(K)
-        KinvY=cho_solve((L, True), self.output, check_finite=False)
-        YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
-        P1=-0.5*tr_KinvKt
-        P2=0.5*YKinvKtKinvY
-        if self.scale_est:
-            YKinvY=(self.output).T@KinvY
-            scale=(YKinvY/n).flatten()
-            neg_St=-P1-P2/scale
-        else:
-            neg_St=-P1-P2/self.scale
-        if self.prior_name is not None:
-            neg_St=neg_St-self.log_prior_fod()
-        return neg_St
 
     def log_likelihood_func(self):
         cov=self.scale*self.k_matrix()
@@ -446,7 +430,7 @@ class kernel:
                         lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
                     ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),[np.inf]))
                 bd=Bounds(lb, ub)
-                _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         else:
             if self.rff:
                 if self.bds is None:
@@ -464,15 +448,15 @@ class kernel:
                         lb=-np.inf*np.ones(len(initial_theta_trans))
                         ub=13.*np.ones(len(initial_theta_trans))
                         bd=Bounds(lb, ub)
-                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                     else:
-                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                 else:
                     with np.errstate(divide='ignore'):
                         lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
                     ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
                     bd=Bounds(lb, ub)
-                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=self.llik_der, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         self.add_to_path()
         
     def add_to_path(self):

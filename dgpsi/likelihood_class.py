@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import loggamma
-from scipy.linalg import cho_solve
+from scipy.linalg import cholesky, cho_solve
 from .functions import fmvn_mu
 
 class Poisson:
@@ -137,13 +137,13 @@ class Hetero:
                 #y=(self.output).flatten()
                 mu,cov=self.post_het1(v,Gamma,self.output)
             else:
-                Gamma=np.diag(np.exp(self.input[:,1]))
+                Gamma=np.exp(self.input[:,1])
                 #y_mask=self.output[:,0]
-                mask_f=self.rep
-                v_mask=v[mask_f,:]
-                V_mask=v[mask_f,:][:,mask_f]
+                #mask_f=self.rep
+                #v_mask=v[mask_f,:]
+                #V_mask=v[mask_f,:][:,mask_f]
                 #mu,cov=self.post_het2(v,Gamma,v_mask,V_mask,y_mask)
-                mu,cov=self.post_het2(v,Gamma,v_mask,V_mask,self.output)
+                mu,cov=self.post_het2(v,Gamma,self.rep,self.output)
             #f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
             f_mu=fmvn_mu(mu,cov)
             return f_mu
@@ -154,22 +154,32 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are no repetitions
            in the training data.
         """
-        L=np.linalg.cholesky(Gamma+v)
+        L=cholesky(Gamma+v,lower=True,check_finite=False)
         #mu=np.sum(v*cho_solve((L, True), y_mask, check_finite=False),axis=1)
         mu=(v@cho_solve((L, True), y_mask, check_finite=False)).flatten()
         cov=v@cho_solve((L, True), Gamma, check_finite=False)
         return mu, cov
 
     @staticmethod
-    def post_het2(v,Gamma,v_mask,V_mask,y_mask):
+    def post_het2(v,Gamma,mask_f,y_mask):
         """Calculate the conditional posterior mean and covariance of the mean 
            of the heteroskedastic Gaussian likelihood when there are repetitions
            in the training data.
         """
-        L=np.linalg.cholesky(Gamma+V_mask)
+        L=cholesky(v,lower=True,check_finite=False)
+        L_mask=L[mask_f,:]
+        v_mask=v[mask_f,:]
+        LGammaInv=L_mask.T*(1/Gamma)
+        LGammaInvL_I=LGammaInv@L_mask+np.eye(len(L))
+        LL = cholesky(LGammaInvL_I,lower=True,check_finite=False)
+        LGammaInvY=LGammaInv@y_mask
+        LGammaInvv=LGammaInv@v_mask
+        vGamma=v_mask.T*(1/Gamma)
+        vGammaInvY=vGamma@y_mask
+        vGammav=vGamma@v_mask
         #mu=np.sum(v_mask.T*cho_solve((L, True), y_mask, check_finite=False),axis=1)
-        mu=(v_mask.T@cho_solve((L, True), y_mask, check_finite=False)).flatten()
-        cov=v-v_mask.T@cho_solve((L, True), v_mask, check_finite=False)
+        mu=(vGammaInvY-LGammaInvv.T@cho_solve((LL, True), LGammaInvY, check_finite=False)).flatten()
+        cov=v-vGammav+LGammaInvv.T@cho_solve((LL, True), LGammaInvv, check_finite=False)
         return mu, cov    
 
 class NegBin:

@@ -43,11 +43,14 @@ class imputer:
             target_layer (list): a list of GPs that produce a latent layer that needs to be imputed.
             upper_layer (list): a list of GPs (in the next layer) that are fed by the output of GPs in **target_layer**.
         """
-        
-        f = np.vstack([kernel.output.flatten() for kernel in target_layer]).T
+        M, N = len(target_layer), len(target_layer[0].output)
+        f, nu = np.zeros((N,M)), np.zeros((N,M))
+        for i, kernel in enumerate(target_layer):
+            f[:,i], nu[:,i] = kernel.output.flatten(), fmvn(kernel.scale*kernel.k_matrix())
+        #f = np.vstack([kernel.output.flatten() for kernel in target_layer]).T
         # Choose the ellipse for this sampling iteration.
         #nu = np.random.default_rng().multivariate_normal(mean=np.zeros(len(f)),cov=covariance,check_valid='ignore')     
-        nu = np.vstack([fmvn(kernel.scale*kernel.k_matrix()) for kernel in target_layer]).T            
+        #nu = np.vstack([fmvn(kernel.scale*kernel.k_matrix()) for kernel in target_layer]).T            
         # Set the candidate acceptance threshold.
         log_y=0
         for linked_kernel in upper_layer:
@@ -83,7 +86,7 @@ class imputer:
                 elif linked_kernel.type=='likelihood': 
                     log_yp += linked_kernel.llik()
             if log_yp > log_y:
-                for k in range(len(target_layer)):
+                for k in range(M):
                     target_layer[k].output[:,0]=fp[:,k]
                 return
             else:

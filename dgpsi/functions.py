@@ -85,6 +85,13 @@ def matern_multi(v,u):
         dist1[d] = coefi1
     return dist, dist1
 
+@njit(cache=True)
+def g(coef1, coef2, x, name):
+    if name=='ga':
+        return np.sum(coef1*np.log(x)-coef2*x)
+    else:
+        return np.sum(-coef1*np.log(x)-coef2/x)
+
 ######functions for imputer########
 @njit(cache=True)
 def fmvn_mu(mu,cov):
@@ -146,6 +153,14 @@ def Z_fct(X,W,b,length,M):
 @njit(cache=True)
 def logdet_nb(L):
     return 2*np.sum(np.log(np.abs(np.diag(L))))
+
+@njit(cache=True)
+def trace_nb(K):
+    n = K.shape[0]
+    traces = np.empty(n, dtype=K.dtype)
+    for i in range(n):
+        traces[i] = np.trace(K[i])
+    return traces
 
 ######Gauss-Hermite quadrature######
 def ghdiag(fct,mu,var,y):
