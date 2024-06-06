@@ -1,6 +1,7 @@
 from numpy.random import uniform
 import numpy as np
 from .functions import update_f, fmvn
+from .vecchia import fmvn_sp, U_matrix_sp
 
 class imputer:
     """Class to implement imputation of latent variables.
@@ -26,6 +27,8 @@ class imputer:
                 layer=self.all_layer[l]
                 linked_layer=self.all_layer[l+1]
                 is_hetero_type = np.any([True if kernel.type=='likelihood' and kernel.exact_post_idx!=None else False for kernel in linked_layer])
+                if is_hetero_type and layer[0].vecch and linked_layer[0].rep is not None:
+                    is_hetero_type = False
                 if self.block and not is_hetero_type:
                     self.one_sample_block(layer,linked_layer)
                 else:
@@ -46,7 +49,16 @@ class imputer:
         M, N = len(target_layer), len(target_layer[0].output)
         f, nu = np.zeros((N,M)), np.zeros((N,M))
         for i, kernel in enumerate(target_layer):
-            f[:,i], nu[:,i] = kernel.output.flatten(), fmvn(kernel.scale*kernel.k_matrix())
+            f[:,i] = kernel.output.flatten()
+            if kernel.vecch:
+                if kernel.global_input is not None:
+                    X=np.concatenate((kernel.input, kernel.global_input),1)
+                else:
+                    X=kernel.input
+                nu[:,i] = fmvn_sp(X[kernel.ord], kernel.NNarray, kernel.scale[0], kernel.length, kernel.nugget[0], kernel.name)[kernel.rev_ord]
+            else:
+                nu[:,i] = fmvn(kernel.scale*kernel.k_matrix())
+
         #f = np.vstack([kernel.output.flatten() for kernel in target_layer]).T
         # Choose the ellipse for this sampling iteration.
         #nu = np.random.default_rng().multivariate_normal(mean=np.zeros(len(f)),cov=covariance,check_valid='ignore')     
@@ -55,8 +67,8 @@ class imputer:
         log_y=0
         for linked_kernel in upper_layer:
             if linked_kernel.type=='gp':
-                if linked_kernel.rff:
-                    log_y += linked_kernel.log_likelihood_func_rff()
+                if linked_kernel.vecch:
+                    log_y += linked_kernel.log_likelihood_func_vecch()
                 else:      
                     log_y += linked_kernel.log_likelihood_func()
             elif linked_kernel.type=='likelihood': 
@@ -71,6 +83,7 @@ class imputer:
             # Generates a point on the ellipse defines by `nu` and the input. We
             # also compute the log-likelihood of the candidate and compare to
             # our threshold.
+            #iter_count += 1
             fp = update_f(f,nu,theta)
             log_yp=0
             for linked_kernel in upper_layer:
@@ -79,8 +92,8 @@ class imputer:
                 else:
                     linked_kernel.input=fp[linked_kernel.rep,:][:,linked_kernel.input_dim]
                 if linked_kernel.type=='gp':
-                    if linked_kernel.rff:
-                        log_yp += linked_kernel.log_likelihood_func_rff()
+                    if linked_kernel.vecch:
+                        log_yp += linked_kernel.log_likelihood_func_vecch()
                     else:
                         log_yp += linked_kernel.log_likelihood_func()
                 elif linked_kernel.type=='likelihood': 
@@ -110,13 +123,35 @@ class imputer:
             k (int): the index indicating the position of the GP defined by the argument **target_kernel** in
                 its layer.
         """
-        covariance=target_kernel.k_matrix()
-        covariance=target_kernel.scale*covariance
+        if target_kernel.vecch:
+            if target_kernel.global_input is not None:
+                X=np.concatenate((target_kernel.input, target_kernel.global_input),1)
+            else:
+                X=target_kernel.input
+        else:
+            covariance=target_kernel.k_matrix()
+            covariance=target_kernel.scale*covariance
                   
         if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
             idx=np.where(linked_upper_kernels[0].input_dim == k)[0]
             if idx in linked_upper_kernels[0].exact_post_idx:
-                f=linked_upper_kernels[0].posterior(idx=idx,v=covariance)
+                if target_kernel.vecch:
+                    #if linked_upper_kernels[0].rep is not None:
+                        #Gamma = diags_array(np.exp(linked_upper_kernels[0].input[:,1]), format = 'csc')
+                        #Mt_Gamma_M = (linked_upper_kernels[0].rep_sp.transpose().dot(Gamma)).dot(linked_upper_kernels[0].rep_sp)
+                        #Mt_Gamma_M = Mt_Gamma_M[target_kernel.ord,:][:,target_kernel.ord]
+                        #Mt_Gamma_M_diag = 1/Mt_Gamma_M.diagonal()
+                        #Mt_Gamma_M_diag = np.concatenate([np.unique(linked_upper_kernels[0].input[linked_upper_kernels[0].rep==i,:],axis=0) for i in range(np.max(linked_upper_kernels[0].rep)+1)], axis=0)[:,1]
+                        #Mt_Gamma_M_diag = np.exp(Mt_Gamma_M_diag)[target_kernel.ord]
+                        #U_sp = U_matrix_sp(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name, np.concatenate((Mt_Gamma_M_diag, Mt_Gamma_M_diag)), target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
+                        #L_sp = L_matrix_sp(X[target_kernel.ord], target_kernel.NNarray, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name, target_kernel.pointer_row, target_kernel.pointer_col)
+                    #else:
+                    Gamma = np.exp(linked_upper_kernels[0].input[:,1])[target_kernel.ord]
+                    U_sp = U_matrix_sp(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name, np.concatenate((Gamma, Gamma)), target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
+                    #L_sp = None
+                    f=linked_upper_kernels[0].posterior_vecch(idx=idx, U_sp=U_sp, ord=target_kernel.ord, rev_ord=target_kernel.rev_ord)
+                else:
+                    f=linked_upper_kernels[0].posterior(idx=idx,v=covariance)
                 if linked_upper_kernels[0].rep is None:
                     linked_upper_kernels[0].input[:,idx]=f.reshape(-1,1)
                 else:
@@ -126,14 +161,17 @@ class imputer:
         
         f=(target_kernel.output).flatten()
         # Choose the ellipse for this sampling iteration.
-        #nu = np.random.default_rng().multivariate_normal(mean=np.zeros(len(f)),cov=covariance,check_valid='ignore')        
-        nu = fmvn(covariance)               
+        #nu = np.random.default_rng().multivariate_normal(mean=np.zeros(len(f)),cov=covariance,check_valid='ignore')  
+        if target_kernel.vecch:
+            nu = fmvn_sp(X[target_kernel.ord], target_kernel.NNarray, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name)[target_kernel.rev_ord]
+        else:
+            nu = fmvn(covariance)                       
         # Set the candidate acceptance threshold.
         log_y=0
         for linked_kernel in linked_upper_kernels:
             if linked_kernel.type=='gp':
-                if linked_kernel.rff:
-                    log_y += linked_kernel.log_likelihood_func_rff()
+                if linked_kernel.vecch:
+                    log_y += linked_kernel.log_likelihood_func_vecch()
                 else:      
                     log_y += linked_kernel.log_likelihood_func()
             elif linked_kernel.type=='likelihood': 
@@ -156,8 +194,8 @@ class imputer:
                 else:
                     linked_kernel.input[:,linked_kernel.input_dim==k]=fp[linked_kernel.rep].reshape(-1,1)
                 if linked_kernel.type=='gp':
-                    if linked_kernel.rff:
-                        log_yp += linked_kernel.log_likelihood_func_rff()
+                    if linked_kernel.vecch:
+                        log_yp += linked_kernel.log_likelihood_func_vecch()
                     else:
                         log_yp += linked_kernel.log_likelihood_func()
                 elif linked_kernel.type=='likelihood': 
@@ -184,3 +222,34 @@ class imputer:
             for kernel in layer:
                 if kernel.type == 'gp':
                     kernel.compute_stats()
+    
+    def update_ord_nn(self):
+        """Update order and KNN in each GP node for Vecchia approximation
+        """
+        n_layer=len(self.all_layer)
+        for l in range(n_layer):
+            layer=self.all_layer[l]
+            for k, kernel in enumerate(layer):
+                if kernel.type == 'gp':
+                    compute_pointer = False if kernel.imp_pointer_row is None else True
+                    if k == 0:
+                        kernel.ord_nn(pointer=compute_pointer)
+                    else:
+                        if len(kernel.length) == 1:
+                            found_match = False
+                            for j in range(k):
+                                if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                    kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                    found_match = True
+                                    break
+                            if not found_match:
+                                kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            found_match = False
+                            for j in range(k):
+                                if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                    kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                    found_match = True
+                                    break
+                            if not found_match:
+                                kernel.ord_nn(pointer=compute_pointer)

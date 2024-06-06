@@ -1,12 +1,10 @@
 import numpy as np
-from numpy.random import randn, uniform, standard_t
 from numpy.linalg import LinAlgError, lstsq, matrix_rank
-from math import sqrt, pi
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist, squareform
-from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, Z_fct, inv_swp, logdet_nb, trace_nb, g
-
+from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, logdet_nb, trace_nb, g
+from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, imp_pointers, link_gp_vecch
 class kernel:
     """
     Class that defines the GPs in the DGP hierarchy.
@@ -75,11 +73,12 @@ class kernel:
             has multiple outputs. Otherwise, it is `None`. Defaults to `None`. 
         Rinv (ndarray): a numpy 2d-array that stores the inversion of correlation matrix. Defaults to `None`.
         Rinv_y (ndarray): a numpy 1d-array that stores the product of correlation matrix inverse and the output Y. Defaults to `None`.
-        rff (bool): indicates weather random Fourier features are used. Defaults to `None`.
+        vecch (bool): indicates weather the Vecchia apprxoimation is used. Defaults to `None`.
         D (int): the dimension of input data to the GP node. Defaults to `None`.
-        M (int): the number of features in random Fourier approximation. Defaults to `None`.
-        W (ndarray): a 2d-array (M, D) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
-        b (ndarray): a 1d-array (D,) sampled to construct the Fourier approximation to the kernel matrix. Defaults to `None`.
+        ord (ndarray): a 1d-array that gives the ordering of input for the Vecchia approximation. Defaults to `None`.
+        rev_ord (ndarray): a 1d-array that reconstructs the ordering of input from the ordered one for the Vecchia approximation. Defaults to `None`.
+        m (int): the number of conditioning points in Vecchia approximation. Defaults to `None`.
+        NNarray (ndarray): a 2d-array that gives the m NN for each data point after ordering for the Vecchia approximation. Defaults to `None`.
         R2 (ndarray): a 2d-array that stores the R2 of the linear regression between **global_input** and **input**. Defaults to `None`.
     """
 
@@ -117,17 +116,29 @@ class kernel:
         self.input=None
         self.output=None
         self.rep=None
+        #self.rep_sp=None
         self.Rinv=None
         self.Rinv_y=None
         self.R2sexp=None
         self.Psexp=None
-        self.rff=None
+        self.vecch=None
         self.D=None
-        self.M=None
-        self.W=None
-        self.b=None
+        self.ord=None
+        self.rev_ord=None
+        self.m=None
+        self.pred_m=None
+        self.NNarray=None
+        self.imp_NNarray=None
+        #self.pointer_row=None
+        #self.pointer_col=None
+        self.imp_pointer_row=None
+        self.imp_pointer_col=None
+        self.nn_method='exact'
+        self.iter_count=0
+        self.target='dgp'
         self.bds=bds
         self.R2=None
+        self.loo_state=False
 
     def compute_cl(self):
         if len(self.length)==1:
@@ -135,8 +146,13 @@ class kernel:
                 X=np.concatenate((self.input, self.global_input),1)
             else:
                 X=self.input
-            dists = pdist(X, metric="euclidean")
-            self.cl=np.max(dists)/len(self.output)
+            if self.vecch:
+                input_range = np.max(X,axis=0)-np.min(X,axis=0)
+                dists = np.sqrt(np.dot(input_range, input_range))
+                self.cl = dists/len(self.output)
+            else:
+                dists = pdist(X, metric="euclidean")
+                self.cl=np.max(dists)/len(self.output)
         else:
             input_range = np.max(self.input,axis=0)-np.min(self.input,axis=0)
             if self.global_input is not None:
@@ -158,14 +174,30 @@ class kernel:
             else:
                 self.R2 = np.vstack((self.R2,rsq))
 
-    def sample_basis(self):
-        """Sample **W** and **b** to construct random Fourier approximations to correlation matrices.
+    def ord_nn(self, ord = None, NNarray = None, pointer=False):
+        """Specify the ordering and NN for the Vecchia approximation
         """
-        if self.name=='sexp':
-            self.W=sqrt(2)*randn(self.M,self.D)
-        elif self.name=='matern2.5':
-            self.W=standard_t(5,size=(self.M,self.D))
-        self.b=uniform(0,2*pi,size=self.M)
+        if ord is None:
+            self.ord = np.random.permutation(self.input.shape[0])
+        else:
+            self.ord = ord
+        self.rev_ord = np.argsort(self.ord)
+        if NNarray is None:
+            if self.global_input is not None:
+                X = np.concatenate((self.input, self.global_input),1)/self.length
+            else:
+                X = self.input/self.length
+            self.NNarray = nn(X[self.ord], self.m, method = self.nn_method)
+        else:
+            self.NNarray = NNarray
+        if pointer:
+            NNs = get_pred_nn(X[self.ord], X[self.ord], self.m)[:,1::]
+            n = X.shape[0]
+            prev = NNs < np.tile(np.arange(n), (self.m-1, 1)).T
+            NNs[prev] = NNs[prev] + n
+            self.imp_NNarray = np.hstack((np.arange(n).reshape(-1,1) + n, np.arange(n).reshape(-1,1), NNs))
+            self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
+            #self.pointer_row, self.pointer_col = pointers(self.NNarray)
 
     def log_t(self):
         """Log transform the model parameters (lengthscales and nugget).
@@ -191,15 +223,6 @@ class kernel:
             self.nugget=theta[[-1]]
         else:
             self.length=theta
-
-    def compute_scale(self):
-        """Compute the scale parameter.
-        """
-        K=self.k_matrix()
-        L=cholesky(K,lower=True,check_finite=False)
-        YKinvY=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
-        new_scale=YKinvY/len(self.output)
-        self.scale=new_scale.flatten()
             
     def k_matrix(self,fod_eval=False):
         """Compute the correlation matrix and/or first order derivatives of the correlation matrix wrt log-transformed lengthscales and nugget.
@@ -332,38 +355,27 @@ class kernel:
             neg_St=neg_St-self.log_prior_fod()
         return neg_llik, neg_St
     
-    def llik_rff(self,x):
-        """Compute the negative log-likelihood function of the GP under RFF.
+    def llik_vecch(self,x):
+        """Compute the negative log-likelihood function of the GP under Vecchia approximation.
 
         Args:
             x (ndarray): a numpy 1d-array that contains the values of log-transformed model parameters: 
                 log-transformed lengthscales followed by the log-transformed nugget. 
 
         Returns:
-            ndarray: a numpy 1d-array giving negative log-likelihood.
+            tuple: a tuple is returned. The tuple contains two numpy 1d-arrays. The first one gives the negative log-likelihood. The second one (whose length equal to the total number of lengthscales and nugget)
+            contains first order derivatives of the negative log-likelihood function wrt log-transformed lengthscales and nugget.
         """
         self.update(x)
-        n=len(self.output)
         if self.connect is not None:
-            X=np.concatenate((self.input,self.global_input),1)
+            X = np.concatenate((self.input,self.global_input),1)
         else:
-            X=self.input
-        Z=Z_fct(X,self.W,self.b,self.length,self.M)
-        cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
-        L=cholesky(cov,lower=True,check_finite=False)
-        #L=np.linalg.cholesky(cov)
-        logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-        Zt_y=np.dot(Z.T,self.output)
-        quad=np.dot(self.output.T,self.output)-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))
-        if self.scale_est:
-            scale=quad/(n*self.nugget)
-            neg_llik=0.5*(logdet+n*np.log(scale)+(n-self.M)*np.log(self.nugget))
-        else:
-            neg_llik=0.5*(logdet+quad/(self.scale*self.nugget)+(n-self.M)*np.log(self.nugget)) 
-        neg_llik=neg_llik.flatten()
+            X = self.input
+        neg_llik, neg_St, self.scale = vecchia_nllik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], self.name, self.scale_est, self.nugget_est)
         if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
-        return neg_llik
+            neg_St=neg_St-self.log_prior_fod()
+        return neg_llik, neg_St
 
     def log_likelihood_func(self):
         cov=self.scale*self.k_matrix()
@@ -378,27 +390,23 @@ class kernel:
             llik+=self.log_prior()
         return llik
 
-    def log_likelihood_func_rff(self):
-        """Compute Gaussian log-likelihood function using random Fourier features (RFF).
+    def log_likelihood_func_vecch(self):
+        """Compute Gaussian log-likelihood function using the Vecchia approximation.
         """
         if self.connect is not None:
             X=np.concatenate((self.input,self.global_input),1)
         else:
             X=self.input
-        Z=Z_fct(X,self.W,self.b,self.length,self.M)
-        cov=np.dot(Z.T,Z)+self.nugget*np.identity(self.M)
-        L=cholesky(cov, lower=True, check_finite=False)
-        #L=np.linalg.cholesky(cov)
-        #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-        logdet=logdet_nb(L)
-        Zt_y=np.dot(Z.T,self.output)
-        quad=-np.sum(Zt_y*cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
-        #quad=-(Zt_y.T@cho_solve((L, True), Zt_y, check_finite=False))/(self.scale*self.nugget)
-        llik=-0.5*(logdet+quad)
+        llik = vecchia_llik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], self.name)
         if self.prior_name=='ref':
             self.compute_cl()
             llik+=self.log_prior()
         return llik
+    
+    def callback(self, xk):
+        self.iter_count += 1
+        if self.iter_count & (self.iter_count-1) == 0:
+            self.ord_nn()
 
     def maximise(self, method='L-BFGS-B'):
         """Optimise and update model parameters by minimising the negative log-likelihood function.
@@ -408,54 +416,60 @@ class kernel:
         """
         initial_theta_trans=self.log_t()
         if self.nugget_est:
-            if self.rff:
-                if self.bds is None:
-                    lb=np.concatenate((-5.*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                    ub=5.*np.ones(len(initial_theta_trans))
+            if self.bds is None:
+                lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                if self.prior_name=='ref':
+                    ub=np.concatenate((13.*np.ones(len(initial_theta_trans)-1), [np.inf]))
                 else:
-                    with np.errstate(divide='ignore'):
-                        lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                    ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),5.))
-                bd=Bounds(lb, ub)
-                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                    ub=np.inf*np.ones(len(initial_theta_trans))
             else:
-                if self.bds is None:
-                    lb=np.concatenate((-np.inf*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                    if self.prior_name=='ref':
-                        ub=np.concatenate((13.*np.ones(len(initial_theta_trans)-1), [np.inf]))
-                    else:
-                        ub=np.inf*np.ones(len(initial_theta_trans))
+                with np.errstate(divide='ignore'):
+                    lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
+                ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),[np.inf]))
+            bd=Bounds(lb, ub)
+            if self.vecch:
+                if self.target=='gp' and len(self.length)!=1:
+                    _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                    self.iter_count = 0
                 else:
-                    with np.errstate(divide='ignore'):
-                        lb=np.concatenate((np.log(self.bds[0])*np.ones(len(initial_theta_trans)-1),np.log([1e-8])))
-                    ub=np.concatenate((np.log(self.bds[1])*np.ones(len(initial_theta_trans)-1),[np.inf]))
-                bd=Bounds(lb, ub)
+                    _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+            else:
                 _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         else:
-            if self.rff:
-                if self.bds is None:
-                    lb=-5.*np.ones(len(initial_theta_trans))
-                    ub=5.*np.ones(len(initial_theta_trans))
-                else:
-                    with np.errstate(divide='ignore'):
-                        lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
-                    ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
-                bd=Bounds(lb, ub)
-                _ = minimize(self.llik_rff, initial_theta_trans, method=method, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
-            else:
-                if self.bds is None:
-                    if self.prior_name=='ref':
-                        lb=-np.inf*np.ones(len(initial_theta_trans))
-                        ub=13.*np.ones(len(initial_theta_trans))
-                        bd=Bounds(lb, ub)
+            if self.bds is None:
+                if self.prior_name=='ref':
+                    lb=-np.inf*np.ones(len(initial_theta_trans))
+                    ub=13.*np.ones(len(initial_theta_trans))
+                    bd=Bounds(lb, ub)
+                    if self.vecch:
+                        if self.target=='gp' and len(self.length)!=1:
+                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                            self.iter_count = 0
+                        else:
+                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                    else:
                         _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                else:
+                    if self.vecch:
+                        if self.target=='gp' and len(self.length)!=1:
+                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                            self.iter_count = 0                       
+                        else:
+                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                     else:
                         _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+            else:
+                with np.errstate(divide='ignore'):
+                    lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
+                ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
+                bd=Bounds(lb, ub)
+                if self.vecch:
+                    if self.target=='gp' and len(self.length)!=1:
+                        _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                        self.iter_count = 0
+                    else:
+                        _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                 else:
-                    with np.errstate(divide='ignore'):
-                        lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
-                    ub=np.log(self.bds[1])*np.ones(len(initial_theta_trans))
-                    bd=Bounds(lb, ub)
                     _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         self.add_to_path()
         
@@ -479,10 +493,21 @@ class kernel:
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions. 
         """
-        m,v=gp(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
+        if self.vecch:
+            if z is not None:
+                x=np.concatenate((x, z),1)
+                w=np.concatenate((self.input, self.global_input),1)
+            else:
+                w = self.input
+            NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
+            if self.loo_state:
+                NNarray = NNarray[:,1:]
+            m,v = gp_vecch(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],self.name)
+        else:
+            m,v=gp(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
         return m,v
 
-    def linkgp_prediction(self,m,v,z,nb_parallel):
+    def linkgp_prediction(self,m,v,z):
         """Make linked GP predictions. 
 
         Args:
@@ -495,16 +520,27 @@ class kernel:
             z (ndarray): a numpy 2d-array that contains additional input testing data (with the same number of 
                 columns of the **global_input** attribute) from the global testing input if the argument **connect** 
                 is not `None`. Set to `None` if the argument **connect** is `None`. 
-            nb_parallel (bool): whether to use *Numba*'s multi-threading to accelerate the predictions.
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
             represented by predictive means and variances).
         """
-        m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.R2sexp,self.Psexp,self.scale,self.length,self.nugget,self.name,nb_parallel)
+        if self.vecch:
+            if z is not None:
+                x = np.concatenate((m, z),1)
+                w = np.concatenate((self.input, self.global_input),1)
+            else:
+                x = m
+                w = self.input
+            NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
+            if self.loo_state:
+                NNarray = NNarray[:,1:]
+            m,v = link_gp_vecch(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], self.name)
+        else:
+            m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.R2sexp,self.Psexp,self.scale[0],self.length,self.nugget[0],self.name)
         return m,v
 
-    def linkgp_prediction_full(self,m,v,m_z,v_z,z,nb_parallel):
+    def linkgp_prediction_full(self,m,v,m_z,v_z,z):
         """Make linked GP predictions with additional input also generated by GPs/DGPs. 
 
         Args:
@@ -518,7 +554,6 @@ class kernel:
             v_z (ndarray): a numpy 2d-array that contains predictive variances of additional input testing data from GPs.
             z (ndarray): a numpy 2d-array that contains additional input testing data from the global testing input that are
                 not from GPs. Set to `None` if the argument **connect** is None. 
-            nb_parallel (bool): whether to use *Numba*'s multi-threading to accelerate the predictions.
 
         Returns:
             tuple: a tuple of two 1d-arrays giving the means and variances at the testing input data positions (that are 
@@ -529,21 +564,31 @@ class kernel:
         idx1=np.arange(np.shape(m_z)[1])
         idx2=np.arange(np.shape(m_z)[1],np.shape(self.global_input)[1])
         overall_input=np.concatenate((self.input,self.global_input[:,idx1]),axis=1)
-        if self.name=='sexp':
-            if len(self.length)==1:
-                global_input_l=self.global_input[:,idx1]/self.length
+        if self.vecch:
+            if z is not None:
+                x = np.concatenate((m, z),1)
+                w = np.concatenate((self.input, self.global_input),1)
             else:
-                D=np.shape(self.input)[1]
-                global_input_l=self.global_input[:,idx1]/(self.length[D::][idx1])
-            dists = pdist(global_input_l, metric="sqeuclidean")
-            R2sexp_global = squareform(np.exp(-dists/2))
-            np.fill_diagonal(R2sexp_global, 1)
-            R2sexp = self.R2sexp*R2sexp_global
-            Psexp_global = Pmatrix(global_input_l)
-            Psexp = np.concatenate((self.Psexp,Psexp_global),axis=0)
+                x = m
+                w = overall_input
+            NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
+            m,v = link_gp_vecch(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], self.name)
         else:
-            R2sexp, Psexp = self.R2sexp, self.Psexp
-        m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,R2sexp,Psexp,self.scale,self.length,self.nugget,self.name,nb_parallel)
+            if self.name=='sexp':
+                if len(self.length)==1:
+                    global_input_l=self.global_input[:,idx1]/self.length
+                else:
+                    D=np.shape(self.input)[1]
+                    global_input_l=self.global_input[:,idx1]/(self.length[D::][idx1])
+                dists = pdist(global_input_l, metric="sqeuclidean")
+                R2sexp_global = squareform(np.exp(-dists/2))
+                np.fill_diagonal(R2sexp_global, 1)
+                R2sexp = self.R2sexp*R2sexp_global
+                Psexp_global = Pmatrix(global_input_l)
+                Psexp = np.concatenate((self.Psexp,Psexp_global),axis=0)
+            else:
+                R2sexp, Psexp = self.R2sexp, self.Psexp
+            m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,R2sexp,Psexp,self.scale[0],self.length,self.nugget[0],self.name)
         return m,v
 
     def compute_stats(self):
@@ -576,24 +621,6 @@ class kernel:
             self.R2sexp = squareform(np.exp(-dists/2))
             np.fill_diagonal(self.R2sexp, 1)
             self.Psexp = Pmatrix(X_l)
-
-    def cv_stats(self, i):
-        """Compute the inversion for the LOO.
-        """
-        if self.rep is not None:
-            R=self.k_matrix()
-            idx = self.rep!=i
-            R_loo_i = R[idx,:][:,idx]
-            #LOOinv = pinvh(R_loo_i,check_finite=False)
-            try:
-                L=np.linalg.cholesky(R_loo_i)
-                LOOinv = cho_solve((L, True), np.eye(len(R_loo_i)), check_finite=False)
-            except LinAlgError:
-                LOOinv = pinvh(R_loo_i,check_finite=False)
-        else:
-            LOOinv = inv_swp(self.Rinv, i)
-        return(LOOinv)
-
 
 def combine(*layers):
     """Combine layers into one list as a DGP or linked (D)GP structure.

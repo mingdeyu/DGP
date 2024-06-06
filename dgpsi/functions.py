@@ -1,10 +1,15 @@
-from numba import njit, vectorize, float64, prange, config
+from numba import njit, prange, config, set_num_threads
 import numpy as np
-from math import erf, exp, sqrt, pi
+from math import erf, sqrt, pi
 from numpy.random import randn
 from scipy.linalg import pinvh
+from .vecchia import K_matrix_nb, quad, K_vec_nb, Jd, Jd0
 import itertools
+from psutil import cpu_count
+
+core_num = cpu_count(logical = False)
 config.THREADING_LAYER = 'workqueue'
+set_num_threads(core_num)
 #######functions for optim#########
 @njit(cache=True)
 def pdist_matern_coef(X):
@@ -140,11 +145,11 @@ def update_f(f,nu,theta):
     fp=f*np.cos(theta) + nu*np.sin(theta)
     return fp
 
-@njit(cache=True)
-def Z_fct(X,W,b,length,M):
-    W=W/length
-    Z=np.dot(X,W.T)+b
-    return np.sqrt(2/M)*np.cos(Z)
+#@njit(cache=True)
+#def Z_fct(X,W,b,length,M):
+#    W=W/length
+#    Z=np.dot(X,W.T)+b
+ #   return np.sqrt(2/M)*np.cos(Z)
 
 #@njit(cache=True)
 #def cholesky_nb(X):
@@ -173,40 +178,19 @@ def ghdiag(fct,mu,var,y):
     llik=fct(y[:,None],fn)
     return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
 
-######Inverse Sweep for LOO######
-@njit(cache=True)
-def inv_swp(X,k):
-    T = np.empty_like(X)
-    n = len(X)
-    mask=np.ones(n,dtype=np.bool8)
-    mask[k]=False
-    d = -1/X[k,k]
-    #T[:,k] = X[:,k] * d
-    #T[k,:] = X[k,:] * d
-    for i in range(n):
-        for j in range(i+1):
-            if i!=k and j!=k:
-                temp = d * X[i,k] * X[k,j]
-                if i==j:
-                    T[i,j] = X[i,j] + temp
-                else:
-                    T[i,j] = X[i,j] + temp 
-                    T[j,i] = X[j,i] + temp
-    #T[k,k] = d
-    return T[:,mask][mask,:]
-
 ######MICE smooth pred var calculation######
-def mice_var(x, x_extra, kernel, nugget_s):
+def mice_var(x, x_extra, input_dim, connect, name, length, scale, nugget, nugget_s):
     """Calculate smoothed predictive variances of the GP using the candidate design set.
     """
-    kernel.input=x[:,kernel.input_dim]
-    if kernel.connect is not None:
-        kernel.global_input=x_extra[:,kernel.connect]
-    kernel.nugget=max(nugget_s,kernel.nugget)
-    R=kernel.k_matrix()
+    kernel_input=x[:,input_dim]
+    if connect is not None:
+        kernel_global_input=x_extra[:,connect]
+        kernel_input=np.concatenate((kernel_input, kernel_global_input),1)
+    kernel_nugget=max(nugget_s,nugget)
+    R=K_matrix_nb(kernel_input, length, kernel_nugget, name)
     Rinv=pinvh(R,check_finite=False)
     sigma2 = (1/np.diag(Rinv)).reshape(-1,1)
-    sigma2 = kernel.scale*sigma2
+    sigma2 = scale*sigma2
     return sigma2
 
 ######functions for predictions########
@@ -224,161 +208,6 @@ def Pmatrix(X):
                     P[d,k,l] = temp
                     P[d,l,k] = temp
     return P
-
-def cond_mean(x,z,w1,global_w1,Rinv_y,length,name):
-    """Make GP predictions.
-    """
-    if z is not None:
-        x=np.concatenate((x, z),1)
-        w1=np.concatenate((w1, global_w1),1)
-    r=k_one_vec(w1,x,length,name)
-    m=np.dot(Rinv_y, r)
-    return m
-
-#@jit(nopython=True,cache=True,fastmath=True)
-def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
-    """Make GP predictions.
-    """
-    if z is not None:
-        x=np.concatenate((x, z),1)
-        w1=np.concatenate((w1, global_w1),1)
-    r=k_one_vec(w1,x,length,name)
-    Rinv_r=np.dot(Rinv,r)
-    r_Rinv_r=np.sum(r*Rinv_r,axis=0)
-    v=np.abs(scale*(1+nugget-r_Rinv_r))
-    #m=np.sum(r*Rinv_y,axis=0) 
-    m=np.dot(Rinv_y, r)
-    return m, v
-
-#@jit(nopython=True,cache=True,fastmath=True)
-def link_gp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget,name,nb_parallel):
-    """Make linked GP predictions.
-    """
-    if name=='sexp':
-        m_new, v_new = link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget)
-    else:
-        M=len(m)
-        m_new=np.empty((M))
-        v_new=np.empty((M))
-        if z is not None:
-            Dw=np.shape(w1)[1]
-            Dz=np.shape(z)[1]
-            if len(length)==1:
-                length=length*np.ones(Dw+Dz)
-            Iz=k_one_vec(z,global_w1,length[-Dz::],'matern2.5')
-        else:
-            Dw=np.shape(w1)[1]
-            if len(length)==1:
-                length=length*np.ones(Dw)
-        for i in range(M):
-            mi=m[i]
-            vi=v[i]
-            if z is not None:
-                #zi=np.expand_dims(z[i,:],axis=0)
-                Izi=Iz[i]
-                if nb_parallel:
-                    I,J=IJ_parallel(w1,mi,vi,length[:-Dz])
-                else:
-                    I,J=IJ(w1,mi,vi,length[:-Dz])
-                #Iz_T=np.expand_dims(Iz.flatten(),axis=0)
-                Jzi=np.outer(Izi,Izi)
-                I,J=I*Izi,J*Jzi
-            else:
-                if nb_parallel:
-                    I,J=IJ_parallel(w1,mi,vi,length)
-                else:
-                    I,J=IJ(w1,mi,vi,length)
-            #tr_RinvJ=np.sum(Rinv*J)
-            tr_RinvJ=trace_sum(Rinv,J)
-            #IRinv_y=np.sum(I*Rinv_y)
-            IRinv_y=np.dot(I,Rinv_y)
-            m_new[i]=IRinv_y
-            #v_new[i]=np.abs(np.sum(np.sum(Rinv_y*J,axis=0)*Rinv_y.flatten())-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-            #v_new[i]=np.abs(Rinv_y.T@J@Rinv_y-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-            v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
-    return m_new,v_new
-
-@njit(cache=True,fastmath=True)
-def link_gp_sexp(m,v,z,w1,global_w1,Rinv,Rinv_y,R2sexp,Psexp,scale,length,nugget):
-    """Make linked GP predictions for sexp kernels.
-    """
-    M=len(m)
-    v_new=np.empty((M))
-    if z is not None:
-        Dw=np.shape(w1)[1]
-        Dz=np.shape(z)[1]
-        if len(length)==1:
-            length=length*np.ones(Dw+Dz)
-        Iz=k_one_vec(z,global_w1,length[-Dz::],'sexp')
-        I=I_sexp(w1,m,v,length[:-Dz])
-        I*=Iz
-    else:
-        Dw=np.shape(w1)[1]
-        if len(length)==1:
-            length=length*np.ones(Dw)
-        I=I_sexp(w1,m,v,length)
-    IRinv_y=np.dot(I,Rinv_y)  
-    for i in range(M):
-        mi=m[i]
-        vi=v[i]
-        if z is not None:
-            J=J_sexp(w1,mi,vi,length[:-Dz],Psexp,R2sexp)
-            Izi=Iz[i]
-            Jzi=np.outer(Izi,Izi)
-            J*=Jzi
-        else:
-            J=J_sexp(w1,mi,vi,length,Psexp,R2sexp)
-        tr_RinvJ=trace_sum(Rinv,J)
-        v_new[i]=np.abs(quad(J,Rinv_y)-IRinv_y[i]**2+scale*(1+nugget-tr_RinvJ)).item()
-    return IRinv_y,v_new
-
-@njit(cache=True,fastmath=True)
-def I_sexp(X,z_m,z_v,length):
-    v_l=1/(1+2*z_v/length**2)
-    X_l=X/length
-    m_l=z_m/length
-    cross1=np.dot(X_l**2,v_l.T)
-    cross2=2*np.dot(X_l,(m_l*v_l).T)
-    L_z=np.sum(m_l**2*v_l,axis=1)
-    coef = 0.5*np.sum(np.log(v_l),axis=1)
-    dist=coef-cross1+cross2-L_z
-    I=np.exp(dist.T)
-    return I
-
-@njit(cache=True,fastmath=True)
-def J_sexp(X,z_m,z_v,length,Psexp,R2sexp):
-    X=X.T
-    d=len(X)
-    vli=z_v/length**2
-    mli=z_m/length
-    J=R2sexp.copy()
-    for i in range(d):
-        J*=1/np.sqrt(1+4*vli[i])*np.exp(-(Psexp[i]-2*mli[i])**2/(2+8*vli[i]))
-    return J
-
-@njit(cache=True,fastmath=True)
-def trace_sum(A,B):
-    n = len(A)
-    a = 0
-    for k in range(n):
-        for l in range(k+1):
-            if k==l:
-                a += A[k,l]*B[k,l]
-            else:
-                a += 2*A[k,l]*B[k,l]
-    return a
-
-@njit(cache=True,fastmath=True)
-def quad(A,B):
-    n = len(A)
-    a = 0
-    for k in range(n):
-        for l in range(k+1):
-            if k==l:
-                a += A[k,l]*B[k]**2
-            else:
-                a += 2*A[k,l]*B[l]*B[k]
-    return a
 
 @njit(cache=True,fastmath=True)
 def k_one_vec(X,z,length,name):
@@ -407,37 +236,197 @@ def k_one_vec(X,z,length,name):
         k=k1*k2
     return k
 
-@njit(cache=True,parallel=True)
-def IJ_parallel(X,z_m,z_v,length):
-    """Compute I and J involved in linked GP predictions.
+def cond_mean(x,z,w1,global_w1,Rinv_y,length,name):
+    """Make GP predictions.
     """
-    n = X.shape[0]
-#    if name=='sexp':
-#        X_z=X-z_m
-#        I=np.ones((n,1))
-#        J=np.ones((n,n))
-#        for i in prange(n):
-#            I[i]=I_sexp_parallel(z_v,length,X_z[i])
-#            for j in range(i+1):
-#                temp = J_sexp_parallel(z_v,length,X_z[i],X_z[j])
-#                if i==j:
-#                    J[i,j]=temp
-#                else:
-#                    J[i,j], J[j,i]=temp, temp
-#    elif name=='matern2.5':
-    zX=z_m-X
-    muA, muB=zX-sqrt(5)*z_v/length, zX+sqrt(5)*z_v/length
-    I=np.ones((n))
-    J=np.ones((n,n))
-    for i in prange(n):
-        I[i]=I_matern_parallel(z_v,length,muA[i],muB[i],zX[i])
-        for j in range(i+1):
-            temp = J_matern_parallel(z_m, z_v, length, X[i], X[j], zX[i], zX[j])
-            if i==j:
-                J[i,j]=temp
+    if z is not None:
+        x=np.concatenate((x, z),1)
+        w1=np.concatenate((w1, global_w1),1)
+    r=k_one_vec(w1,x,length,name)
+    m=np.dot(Rinv_y, r)
+    return m
+
+#@jit(nopython=True,cache=True,fastmath=True)
+#def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
+#    """Make GP predictions.
+#    """
+#    if z is not None:
+#        x=np.concatenate((x, z),1)
+#        w1=np.concatenate((w1, global_w1),1)
+#    r=k_one_vec(w1,x,length,name)
+#    Rinv_r=np.dot(Rinv,r)
+#    r_Rinv_r=np.sum(r*Rinv_r,axis=0)
+#    v=np.abs(scale*(1+nugget-r_Rinv_r))
+#    #m=np.sum(r*Rinv_y,axis=0) 
+ #   m=np.dot(Rinv_y, r)
+#    return m, v
+
+@njit(cache=True, parallel=True)
+def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
+    """Make GP predictions
+    """
+    if z is not None:
+        x=np.concatenate((x, z),1)
+        w1=np.concatenate((w1, global_w1),1)
+    n_pred = x.shape[0]
+    m, v = np.zeros(n_pred), np.zeros(n_pred)
+    for i in prange(n_pred):
+        ri=K_vec_nb(w1,x[i],length,name)
+        Rinv_ri=np.dot(Rinv,ri)
+        r_Rinv_r=np.dot(ri, Rinv_ri)
+        m[i] = np.dot(Rinv_y, ri)
+        v[i] = np.abs(scale*(1+nugget-r_Rinv_r))[0]
+    return m, v
+
+@njit(cache=True, parallel=True)
+def link_gp(m, v, z, w1, global_w1, Rinv, Rinv_y, R2sexp, Psexp, scale, length, nugget, name):
+    """Make linked GP predictions.
+    """
+    n_pred = m.shape[0]
+    m_new, v_new = np.zeros(n_pred), np.zeros(n_pred)
+    if z is not None:
+        Dw=np.shape(w1)[1]
+        Dz=np.shape(z)[1]
+        if len(length)==1:
+            length=np.full(Dw+Dz, length[0])
+    else:
+        Dw=np.shape(w1)[1]
+        if len(length)==1:
+            length=np.full(Dw, length[0])
+    for i in prange(n_pred):
+        if z is not None:
+            Izi = K_vec_nb(global_w1, z[i], length[-Dz::], name)
+            Jzi = np.outer(Izi,Izi)
+            if name == 'sexp' and R2sexp is not None and Psexp is not None:
+                Ii,Ji = IJ_sexp(w1, m[i], v[i], length[:-Dz], R2sexp, Psexp)
             else:
-                J[i,j], J[j,i]=temp, temp 
+                Ii,Ji = IJ_matern(w1, m[i], v[i], length[:-Dz])
+            Ii *= Izi
+            Ji *= Jzi
+        else:
+            if name == 'sexp' and R2sexp is not None and Psexp is not None:
+                Ii,Ji = IJ_sexp(w1, m[i], v[i], length, R2sexp, Psexp)
+            else:
+                Ii,Ji = IJ_matern(w1, m[i], v[i], length)
+        tr_RinvJ = trace_sum(Rinv,Ji)
+        IRinv_y = np.dot(Ii,Rinv_y)
+        m_new[i] = IRinv_y
+        v_new[i] = np.abs(quad(Ji,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+    return m_new,v_new
+
+@njit(cache=True)
+def IJ_sexp(X, z_m, z_v, length, R2sexp, Psexp):
+    n, d = X.shape
+    I = np.zeros(n)
+    J = np.zeros((n,n))
+    X_z = X-z_m
+    I_coef1, J_coef1 = 1., 1.
+    for k in range(d):
+        div = 2*z_v[k]/length[k]**2
+        I_coef1 *= 1 + div
+        J_coef1 *= 1 + 2*div
+        J += (Psexp[k]-2*z_m[k]/length[k])**2/(2+4*div)
+    I_coef1, J_coef1 = 1/sqrt(I_coef1), 1/sqrt(J_coef1)
+    J = J_coef1 * np.exp(-J) * R2sexp
+    for i in range(n):
+        I_coef2 = 0.
+        for k in range(d):
+            I_coef2 += X_z[i,k]**2/(2*z_v[k]+length[k]**2)
+        I[i] = I_coef1 * np.exp(-I_coef2)
     return I,J
+
+@njit(cache=True)
+def IJ_matern(X, z_m, z_v, length):
+    n, d = X.shape
+    I = np.zeros(n)
+    J = np.zeros((n,n))
+    zX = z_m-X
+    muA, muB = zX-sqrt(5)*z_v/length, zX+sqrt(5)*z_v/length
+    for i in range(n):
+        Ii = 1.
+        for k in range(d):
+            if z_v[k]!=0:
+                Ii *= np.exp((5*z_v[k]-2*sqrt(5)*length[k]*zX[i,k])/(2*length[k]**2))* \
+                    ((1+sqrt(5)*muA[i,k]/length[k]+5*(muA[i,k]**2+z_v[k])/(3*length[k]**2))*0.5*(1+erf(muA[i,k]/sqrt(2*z_v[k])))+ \
+                    (sqrt(5)+(5*muA[i,k])/(3*length[k]))*sqrt(0.5*z_v[k]/pi)/length[k]*np.exp(-0.5*muA[i,k]**2/z_v[k]))+ \
+                    np.exp((5*z_v[k]+2*sqrt(5)*length[k]*zX[i,k])/(2*length[k]**2))* \
+                    ((1-sqrt(5)*muB[i,k]/length[k]+5*(muB[i,k]**2+z_v[k])/(3*length[k]**2))*0.5*(1+erf(-muB[i,k]/sqrt(2*z_v[k])))+ \
+                    (sqrt(5)-(5*muB[i,k])/(3*length[k]))*sqrt(0.5*z_v[k]/pi)/length[k]*np.exp(-0.5*muB[i,k]**2/z_v[k]))
+            else:
+                Ii *= (1+sqrt(5)*np.abs(zX[i,k])/length[k]+5*zX[i,k]**2/(3*length[k]**2))*np.exp(-sqrt(5)*np.abs(zX[i,k])/length[k])  
+        I[i] = Ii
+        for j in range( i + 1 ):
+            if i==j:
+                Jii = 1.
+                for k in range(d):
+                    if z_v[k]!=0:
+                        Jii *= Jd0(X[i,k],z_m[k],z_v[k],length[k])
+                    else:
+                        Iki = (1+sqrt(5)*np.abs(zX[i,k])/length[k]+5*zX[i,k]**2/(3*length[k]**2))*np.exp(-sqrt(5)*np.abs(zX[i,k])/length[k])
+                        Jii *= Iki**2
+                J[i,j] = Jii
+            else:
+                Jij = 1.
+                for k in range(d):
+                    if z_v[k]!=0:
+                        Jij *= Jd(X[j,k],X[i,k],z_m[k],z_v[k],length[k])
+                    else:
+                        Iki = (1+sqrt(5)*np.abs(zX[i,k])/length[k]+5*zX[i,k]**2/(3*length[k]**2))*np.exp(-sqrt(5)*np.abs(zX[i,k])/length[k])
+                        Ikj = (1+sqrt(5)*np.abs(zX[j,k])/length[k]+5*zX[j,k]**2/(3*length[k]**2))*np.exp(-sqrt(5)*np.abs(zX[j,k])/length[k])
+                        Jij *= (Iki*Ikj)
+                J[i,j] = Jij
+                J[j,i] = J[i,j]
+    return I,J
+
+@njit(cache=True,fastmath=True)
+def trace_sum(A,B):
+    n = len(A)
+    a = 0
+    for k in range(n):
+        for l in range(k+1):
+            if k==l:
+                a += A[k,l]*B[k,l]
+            else:
+                a += 2*A[k,l]*B[k,l]
+    return a
+
+@njit(cache=True, parallel=True)
+def esloo_calculation(mu_i, var_i, Y, indices, start_rows):
+    B = len(mu_i)
+    mu = np.sum(mu_i,axis=0)/B
+    sigma2 = np.sum((np.square(mu_i)+var_i),axis=0)/B-mu**2
+    n, d = mu.shape
+    L = Y.shape[0]
+    if indices is not None:
+        nesloo = np.zeros((L, d))
+    else:
+        nesloo = np.zeros((n, d))
+    final_nesloo = np.empty_like(nesloo)
+    seq = np.arange(L)
+    reorder_idx = np.arange(L)
+    for i in prange(n):
+        if indices is not None:
+            idx = indices==i
+            f = Y[idx,:]
+            reorder_idx_i = seq[idx]
+        else:
+            f = Y[i:i+1,:]
+        mu_ii, var_ii = mu_i[:,i:i+1,:], var_i[:,i:i+1,:]
+        esloo = sigma2[i] + (mu[i] - f)**2 #2d array
+        normaliser = np.zeros((B, f.shape[0], f.shape[1])) #3d array
+        for j in range(B):
+            for k in range(f.shape[0]):
+                error_jk = (mu_ii[j] - f[k])**2
+                normaliser[j,k] = error_jk**2 + 6 * error_jk * var_ii[j] + 3 * var_ii[j]**2
+        normaliser = np.sum(normaliser, axis=0)/B - esloo**2
+        nesloo_ii = esloo / np.sqrt(normaliser)
+        count = nesloo_ii.shape[0]
+        starting_row =  start_rows[i]
+        nesloo[starting_row:starting_row+count, :] = nesloo_ii
+        if indices is not None:
+            reorder_idx[starting_row:starting_row+count] = reorder_idx_i
+    final_nesloo[reorder_idx,:] = nesloo
+    return final_nesloo
 
 #@jit(nopython=True,cache=True)
 #def I_sexp_parallel(z_v,length,X_zi):
@@ -453,138 +442,3 @@ def IJ_parallel(X,z_m,z_v,length):
 #        dis1, dis2 = (X_zi[d]+X_zj[d])**2, (X_zi[d]-X_zj[d])**2
 #        Jd*=1/np.sqrt(1+4*z_v[d]/length[d]**2)*np.exp(-dis1/(2*length[d]**2+8*z_v[d])-dis2/(2*length[d]**2))
 #    return Jd
-
-@njit(cache=True)
-def I_matern_parallel(z_v,length,muA,muB,zXi):
-    Id=1
-    for d in range(len(length)):
-        if z_v[d]!=0:
-            Id*=np.exp((5*z_v[d]-2*sqrt(5)*length[d]*zXi[d])/(2*length[d]**2))* \
-                ((1+sqrt(5)*muA[d]/length[d]+5*(muA[d]**2+z_v[d])/(3*length[d]**2))*0.5*(1+erf(muA[d]/sqrt(2*z_v[d])))+ \
-                (sqrt(5)+(5*muA[d])/(3*length[d]))*sqrt(0.5*z_v[d]/pi)/length[d]*np.exp(-0.5*muA[d]**2/z_v[d]))+ \
-                np.exp((5*z_v[d]+2*sqrt(5)*length[d]*zXi[d])/(2*length[d]**2))* \
-                ((1-sqrt(5)*muB[d]/length[d]+5*(muB[d]**2+z_v[d])/(3*length[d]**2))*0.5*(1+erf(-muB[d]/sqrt(2*z_v[d])))+ \
-                (sqrt(5)-(5*muB[d])/(3*length[d]))*sqrt(0.5*z_v[d]/pi)/length[d]*np.exp(-0.5*muB[d]**2/z_v[d]))
-        else:
-            Id*=(1+sqrt(5)*np.abs(zXi[d])/length[d]+5*zXi[d]**2/(3*length[d]**2))*np.exp(-sqrt(5)*np.abs(zXi[d])/length[d])  
-    return Id
-
-@njit(cache=True)
-def J_matern_parallel(z_m, z_v, length, Xi, Xj, zXi, zXj):
-    J_d=1
-    for d in range(len(length)):
-        if z_v[d]!=0:
-            J_d*=Jd(Xj[d],Xi[d],z_m[d],z_v[d],length[d])
-        else:
-            Idi=(1+sqrt(5)*np.abs(zXi[d])/length[d]+5*zXi[d]**2/(3*length[d]**2))*np.exp(-sqrt(5)*np.abs(zXi[d])/length[d])
-            Idj=(1+sqrt(5)*np.abs(zXj[d])/length[d]+5*zXj[d]**2/(3*length[d]**2))*np.exp(-sqrt(5)*np.abs(zXj[d])/length[d])
-            J_d*=(Idi*Idj)
-    return J_d
-
-@njit(cache=True,fastmath=True)
-def IJ(X,z_m,z_v,length):
-    """Compute I and J involved in linked GP predictions.
-    """
-    n,d=X.shape
-#    if name=='sexp':
-#        X_z=(X-z_m).T
-#        I=np.ones((n))
-#        J=np.ones((n,n))
-#        for i in range(d):
-#            I*=1/np.sqrt(1+2*z_v[i]/length[i]**2)*np.exp(-X_z[i]**2/(2*z_v[i]+length[i]**2))
-#            for k in range(n):
-#                for l in range(k+1):
-#                    temp = J_sexp(z_v[i],length[i],X_z[i,k],X_z[i,l])
-#                    if k==l:
-#                        J[k,l]*=temp
-#                    else:
-#                        J[k,l]*=temp
-#                        J[l,k]*=temp
-#        return I.reshape(-1,1),J
-#    elif name=='matern2.5':
-    zX=z_m-X
-    muA=(zX-sqrt(5)*z_v/length).T
-    muB=(zX+sqrt(5)*z_v/length).T
-    zX=zX.T
-    X=X.T
-    I=np.ones((n))
-    J=np.ones((n,n))
-    for i in range(d):    
-        if z_v[i]!=0:
-            I*=np.exp((5*z_v[i]-2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
-                ((1+sqrt(5)*muA[i]/length[i]+5*(muA[i]**2+z_v[i])/(3*length[i]**2))*pnorm(muA[i]/sqrt(z_v[i]))+ \
-                (sqrt(5)+(5*muA[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muA[i]**2/z_v[i]))+ \
-                np.exp((5*z_v[i]+2*sqrt(5)*length[i]*zX[i])/(2*length[i]**2))* \
-                ((1-sqrt(5)*muB[i]/length[i]+5*(muB[i]**2+z_v[i])/(3*length[i]**2))*pnorm(-muB[i]/sqrt(z_v[i]))+ \
-                (sqrt(5)-(5*muB[i])/(3*length[i]))*sqrt(0.5*z_v[i]/pi)/length[i]*np.exp(-0.5*muB[i]**2/z_v[i]))
-            for k in range(n):
-                for l in range(k+1):
-                    J_lk=Jd(X[i,l],X[i,k],z_m[i],z_v[i],length[i])
-                    if l==k:
-                        J[l,k]*=J_lk
-                    else:
-                        J[l,k]*=J_lk
-                        J[k,l]*=J_lk
-        else:
-            Id=(1+sqrt(5)*np.abs(zX[i])/length[i]+5*zX[i]**2/(3*length[i]**2))*np.exp(-sqrt(5)*np.abs(zX[i])/length[i])
-            I*=Id
-            J*=np.outer(Id,Id)
-    return I,J
-
-#@jit(nopython=True,cache=True,fastmath=True)
-#def J_sexp(z_v,length,X_zi,X_zj):
-#    dis1, dis2 = (X_zi+X_zj)**2, (X_zi-X_zj)**2
-#    Jd=1/sqrt(1+4*z_v/length**2)*exp(-dis1/(2*length**2+8*z_v)-dis2/(2*length**2))
-#    return Jd
-
-@vectorize([float64(float64)],nopython=True,cache=True,fastmath=True)
-def pnorm(x):
-    """Compute standard normal CDF.
-    """
-    return 0.5*(1+erf(x/sqrt(2)))    
-
-@njit(cache=True,fastmath=True)
-def Jd(X1,X2,z_m,z_v,length):
-    """Compute J components in different input dimensions for Matern2.5 kernel.
-    """
-    if X1<X2:
-        x1=X1
-        x2=X2
-    else:
-        x1=X2
-        x2=X1
-    E30=1+(25*x1**2*x2**2-3*sqrt(5)*(3*length**3+5*length*x1*x2)*(x1+x2)+15*length**2*(x1**2+x2**2+3*x1*x2))/(9*length**4)
-    E31=(18*sqrt(5)*length**3+15*sqrt(5)*length*(x1**2+x2**2)-(75*length**2+50*x1*x2)*(x1+x2)+60*sqrt(5)*length*x1*x2)/(9*length**4)
-    E32=5*(5*x1**2+5*x2**2+15*length**2-9*sqrt(5)*length*(x1+x2)+20*x1*x2)/(9*length**4)
-    E33=10*(3*sqrt(5)*length-5*x1-5*x2)/(9*length**4)
-    E34=25/(9*length**4)
-    muC=z_m-2*sqrt(5)*z_v/length
-    E3A31=E30+muC*E31+(muC**2+z_v)*E32+(muC**3+3*z_v*muC)*E33+(muC**4+6*z_v*muC**2+3*z_v**2)*E34
-    E3A32=E31+(muC+x2)*E32+(muC**2+2*z_v+x2**2+muC*x2)*E33+(muC**3+x2**3+x2*muC**2+muC*x2**2+3*z_v*x2+5*z_v*muC)*E34
-    P1=exp((10*z_v+sqrt(5)*length*(x1+x2-2*z_m))/length**2)*(0.5*E3A31*(1+erf((muC-x2)/sqrt(2*z_v)))+\
-        E3A32*sqrt(0.5*z_v/pi)*exp(-0.5*(x2-muC)**2/z_v))
-    
-    E40=1+(25*x1**2*x2**2+3*sqrt(5)*(3*length**3-5*length*x1*x2)*(x2-x1)+15*length**2*(x1**2+x2**2-3*x1*x2))/(9*length**4)
-    E41=5*(3*sqrt(5)*length*(x2**2-x1**2)+3*length**2*(x1+x2)-10*x1*x2*(x1+x2))/(9*length**4)
-    E42=5*(5*x1**2+5*x2**2-3*length**2-3*sqrt(5)*length*(x2-x1)+20*x1*x2)/(9*length**4)
-    E43=-50*(X1+X2)/(9*length**4)
-    E44=25/(9*length**4)
-    E4A41=E40+z_m*E41+(z_m**2+z_v)*E42+(z_m**3+3*z_v*z_m)*E43+(z_m**4+6*z_v*z_m**2+3*z_v**2)*E44
-    E4A42=E41+(z_m+x1)*E42+(z_m**2+2*z_v+x1**2+z_m*x1)*E43+(z_m**3+x1**3+x1*z_m**2+z_m*x1**2+3*z_v*x1+5*z_v*z_m)*E44
-    E4A43=E41+(z_m+x2)*E42+(z_m**2+2*z_v+x2**2+z_m*x2)*E43+(z_m**3+x2**3+x2*z_m**2+z_m*x2**2+3*z_v*x2+5*z_v*z_m)*E44
-    P2=exp(-sqrt(5)*(x2-x1)/length)*(0.5*E4A41*(erf((x2-z_m)/sqrt(2*z_v))-erf((x1-z_m)/sqrt(2*z_v)))+\
-        E4A42*sqrt(0.5*z_v/pi)*exp(-0.5*(x1-z_m)**2/z_v)-E4A43*sqrt(0.5*z_v/pi)*exp(-0.5*(x2-z_m)**2/z_v))
-
-    E50=1+(25*x1**2*x2**2+3*sqrt(5)*(3*length**3+5*length*x1*x2)*(x1+x2)+15*length**2*(x1**2+x2**2+3*x1*x2))/(9*length**4)
-    E51=(18*sqrt(5)*length**3+15*sqrt(5)*length*(x1**2+x2**2)+(75*length**2+50*x1*x2)*(x1+x2)+60*sqrt(5)*length*x1*x2)/(9*length**4)
-    E52=5*(5*x1**2+5*x2**2+15*length**2+9*sqrt(5)*length*(x1+x2)+20*x1*x2)/(9*length**4)
-    E53=10*(3*sqrt(5)*length+5*x1+5*x2)/(9*length**4)
-    E54=25/(9*length**4)
-    muD=z_m+2*sqrt(5)*z_v/length
-    E5A51=E50-muD*E51+(muD**2+z_v)*E52-(muD**3+3*z_v*muD)*E53+(muD**4+6*z_v*muD**2+3*z_v**2)*E54
-    E5A52=E51-(muD+x1)*E52+(muD**2+2*z_v+x1**2+muD*x1)*E53-(muD**3+x1**3+x1*muD**2+muD*x1**2+3*z_v*x1+5*z_v*muD)*E54
-    P3=exp((10*z_v-sqrt(5)*length*(x1+x2-2*z_m))/length**2)*(0.5*E5A51*(1+erf((x1-muD)/sqrt(2*z_v)))+\
-        E5A52*sqrt(0.5*z_v/pi)*exp(-0.5*(x1-muD)**2/z_v))
-
-    jd=P1+P2+P3
-    return jd

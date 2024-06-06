@@ -6,12 +6,15 @@ from .imputation import imputer
 from .kernel_class import kernel as ker
 from .kernel_class import combine
 from .functions import cond_mean
+from .utils import NystromKPCA
+from .vecchia import cond_mean_vecch
 from sklearn.decomposition import KernelPCA
 from scipy.linalg import cho_solve
 import multiprocess.context as ctx
 import platform
 from pathos.multiprocessing import ProcessingPool as Pool
 import psutil  
+from numba import set_num_threads
 
 class dgp:
     """
@@ -33,11 +36,8 @@ class dgp:
         check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
             position has multiple outputs. Defaults to `True`.
         block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations during the training. Defaults to `True`.
-        rff (bool, optional): whether to use random Fourier features to approximate the correlation matrices 
-            during the imputation in training. Defaults to `False`.
-        M (int, optional): the number of features to be used by random Fourier approximation. It is only used
-            when **rff** is set to `True`. Defaults to `None`. If it is not specified, **M** is set to 
-            ``max(100, ceil(sqrt(Data Size)*log(Data Size))))``.
+        vecchia (bool): a bool indicating if Vecchia approximation will be used. Defaults to `False`. 
+        m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
         
     Remark:
         This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
@@ -60,7 +60,7 @@ class dgp:
 
     """
 
-    def __init__(self, X, Y, all_layer=None, check_rep=True, block=True, rff=False, M=None):
+    def __init__(self, X, Y, all_layer=None, check_rep=True, block=True, vecchia=False, m=25):
         self.Y=Y
         if isinstance(self.Y, list):
             if len(self.Y)==1:
@@ -84,11 +84,13 @@ class dgp:
                 self.X=X
         else:
             self.X=X
-        self.rff=rff
-        if M is None:
-            self.M=max(100, int(np.ceil(np.sqrt(len(self.X))*np.log(len(self.X)))))
+        self.vecch=vecchia
+        self.n_data=self.X.shape[0]
+        if self.n_data>=1e4:
+            self.nn_method = 'approx'
         else:
-            self.M=M
+            self.nn_method = 'exact'
+        self.m=min(m, self.n_data-1)
         if all_layer is None:
             D, Y_D=np.shape(self.X)[1], np.shape(self.Y)[1]
             layer1 = [ker(length=np.array([1.])) for _ in range(D)]
@@ -116,14 +118,19 @@ class dgp:
                 if np.shape(In)[1]==num_kernel:
                     Out=copy.copy(In)
                 elif np.shape(In)[1]>num_kernel:
-                    pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
-                    Out=pca.fit_transform(In)
+                    if self.vecch or self.n_data>=500:
+                        pca=NystromKPCA(n_components=num_kernel)
+                        Out=pca.fit_transform(In)
+                    else:
+                        pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
+                        Out=pca.fit_transform(In)
                 else:
                     Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
                     kernel.rep=self.indices
+                    #kernel.rep_sp=rep_sp(kernel.rep)
                 if kernel.input_dim is not None:
                     if l==self.n_layer-1:
                         if kernel.type=='likelihood':
@@ -163,12 +170,40 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=global_in[:,kernel.connect]
-                    kernel.rff, kernel.M = self.rff, self.M
+                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                     kernel.D=np.shape(kernel.input)[1]
                     if kernel.connect is not None:
                         kernel.D+=len(kernel.connect)
-                    if kernel.rff:
-                        kernel.sample_basis()
+                    if kernel.vecch:
+                        compute_pointer = False
+                        if l==self.n_layer-2:
+                            linked_layer=self.all_layer[l+1]
+                            linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
+                            if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+                                idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
+                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                    compute_pointer = True
+                        if k == 0:
+                            kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            if len(kernel.length) == 1:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                        kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+                            else:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                        kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
                 if l==self.n_layer-1:
                     kernel.output=self.Y[:,[k]]
                 else:
@@ -194,14 +229,42 @@ class dgp:
         self.n_layer=len(self.all_layer)
         for l in range(self.n_layer):
             layer=self.all_layer[l]
-            for kernel in layer:
+            for k, kernel in enumerate(layer):
                 if kernel.type=='gp':
                     kernel.para_path=np.atleast_2d(np.concatenate((kernel.scale,kernel.length,kernel.nugget)))
                     kernel.D=np.shape(kernel.input)[1]
                     if kernel.connect is not None:
                         kernel.D+=len(kernel.connect)
-                    if kernel.rff:
-                        kernel.sample_basis()
+                    if kernel.vecch:
+                        compute_pointer = False
+                        if l==self.n_layer-2:
+                            linked_layer=self.all_layer[l+1]
+                            linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
+                            if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+                                idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
+                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                    compute_pointer = True
+                        if k == 0:
+                            kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            if len(kernel.length) == 1:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                        kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+                            else:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                        kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
                     if kernel.prior_name=='ref':
                         p=np.shape(kernel.input)[1]
                         if kernel.global_input is not None:
@@ -244,6 +307,17 @@ class dgp:
                 self.X=X
         else:
             self.X=X
+        n_data=self.X.shape[0]
+        if self.n_data<300 and self.vecch:
+            self.vecch=True if n_data>=100 else False
+        else:
+            self.vecch=True if n_data>=300 else False
+        self.n_data = n_data
+        if self.n_data>=1e4:
+            self.nn_method = 'approx'
+        else:
+            self.nn_method = 'exact'
+        self.m=min(self.m, self.n_data-1)
         if reset:
             self.reinit_all_layer(reset_lengthscale=True)
             self.imp=imputer(self.all_layer, self.block)
@@ -281,21 +355,59 @@ class dgp:
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l!=self.n_layer-1:
-                    R=kernel.k_matrix()
-                    L=np.linalg.cholesky(R)
-                    Rinv_y=cho_solve((L, True), kernel.output, check_finite=False).flatten()
-                    if kernel.connect is not None:
-                        mu=cond_mean(In[~mask,:][:,kernel.input_dim],global_in[~mask,:][:,kernel.connect],kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
-                    else:
-                        mu=cond_mean(In[~mask,:][:,kernel.input_dim],None,kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
+                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    if kernel.vecch:
+                        if kernel.connect is not None:
+                            mu=cond_mean_vecch(In[~mask,:][:,kernel.input_dim], global_in[~mask,:][:,kernel.connect], kernel.input, kernel.global_input, kernel.output, kernel.scale, kernel.length, kernel.nugget, kernel.name, 50, kernel.nn_method)
+                        else:
+                            mu=cond_mean_vecch(In[~mask,:][:,kernel.input_dim], None, kernel.input, kernel.global_input, kernel.output, kernel.scale, kernel.length, kernel.nugget, kernel.name, 50, kernel.nn_method)
+                    else: 
+                        R=kernel.k_matrix()
+                        L=np.linalg.cholesky(R)
+                        Rinv_y=cho_solve((L, True), kernel.output, check_finite=False).flatten()
+                        if kernel.connect is not None:
+                            mu=cond_mean(In[~mask,:][:,kernel.input_dim],global_in[~mask,:][:,kernel.connect],kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
+                        else:
+                            mu=cond_mean(In[~mask,:][:,kernel.input_dim],None,kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
                     kernel.input=(In[:,kernel.input_dim]).copy()
                     Out[sub_idx,k]=kernel.output.flatten()
                     Out[~mask,k]=mu
                     kernel.output=Out[:,[k]].copy()
                     if kernel.connect is not None:
                         kernel.global_input=(global_in[:,kernel.connect]).copy()
+                    if kernel.vecch:
+                        compute_pointer = False
+                        if l==self.n_layer-2:
+                            linked_layer=self.all_layer[l+1]
+                            linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
+                            if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+                                idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
+                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                    compute_pointer = True
+                        if k == 0:
+                            kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            if len(kernel.length) == 1:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                        kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+                            else:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                        kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
                 else:
                     kernel.rep=self.indices
+                    #kernel.rep_sp=rep_sp(kernel.rep)
                     if kernel.rep is None:
                         kernel.input=(In[:,kernel.input_dim]).copy()
                     else:
@@ -306,6 +418,29 @@ class dgp:
                                 kernel.global_input=(global_in[:,kernel.connect]).copy()
                             else:
                                 kernel.global_input=(global_in[kernel.rep,:][:,kernel.connect]).copy()
+                        kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                        if kernel.vecch:
+                            if k == 0:
+                                kernel.ord_nn(pointer=False)
+                            else:
+                                if len(kernel.length) == 1:
+                                    found_match = False
+                                    for j in range(k):
+                                        if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                            kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=False)
+                                            found_match = True
+                                            break
+                                    if not found_match:
+                                        kernel.ord_nn(pointer=False)
+                                else:
+                                    found_match = False
+                                    for j in range(k):
+                                        if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                            kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=False)
+                                            found_match = True
+                                            break
+                                    if not found_match:
+                                        kernel.ord_nn(pointer=False)
                     kernel.output=(self.Y[:,[k]]).copy()
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
@@ -331,6 +466,7 @@ class dgp:
                         if self.indices is not None:
                             kernel.input=kernel.input[self.indices,:]
                     kernel.rep=self.indices
+                    #kernel.rep_sp=rep_sp(kernel.rep)
                 else:
                     kernel.input=kernel.input[sub_idx,:]
                 if kernel.type=='gp':
@@ -344,6 +480,37 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=(self.X[:,kernel.connect]).copy()
+                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    if kernel.vecch:
+                        compute_pointer = False
+                        if l==self.n_layer-2:
+                            linked_layer=self.all_layer[l+1]
+                            linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
+                            if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+                                idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
+                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                    compute_pointer = True
+                        if k == 0:
+                            kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            if len(kernel.length) == 1:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                        kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+                            else:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                        kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
                 if l==self.n_layer-1:
                     kernel.output=(self.Y[:,[k]]).copy()
                 else:
@@ -366,8 +533,12 @@ class dgp:
                 if np.shape(In)[1]==num_kernel:
                     Out=In
                 elif np.shape(In)[1]>num_kernel:
-                    pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
-                    Out=pca.fit_transform(In)
+                    if self.vecch or self.n_data>=500:
+                        pca=NystromKPCA(n_components=num_kernel)
+                        Out=pca.fit_transform(In)
+                    else:
+                        pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
+                        Out=pca.fit_transform(In)
                 else:
                     Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
                 Out=copy.copy(Out)
@@ -375,6 +546,7 @@ class dgp:
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
                     kernel.rep=self.indices
+                    #kernel.rep_sp=rep_sp(kernel.rep)
                 if l==self.n_layer-1:
                     if kernel.rep is None:
                         kernel.input=In[:,kernel.input_dim]
@@ -393,11 +565,42 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=global_in[:,kernel.connect]
+                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                     if reset_lengthscale:
                         initial_hypers=kernel.para_path[0,:]
                         kernel.scale=initial_hypers[[0]]
                         kernel.length=initial_hypers[1:-1]
                         kernel.nugget=initial_hypers[[-1]]
+                    if kernel.vecch:
+                        compute_pointer = False
+                        if l==self.n_layer-2:
+                            linked_layer=self.all_layer[l+1]
+                            linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
+                            if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+                                idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
+                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                    compute_pointer = True
+                        if k == 0:
+                            kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            if len(kernel.length) == 1:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                        kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+                            else:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                        kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
                 if l==self.n_layer-1:
                     kernel.output=self.Y[:,[k]]
                 else:
@@ -422,6 +625,8 @@ class dgp:
         for i in pgb:
             #I-step           
             (self.imp).sample(burnin=ess_burn)
+            if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
+                (self.imp).update_ord_nn()
             #M-step
             for l in range(self.n_layer):
                 for kernel in self.all_layer[l]:
@@ -446,28 +651,41 @@ class dgp:
             core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
                 the number of cores is set to ``(max physical cores available - 1)``.
         """
+        if platform.system()=='Darwin':
+            ctx._force_start_method('forkserver')
+        total_cores = psutil.cpu_count(logical = False)
+        if core_num is None:
+            if self.vecch:
+                core_num = total_cores//2
+            else:
+                core_num = total_cores - 1
+        num_thread = total_cores // core_num
+
         def pmax(kernel):
             if kernel.type=='gp':
                 if kernel.prior_name=='ref':
                     kernel.compute_cl()
+                if kernel.vecch:
+                    set_num_threads(num_thread)
                 kernel.maximise()
             return kernel
         def pmax_r2(kernel):
             if kernel.type=='gp':
                 if kernel.prior_name=='ref':
                     kernel.compute_cl()
+                if kernel.vecch:
+                    set_num_threads(num_thread)
                 kernel.r2()
                 kernel.maximise()
             return kernel
-        if platform.system()=='Darwin':
-            ctx._force_start_method('forkserver')
-        if core_num is None:
-            core_num=psutil.cpu_count(logical = False)-1
+        
         pool = Pool(core_num)
         pgb=trange(1,N+1,disable=disable)
         for i in pgb:
             #I-step           
             (self.imp).sample(burnin=ess_burn)
+            if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
+                (self.imp).update_ord_nn()
             #M-step
             for l in range(self.n_layer):
                 if l==0:

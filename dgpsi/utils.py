@@ -1,9 +1,11 @@
 from dill import dump, load
 from tabulate import tabulate
-from numba import jit
+from numba import njit, set_num_threads, get_num_threads
 import numpy as np
-import copy
-from contextlib import contextmanager
+from scipy.linalg import svd
+from sklearn.metrics.pairwise import pairwise_kernels
+#import copy
+#from contextlib import contextmanager
 
 ######Save and Load Emulators#######
 def write(emu, pkl_file):
@@ -32,18 +34,29 @@ def read(pkl_file):
     emu = load(open(pkl_file+".pkl", "rb"))
     return emu
 
-@contextmanager
-def modify_all_layer_set(instance):
-    original_all_layer_set = copy.deepcopy(instance.all_layer_set)
-    yield instance.all_layer_set
-    instance.all_layer_set = original_all_layer_set
+#@contextmanager
+#def modify_all_layer_set(instance):
+#    original_all_layer_set = copy.deepcopy(instance.all_layer_set)
+#    yield instance.all_layer_set
+#    instance.all_layer_set = original_all_layer_set
 
 ######seed function#######
-@jit(nopython=True,cache=True)
+@njit(cache=True)
 def nb_seed(value):
     """Set seed for Numba functions.
     """
     np.random.seed(value)
+
+######thread number function#######
+def get_thread():
+    """Get number of numba thread.
+    """
+    return get_num_threads()
+
+def set_thread(value):
+    """Set number of numba thread.
+    """
+    set_num_threads(value)
 
 ######summary function#######
 def summary(obj, tablefmt='fancy_grid'):
@@ -168,3 +181,72 @@ def summary(obj, tablefmt='fancy_grid'):
         print(table)
         print("1. 'Connection' gives the indices of emulators and the associated output dimensions that are linked to the emulator referred by 'Layer No.' and 'Emulator No.'.")
         print("2. 'External Inputs' indicates if the emulator (referred by 'Layer No.' and 'Emulator No.') has external inputs that are not provided by the feeding emulators.")
+
+class NystromKPCA():
+    def __init__(self, n_components, m = 200):
+        self.m = m 
+        self.n_components = n_components
+        self.basis_inds = None
+
+    def fit_transform(self, X):
+        n_samples = X.shape[0]
+        self.m = min(n_samples, self.m)
+        inds = np.random.permutation(n_samples)
+        self.basis_inds = inds[:self.m]
+        basis = X[self.basis_inds]
+
+        K_nm = pairwise_kernels(
+            X,
+            basis,
+            metric='sigmoid',
+            filter_params=True
+        )
+
+        K_mm = K_nm[self.basis_inds]
+
+        K_mm_p, K_nm_p = self.demean_matrices(K_mm, K_nm)
+
+        K_inv_sqrt = self.get_inverse(K_mm_p, is_sqrt = True)
+
+        nystrom_matrix = K_inv_sqrt @ K_nm_p.T @ K_nm_p @ K_inv_sqrt / n_samples
+        _, U = np.linalg.eigh(nystrom_matrix)
+        U = U[:,::-1]
+
+        components_ = K_inv_sqrt @ U[:,:self.n_components]
+        scores_     = K_nm_p @ components_
+
+        scores_ = self.flip_dimensions(scores_)
+
+        #self.K_mm, self.K_mm_p, self.K_nm, self.K_nm_p = K_mm, K_mm_p, K_nm, K_nm_p
+
+        return scores_
+    
+    def demean_matrices(self, K_mm, K_nm):
+        n, m = K_nm.shape
+        n_mean = K_nm.sum(0) / n
+        M1 = np.tile(n_mean, (n,1))
+        m0 = self.get_inverse(K_mm) @ n_mean[:,np.newaxis]
+        M2 = np.tile(K_nm @ m0, (1, m))
+        M3 = n_mean @ m0
+        K_nm_p = K_nm - M1 - M2 + M3
+        M1 = M1[:m]
+        K_mm_p = K_mm - M1 - M1.T + M3
+        return K_mm_p, K_nm_p
+    
+    @staticmethod
+    def get_inverse(K, is_sqrt = False):
+        U, S, V = svd(K)
+        S = np.maximum(S, 1e-12)
+        if is_sqrt:
+            K_inv = np.dot(U / np.sqrt(S), V)
+        else:
+            K_inv = np.dot(U / S, V)
+        return K_inv
+    
+    @staticmethod
+    def flip_dimensions(scores):
+        flip = (scores.min(0) + scores.max(0)) / 2 < 0
+        flip_matrix = np.diag(1 - 2 * flip)
+        scores_flipped = scores @ flip_matrix
+        return scores_flipped
+    

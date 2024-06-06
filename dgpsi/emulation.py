@@ -6,8 +6,10 @@ import psutil
 from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
-from .functions import ghdiag, mice_var
-from .utils import modify_all_layer_set
+from .functions import ghdiag, mice_var, esloo_calculation
+from .vecchia import get_pred_nn
+from contextlib import contextmanager
+from numba import set_num_threads
 
 class emulator:
     """Class to make predictions from the trained DGP model.
@@ -16,37 +18,46 @@ class emulator:
         all_layer (list): a list that contains the trained DGP model produced by the method :meth:`.estimate`
             of the :class:`.dgp` class. 
         N (int, optional): the number of imputations to produce the predictions. Increase the value to account for
-            more imputation uncertainties. Defaults to `50`.
-        nb_parallel (bool, optional): whether to use *Numba*'s multi-threading to accelerate the predictions. Defaults to `False`.
+            more imputation uncertainties. Defaults to `10`.
         block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations. Defaults to `True`.
     """
-    def __init__(self, all_layer, N=50, nb_parallel=False, block=True):
+    def __init__(self, all_layer, N=10, block=True):
         self.all_layer=all_layer
         self.n_layer=len(all_layer)
+        if self.all_layer[0][0].vecch:
+            self.vecch=True
+        else:
+            self.vecch=False
         self.imp=imputer(self.all_layer, block)
+        if self.vecch:
+            (self.imp).update_ord_nn()
         (self.imp).sample(burnin=50)
         self.all_layer_set=[]
         for _ in range(N):
+            if self.vecch:
+                (self.imp).update_ord_nn()
             (self.imp).sample()
-            (self.imp).key_stats()
+            if not self.vecch:
+                (self.imp).key_stats()
             (self.all_layer_set).append(copy.deepcopy(self.all_layer))
-        self.nb_parallel=nb_parallel
+        #self.nb_parallel=nb_parallel
         #if len(self.all_layer[0][0].input)>=500 and self.nb_parallel==False:
         #    print('Your training data size is greater than %i, you might want to set "nb_parallel=True" to accelerate the prediction.' % (500))
     
-    def set_nb_parallel(self,nb_parallel):
-        """Set **self.nb_parallel** to the bool value given by **nb_parallel**. This method is useful to change **self.nb_parallel**
-            when the :class:`.emulator` class has already been built.
-        """
-        self.nb_parallel=nb_parallel
-
-    def esloo(self, X, Y):
+    #def set_nb_parallel(self,nb_parallel):
+    #    """Set **self.nb_parallel** to the bool value given by **nb_parallel**. This method is useful to change **self.nb_parallel**
+    #        when the :class:`.emulator` class has already been built.
+    #    """
+    #    self.nb_parallel=nb_parallel
+        
+    def esloo(self, X, Y, m=30):
         """Compute the (normalised) expected squared LOO from a DGP emulator.
 
         Args:
             X (ndarray): the training input data used to build the DGP emulator via the :class:`.dgp` class.
             Y (ndarray): the training output data used to build the DGP emulator via the :class:`.dgp` class.
-            
+            m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
+
         Returns:
             ndarray: a numpy 2d-array is returned. The array has its rows corresponding to training input
                 positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
@@ -54,111 +65,64 @@ class emulator:
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
+            _, counts = np.unique(indices, return_counts=True)
+            start_rows = np.cumsum(np.concatenate(([0], counts[:-1])))
         else:
             indices = None
-        res = []
-        for i in range(len(X)):
-            res.append(self.esloo_calculation(i, X, Y, indices))
-        final_res = np.concatenate(res)
-        if isrep:
-            idx=[]
-            seq=np.arange(len(Y))
-            for i in range(len(X)):
-                idx.append(seq[indices==i])
-            idx=np.concatenate(idx)
-            final_res_cp=np.empty_like(final_res)
-            final_res_cp[idx,:]=final_res
-            return final_res_cp
-        else:
-            return final_res
+            start_rows = np.arange(len(X))
+        m_pred = m+1 if self.vecch else X.shape[0]
+        with self.change_vecch_state():
+            mu_i, var_i = self.predict(X, aggregation=False, m=m_pred)
+        mu_i, var_i = np.stack(mu_i), np.stack(var_i)
+        final_res = esloo_calculation(mu_i, var_i, Y, indices, start_rows)
+        return final_res
 
-    def pesloo(self, X, Y, core_num=None):
+    def pesloo(self, X, Y, m=30, core_num=None):
         """Compute in parallel the (normalised) expected squared LOO from a DGP emulator.
 
         Args:
-            X, Y: see descriptions of the method :meth:`.emulator.esloo`.
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
+            X, Y, m: see descriptions of the method :meth:`.emulator.esloo`.
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
 
         Returns:
             Same as the method :meth:`.emulator.esloo`.
         """
-        if platform.system()=='Darwin':
-            ctx._force_start_method('forkserver')
-        if core_num is None:
-            core_num=psutil.cpu_count(logical = False)-1
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
+            _, counts = np.unique(indices, return_counts=True)
+            start_rows = np.cumsum(np.concatenate(([0], counts[:-1])))
         else:
             indices = None
-        f=lambda x: self.esloo_calculation(*x) 
-        z=list(np.arange(len(X)))
-        with Pool(core_num) as pool:
-            #pool.restart()
-            res = pool.map(f, [[x, X, Y, indices] for x in z])
-            pool.close()
-            pool.join()
-            pool.clear()
-        final_res = np.concatenate(res)
-        if isrep:
-            idx=[]
-            seq=np.arange(len(Y))
-            for i in range(len(X)):
-                idx.append(seq[indices==i])
-            idx=np.concatenate(idx)
-            final_res_cp=np.empty_like(final_res)
-            final_res_cp[idx,:]=final_res
-            return final_res_cp
-        else:
-            return final_res
-
-    def esloo_calculation(self, i, X, Y, indices):
-        with modify_all_layer_set(self) as all_layer_set:
-            for s in range(len(all_layer_set)):
-                one_imputed_all_layer=all_layer_set[s]
-                for l in range(self.n_layer):
-                    layer=one_imputed_all_layer[l]
-                    n_kerenl=len(layer)
-                    for k in range(n_kerenl):
-                        kernel=layer[k]
-                        if kernel.rep is None:
-                            kernel.input = np.delete(kernel.input, i, 0)
-                            kernel.output = np.delete(kernel.output, i, 0)
-                            if kernel.type == 'gp':
-                                if kernel.global_input is not None:
-                                    kernel.global_input = np.delete(kernel.global_input, i, 0)
-                                kernel.Rinv = kernel.cv_stats(i)
-                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                                if kernel.name=='sexp':
-                                    kernel.R2sexp = np.delete(np.delete(kernel.R2sexp, i, 0), i, 1)
-                                    kernel.Psexp = np.delete(np.delete(kernel.Psexp, i, 1), i, 2)
-                        else:
-                            idx = kernel.rep!=i
-                            kernel.input = (kernel.input[idx,:]).copy()
-                            kernel.output = (kernel.output[idx,:]).copy()
-                            if kernel.type == 'gp':
-                                if kernel.global_input is not None:
-                                    kernel.global_input = (kernel.global_input[idx,:]).copy()
-                                kernel.Rinv = kernel.cv_stats(i)
-                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                                if kernel.name=='sexp':
-                                    kernel.R2sexp = (kernel.R2sexp[idx,:][:,idx]).copy()
-                                    kernel.Psexp = (kernel.Psexp[:,idx,:][:,:,idx]).copy()
-            mu_i, var_i = self.predict(x=X[[i],:], aggregation=False)
-            mu=np.mean(mu_i,axis=0)
-            sigma2=np.mean((np.square(mu_i)+var_i),axis=0)-mu**2
-            if indices is not None:
-                f=Y[indices==i,:]
-            else:
-                f=Y[[i],:]
-            esloo=sigma2+(mu-f)**2
-            error=(mu_i-f)**2
-            normaliser=np.mean(error**2+6*error*var_i+3*np.square(var_i),axis=0)-esloo**2
-            nesloo=esloo/np.sqrt(normaliser)
-            return(nesloo)
-    
-    def loo(self, X, method='mean_var', sample_size=50):
+            start_rows = np.arange(len(X))
+        m_pred = m+1 if self.vecch else X.shape[0]
+        with self.change_vecch_state():
+            mu_i, var_i = self.ppredict(X, aggregation=False, m=m_pred, core_num=core_num)
+        mu_i, var_i = np.stack(mu_i), np.stack(var_i)
+        final_res = esloo_calculation(mu_i, var_i, Y, indices, start_rows)
+        return final_res
+        
+    @contextmanager
+    def change_vecch_state(self):
+        for one_imputed_layer in self.all_layer_set:
+            for layer in one_imputed_layer:
+                for kernel in layer:
+                    if kernel.type == 'gp':
+                        if not self.vecch:
+                            kernel.vecch = True
+                        kernel.loo_state = True
+        yield
+        # Restore original state
+        for one_imputed_layer in self.all_layer_set:
+            for layer in one_imputed_layer:
+                for kernel in layer:
+                    if kernel.type == 'gp':
+                        if not self.vecch:
+                            kernel.vecch = False
+                        kernel.loo_state = False
+        
+    def loo(self, X, method='mean_var', sample_size=50, m=30):
         """Implement the Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
@@ -167,6 +131,7 @@ class emulator:
                 (`sampling`) approach for the LOO. Defaults to `mean_var`.
             sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
                  Defaults to `50`.
+            m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
             
         Returns:
             tuple_or_list: 
@@ -181,97 +146,45 @@ class emulator:
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
-        res = []
-        for i in range(len(X)):
-            res.append(self.loo_calculation(i, X, method, sample_size))
-        final_res = list(np.concatenate(res_i) for res_i in zip(*res)) 
+        m_pred = m+1 if self.vecch else X.shape[0]
+        with self.change_vecch_state():
+            final_res = self.predict(X, method=method, sample_size=sample_size, m=m_pred)
         if isrep:
-            for j in range(len(final_res)):
-                final_res[j] = final_res[j][indices,:]
-        if method == 'mean_var':
-            return tuple(final_res)
-        elif method == 'sampling':
-            return final_res
-
-    def ploo(self, X, method='mean_var', sample_size=50, core_num=None):
+            modified_items = [item[indices, :] for item in final_res]
+            final_res = type(final_res)(modified_items)
+        return final_res
+    
+    def ploo(self, X, method='mean_var', sample_size=50, m=30, core_num=None):
         """Implement the parallel Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
-            X, method, sample_size: see descriptions of the method :meth:`.emulator.loo`.
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
+            X, method, sample_size, m: see descriptions of the method :meth:`.emulator.loo`.
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
 
         Returns:
             Same as the method :meth:`.emulator.loo`.
         """
-        if platform.system()=='Darwin':
-            ctx._force_start_method('forkserver')
-        if core_num is None:
-            core_num=psutil.cpu_count(logical = False)-1
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
-        f=lambda x: self.loo_calculation(*x) 
-        z=list(np.arange(len(X)))
-        with Pool(core_num) as pool:
-            #pool.restart()
-            res = pool.map(f, [[x, X, method, sample_size] for x in z])
-            pool.close()
-            pool.join()
-            pool.clear()
-        final_res = list(np.concatenate(worker) for worker in zip(*res)) 
+        m_pred = m+1 if self.vecch else X.shape[0]
+        with self.change_vecch_state():
+            final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
         if isrep:
-            for j in range(len(final_res)):
-                final_res[j] = final_res[j][indices,:]
-        if method == 'mean_var':
-            return tuple(final_res)
-        elif method == 'sampling':
-            return final_res
-            
-    def loo_calculation(self, i, X, method, sample_size):
-        with modify_all_layer_set(self) as all_layer_set:
-            for s in range(len(all_layer_set)):
-                one_imputed_all_layer=all_layer_set[s]
-                for l in range(self.n_layer):
-                    layer=one_imputed_all_layer[l]
-                    n_kerenl=len(layer)
-                    for k in range(n_kerenl):
-                        kernel=layer[k]
-                        if kernel.rep is None:
-                            kernel.input = np.delete(kernel.input, i, 0)
-                            kernel.output = np.delete(kernel.output, i, 0)
-                            if kernel.type == 'gp':
-                                if kernel.global_input is not None:
-                                    kernel.global_input = np.delete(kernel.global_input, i, 0)
-                                kernel.Rinv = kernel.cv_stats(i)
-                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                                if kernel.name=='sexp':
-                                    kernel.R2sexp = np.delete(np.delete(kernel.R2sexp, i, 0), i, 1)
-                                    kernel.Psexp = np.delete(np.delete(kernel.Psexp, i, 1), i, 2)
-                        else:
-                            idx = kernel.rep!=i
-                            kernel.input = (kernel.input[idx,:]).copy()
-                            kernel.output = (kernel.output[idx,:]).copy()
-                            if kernel.type == 'gp':
-                                if kernel.global_input is not None:
-                                    kernel.global_input = (kernel.global_input[idx,:]).copy()
-                                kernel.Rinv = kernel.cv_stats(i)
-                                kernel.Rinv_y=np.dot(kernel.Rinv,kernel.output).flatten()
-                                if kernel.name=='sexp':
-                                    kernel.R2sexp = (kernel.R2sexp[idx,:][:,idx]).copy()
-                                    kernel.Psexp = (kernel.Psexp[:,idx,:][:,:,idx]).copy()
-            res = self.predict(x=X[[i],:], method=method, sample_size=sample_size)
-            return(res)
+            modified_items = [item[indices, :] for item in final_res]
+            final_res = type(final_res)(modified_items)
+        return final_res
 
-    def pmetric(self, x_cand, method='ALM', obj=None, nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
+    def pmetric(self, x_cand, method='ALM', obj=None, nugget_s=1.,m=50,score_only=False,chunk_num=None,core_num=None):
         """Compute the value of the ALM or MICE criterion for sequential designs in parallel.
 
         Args:
-            x_cand, method, obj, nugget_s, score_only: see descriptions of the method :meth:`.emulator.metric`.
+            x_cand, method, obj, nugget_s, m, score_only: see descriptions of the method :meth:`.emulator.metric`.
             chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
 
         Returns:
             Same as the method :meth:`.emulator.metric`.
@@ -282,7 +195,7 @@ class emulator:
         #if self.all_layer[self.n_layer-1][0].type=='likelihood':
         #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
-            _, sigma2 = self.ppredict(x=x_cand,full_layer=True,chunk_num=chunk_num,core_num=core_num) if islikelihood else self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            _, sigma2 = self.ppredict(x=x_cand,full_layer=True,m=m,chunk_num=chunk_num,core_num=core_num) if islikelihood else self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
             sigma2 = sigma2[-2] if islikelihood else sigma2
             if score_only:
                 return sigma2 
@@ -292,17 +205,22 @@ class emulator:
         elif method == 'MICE':
             if platform.system()=='Darwin':
                 ctx._force_start_method('forkserver')
+            total_cores = psutil.cpu_count(logical = False)
             if core_num is None:
-                core_num=psutil.cpu_count(logical = False)-1
+                core_num=total_cores//2
             if chunk_num is None:
                 chunk_num=core_num
             if chunk_num<core_num:
                 core_num=chunk_num
+            num_thread = total_cores // core_num
             if islikelihood and self.n_layer==2:
-                f=lambda x: self.predict_mice_2layer_likelihood(*x) 
+                def f(params):
+                    x_cand,m = params
+                    set_num_threads(num_thread)
+                    return self.predict_mice_2layer_likelihood(x_cand,m)
                 z=np.array_split(x_cand,chunk_num)
                 with Pool(core_num) as pool:
-                    res = pool.map(f, [[x] for x in z])
+                    res = pool.map(f, [[x, m] for x in z])
                     pool.close()
                     pool.join()
                     pool.clear()
@@ -313,13 +231,16 @@ class emulator:
                 sigma2_s=np.empty((M,D))
                 for k in range(D):
                     kernel = last_layer[k]
-                    sigma2_s[:,k] = mice_var(x_cand, x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                    sigma2_s[:,k] = mice_var(x_cand, x_cand, kernel.input_dim, kernel.connect, kernel.name, kernel.length, kernel.scale, kernel.nugget[0], nugget_s).flatten()
                 avg_mice = sigma2/sigma2_s
             else:
-                f=lambda x: self.predict_mice(*x) 
+                def f(params):
+                    x, islikelihood, m = params
+                    set_num_threads(num_thread)
+                    return self.predict_mice(x, islikelihood, m)
                 z=np.array_split(x_cand,chunk_num)
                 with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, islikelihood] for x in z])
+                    res = pool.map(f, [[x, islikelihood, m] for x in z])
                     pool.close()
                     pool.join()
                     pool.clear()
@@ -336,7 +257,7 @@ class emulator:
                     sigma2_s_i=np.empty((M,D))
                     for k in range(D):
                         kernel = last_layer[k]
-                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, kernel.input_dim, kernel.connect, kernel.name, kernel.length, kernel.scale, kernel.nugget[0], nugget_s).flatten()
                     with np.errstate(divide='ignore'):
                         mice += np.log(sigma2[i]/sigma2_s_i)
                 avg_mice=mice/S
@@ -348,34 +269,45 @@ class emulator:
         elif method == 'VIGF':
             if platform.system()=='Darwin':
                 ctx._force_start_method('forkserver')
+            total_cores = psutil.cpu_count(logical = False)
             if core_num is None:
-                core_num=psutil.cpu_count(logical = False)-1
+                core_num=total_cores//2
             if chunk_num is None:
                 chunk_num=core_num
             if chunk_num<core_num:
                 core_num=chunk_num
+            num_thread = total_cores // core_num
             if obj is None:
                 raise Exception('The dgp object that is used to build the emulator must be supplied to the argument `obj` when VIGF criterion is chosen.')
             if islikelihood is not True and obj.indices is not None:
                 raise Exception('VIGF criterion is currently not applicable to DGP emulators whose training data contain replicates but without a likelihood node.')
             X=obj.X
-            Dist=cdist(x_cand, X, "euclidean")
-            index=np.argmin(Dist, axis=1)
+            if obj.vecch or obj.n_data>500:
+                index = get_pred_nn(x_cand, X, 1, method = obj.nn_method).flatten()
+            else:
+                Dist=cdist(x_cand, X, "euclidean")
+                index=np.argmin(Dist, axis=1)
             if islikelihood and self.n_layer==2:
-                f=lambda x: self.predict_vigf_2layer_likelihood(*x) 
+                def f(params):
+                    x, index, m = params
+                    set_num_threads(num_thread)
+                    return self.predict_vigf_2layer_likelihood(x, index, m)
                 z=np.array_split(x_cand,chunk_num)
                 sub_indx=np.array_split(index,chunk_num)
                 with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, index] for x,index in zip(z,sub_indx)])
+                    res = pool.map(f, [[x, index, m] for x,index in zip(z,sub_indx)])
                     pool.close()
                     pool.join()
                     pool.clear()
             else:
-                f=lambda x: self.predict_vigf(*x) 
+                def f(params):
+                    x, index, islikelihood, m = params
+                    set_num_threads(num_thread)
+                    return self.predict_vigf(x, index, islikelihood, m)
                 z=np.array_split(x_cand,chunk_num)
                 sub_indx=np.array_split(index,chunk_num)
                 with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, index, islikelihood] for x,index in zip(z,sub_indx)])
+                    res = pool.map(f, [[x, index, islikelihood, m] for x,index in zip(z,sub_indx)])
                     pool.close()
                     pool.join()
                     pool.clear()
@@ -392,7 +324,7 @@ class emulator:
                 idx = np.argmax(vigf, axis=0)
                 return idx, vigf[idx,np.arange(vigf.shape[1])]
 
-    def metric(self, x_cand, method='ALM', obj=None, nugget_s=1.,score_only=False):
+    def metric(self, x_cand, method='ALM', obj=None, nugget_s=1.,m=50,score_only=False):
         """Compute the value of the ALM, MICE, or VIGF criterion for sequential designs.
 
         Args:
@@ -402,6 +334,7 @@ class emulator:
                 (`ALM`), or VIGF (`VIGF`). Defaults to `ALM`.
             obj (class, optional): the dgp object that is used to build the DGP emulator when **method** = '`VIGF`'. Defaults to `None`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
+            m (int, optional): the size of the conditioning set for metric calculations if the DGP was built under the Vecchia approximation. Defaults to `50`.
             score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
                 Defaults to `False`.
 
@@ -419,7 +352,7 @@ class emulator:
         islikelihood = True if self.all_layer[self.n_layer-1][0].type=='likelihood' else False
         #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
-            _, sigma2 = self.predict(x=x_cand,full_layer=True) if islikelihood else self.predict(x=x_cand)
+            _, sigma2 = self.predict(x=x_cand,full_layer=True, m=m) if islikelihood else self.predict(x=x_cand, m=m)
             sigma2 = sigma2[-2] if islikelihood else sigma2
             #if self.all_layer[self.n_layer-1][0].type=='likelihood':
             #    _, sigma2 = self.predict(x=x_cand,full_layer=True)
@@ -432,17 +365,17 @@ class emulator:
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
             if islikelihood and self.n_layer==2:
-                sigma2 = self.predict_mice_2layer_likelihood(x_cand)
+                sigma2 = self.predict_mice_2layer_likelihood(x_cand, m=m)
                 M=len(x_cand)
                 last_layer = self.all_layer[0]
                 D=len(last_layer)
                 sigma2_s=np.empty((M,D))
                 for k in range(D):
                     kernel = last_layer[k]
-                    sigma2_s[:,k] = mice_var(x_cand, x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                    sigma2_s[:,k] = mice_var(x_cand, x_cand, kernel.input_dim, kernel.connect, kernel.name, kernel.length, kernel.scale, kernel.nugget[0], nugget_s).flatten()
                 avg_mice = sigma2/sigma2_s
             else:
-                predicted_input, sigma2 = self.predict_mice(x_cand, islikelihood)
+                predicted_input, sigma2 = self.predict_mice(x_cand, islikelihood, m=m)
                 M=len(x_cand)
                 D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
                 mice=np.zeros((M,D))
@@ -452,7 +385,7 @@ class emulator:
                     sigma2_s_i=np.empty((M,D))
                     for k in range(D):
                         kernel = last_layer[k]
-                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, copy.deepcopy(kernel), nugget_s).flatten()
+                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, kernel.input_dim, kernel.connect, kernel.name, kernel.length, kernel.scale, kernel.nugget[0], nugget_s).flatten()
                     with np.errstate(divide='ignore'):
                         mice += np.log(sigma2[i]/sigma2_s_i)
                 avg_mice=mice/S
@@ -468,12 +401,15 @@ class emulator:
             if islikelihood is not True and obj.indices is not None:
                 raise Exception('VIGF criterion is currently not applicable to DGP emulators whose training data contain replicates but without a likelihood node.')
             X=obj.X
-            Dist=cdist(x_cand, X, "euclidean")
-            index=np.argmin(Dist, axis=1)
-            if islikelihood and self.n_layer==2:
-                bias, sigma2 = self.predict_vigf_2layer_likelihood(x_cand, index)
+            if obj.vecch or obj.n_data>500:
+                index = get_pred_nn(x_cand, X, 1, method = obj.nn_method).flatten()
             else:
-                bias, sigma2 = self.predict_vigf(x_cand, index, islikelihood)
+                Dist=cdist(x_cand, X, "euclidean")
+                index=np.argmin(Dist, axis=1)
+            if islikelihood and self.n_layer==2:
+                bias, sigma2 = self.predict_vigf_2layer_likelihood(x_cand, index, m=m)
+            else:
+                bias, sigma2 = self.predict_vigf(x_cand, index, islikelihood, m=m)
             bias, sigma2 = np.asarray(bias), np.asarray(sigma2)    
             E1=np.mean(np.square(bias)+6*bias*sigma2+3*np.square(sigma2),axis=0)
             E2=np.mean(bias+sigma2, axis=0)
@@ -484,7 +420,7 @@ class emulator:
                 idx = np.argmax(vigf, axis=0)
                 return idx, vigf[idx,np.arange(vigf.shape[1])]
 
-    def predict_mice_2layer_likelihood(self,x_cand):
+    def predict_mice_2layer_likelihood(self,x_cand,m):
         """Implement predictions from the trained DGP model with 2 layers (including a likelihood layer) that are required to calculate the MICE criterion.
         """
         M=len(x_cand)
@@ -494,6 +430,7 @@ class emulator:
         variance_pred=np.empty((M,D))
         for k in range(D):
             kernel=layer[k]
+            kernel.pred_m = m
             if kernel.connect is not None:
                 z_k_in=x_cand[:,kernel.connect]
             else:
@@ -502,7 +439,7 @@ class emulator:
             variance_pred[:,k]=v_k
         return variance_pred
             
-    def predict_mice(self,x_cand,islikelihood):
+    def predict_mice(self,x_cand,islikelihood,m):
         """Implement predictions from the trained DGP model that are required to calculate the MICE criterion.
         """
         S=len(self.all_layer_set)
@@ -524,6 +461,7 @@ class emulator:
                 if l==0:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
@@ -534,29 +472,31 @@ class emulator:
                 elif l==N_layer-1:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        _,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        _,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         variance_pred[:,k]=v_k
                 else:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
             variance_pred_set.append(variance_pred)
             pred_input_set.append(overall_test_input_mean)
         return pred_input_set, variance_pred_set
 
-    def predict_vigf_2layer_likelihood(self,x_cand,index):
+    def predict_vigf_2layer_likelihood(self,x_cand,index,m):
         """Implement predictions from the trained DGP model with 2 layers (including a likelihood layer) that are required to calculate the VIGF criterion.
         """
         S=len(self.all_layer_set)
@@ -572,6 +512,7 @@ class emulator:
             variance_pred=np.empty((M,D))
             for k in range(D):
                 kernel=layer[k]
+                kernel.pred_m = m
                 if kernel.connect is not None:
                     z_k_in=x_cand[:,kernel.connect]
                 else:
@@ -583,7 +524,7 @@ class emulator:
             variance_pred_set.append(variance_pred)
         return bias_pred_set, variance_pred_set
 
-    def predict_vigf(self,x_cand,index,islikelihood):
+    def predict_vigf(self,x_cand,index,islikelihood,m):
         """Implement predictions from the trained DGP model that are required to calculate the VIGF criterion.
         """
         S=len(self.all_layer_set)
@@ -605,6 +546,7 @@ class emulator:
                 if l==0:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
@@ -615,12 +557,13 @@ class emulator:
                 else:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         if l!=N_layer-1:
                             overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                         else:
@@ -633,32 +576,38 @@ class emulator:
             #input_variance_pred_set.append(overall_test_input_var)
         return bias_pred_set,variance_pred_set
 
-    def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,chunk_num=None,core_num=None):
+    def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
 
         Args:
-            x, method, full_layer, sample_size: see descriptions of the method :meth:`.emulator.predict`.
+            x, method, full_layer, sample_size, m: see descriptions of the method :meth:`.emulator.predict`.
             chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
 
         Returns:
             Same as the method :meth:`.emulator.predict`.
         """
         if platform.system()=='Darwin':
             ctx._force_start_method('forkserver')
+        total_cores = psutil.cpu_count(logical = False)
         if core_num is None:
-            core_num=psutil.cpu_count(logical = False)-1
+            core_num = total_cores//2
         if chunk_num is None:
             chunk_num=core_num
         if chunk_num<core_num:
             core_num=chunk_num
-        f=lambda x: self.predict(*x) 
+        num_thread = total_cores // core_num
+        
+        def f(params):
+            x_chunk, method, full_layer, sample_size, m, aggregation = params
+            set_num_threads(num_thread)
+            return self.predict(x_chunk, method, full_layer, sample_size, m, aggregation)
         z=np.array_split(x,chunk_num)
         with Pool(core_num) as pool:
             #pool.restart()
-            res = pool.map(f, [[x, method, full_layer, sample_size, True] for x in z])
+            res = pool.map(f, [[x, method, full_layer, sample_size, m, True] for x in z])
             pool.close()
             pool.join()
             pool.clear()
@@ -679,7 +628,7 @@ class emulator:
             else:
                 return list(np.concatenate(worker) for worker in zip(*res))
 
-    def predict(self,x,method='mean_var',full_layer=False,sample_size=50,aggregation=True):
+    def predict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50,aggregation=True):
         """Implement predictions from the trained DGP model.
 
         Args:
@@ -690,6 +639,7 @@ class emulator:
             full_layer (bool, optional): whether to output the predictions of all layers. Defaults to `False`.
             sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
                  Defaults to `50`.
+            m (int, optional): the size of the conditioning set for predictions if the DGP was built under the Vecchia approximation. Defaults to `50`.
             aggregation (bool, optional): whether to aggregate mean and variance predictions from imputed linked GPs
                 when **method** = '`mean_var`' and **full_layer** = `False`. Defaults to `True`.
             
@@ -750,6 +700,7 @@ class emulator:
                 if l==0:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
@@ -765,11 +716,12 @@ class emulator:
                         kernel=layer[k]
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                         if kernel.type=='gp':
+                            kernel.pred_m = m
                             if kernel.connect is not None:
                                 z_k_in=overall_global_test_input[:,kernel.connect]
                             else:
                                 z_k_in=None
-                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                            m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                             likelihood_gp_mean[:,k],likelihood_gp_var[:,k]=m_k,v_k
                         elif kernel.type=='likelihood':
                             m_k,v_k=kernel.prediction(m=m_k_in,v=v_k_in)
@@ -777,12 +729,13 @@ class emulator:
                 else:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
                     if full_layer:
@@ -853,13 +806,14 @@ class emulator:
                     sigma2=likelihood_variance
             return mu, sigma2
 
-    def nllik(self,x,y):
+    def nllik(self,x,y,m=50):
         """Compute the negative predicted log-likelihood from a trained DGP model with likelihood layer.
 
         Args:
             x (ndarray): a numpy 2d-array where each row is an input testing data point and 
                 each column is an input dimension.
             y (ndarray): a numpy 2d-array where each row is a scalar-valued testing output data point.
+            m (int, optional): the size of the conditioning set if the DGP was built under the Vecchia approximation. Defaults to `50`.
 
         Returns:
             tuple: a tuple of two 1d-arrays. The first one is the average negative predicted log-likelihood across
@@ -884,6 +838,7 @@ class emulator:
                 if l==0:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
@@ -894,12 +849,13 @@ class emulator:
                 else:
                     for k in range(n_kerenl):
                         kernel=layer[k]
+                        kernel.pred_m = m
                         m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                         if kernel.connect is not None:
                             z_k_in=overall_global_test_input[:,kernel.connect]
                         else:
                             z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in,nb_parallel=self.nb_parallel)
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
             predicted_lik.append(ghdiag(one_imputed_all_layer[-1][0].pllik,overall_test_input_mean,overall_test_input_var,y))

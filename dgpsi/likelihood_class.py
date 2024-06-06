@@ -1,7 +1,9 @@
 import numpy as np
 from scipy.special import loggamma
 from scipy.linalg import cholesky, cho_solve
+from scipy.sparse import diags_array
 from .functions import fmvn_mu
+from .vecchia import backward_substitute, forward_substitute
 
 class Poisson:
     """Class to implement Poisson likelihood. It can only be added as the final layer of a DGP model.
@@ -33,6 +35,7 @@ class Poisson:
         self.input_dim=input_dim
         self.exact_post_idx=None
         self.rep=None
+        #self.rep_sp=None
 
     def llik(self):
         """The log-likelihood function of Poisson distribution.
@@ -104,6 +107,7 @@ class Hetero:
         self.input_dim=input_dim
         self.exact_post_idx=np.array([0])
         self.rep=None
+        #self.rep_sp=None
 
     def llik(self):
         mu,var=self.input[:,0],np.exp(self.input[:,1])
@@ -147,7 +151,86 @@ class Hetero:
             #f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
             f_mu=fmvn_mu(mu,cov)
             return f_mu
+        
+    def posterior_vecch(self, idx, U_sp, ord, rev_ord):
+        """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood under the Vecchia Approximation.
+        """
+        if idx==0:
+            #if self.rep is None:
+            invGamma = diags_array(np.exp(-self.input[:,1])[ord], format = 'csc')
+            f_mu = self.post_het1_vecch(U_sp, invGamma, self.output[ord,0])[rev_ord]
+            #else:
+            #    invGamma = diags_array(np.exp(-self.input[:,1]), format = 'csc')
+            #    Mt_invGamma_M = (self.rep_sp.transpose().dot(invGamma)).dot(self.rep_sp)
+            #    Mt_invGamma_M = Mt_invGamma_M[ord,:][:,ord]
+            #    invGammay = invGamma.dot(self.output[:,0])
+            #    Mt_invGammay = self.rep_sp.transpose().dot(invGammay)[ord]
+            #    f_mu = self.post_het2_vecch(U_sp, L_sp, Mt_invGamma_M, Mt_invGammay)[rev_ord]
+            return f_mu
+        
+    @staticmethod
+    def post_het1_vecch(U_sp, invGamma, y_mask):
+        """Calculate the conditional posterior mean and covariance of the mean 
+           of the heteroskedastic Gaussian likelihood when there are no repetitions
+           in the training data under the Vecchia approximation.
+        """
+        invGammay = invGamma.dot(y_mask)
+        sd = np.random.rand(len(y_mask))
+        L_sp = U_sp.transpose().tocsr()
+        # to be changed to spsolve_triangular when scipy updates with newer robust version
+        #samp = spsolve(L_sp, sd)
+        #intermediate = spsolve(U_sp, invGammay)
+        #mu = spsolve(L_sp, intermediate)
+        samp = forward_substitute(L_sp.data, L_sp.indices, L_sp.indptr, sd)
+        intermediate = backward_substitute(U_sp.data, U_sp.indices, U_sp.indptr, invGammay)
+        mu = forward_substitute(L_sp.data, L_sp.indices, L_sp.indptr, intermediate)
+        f = mu + samp
+        return f
     
+    #@staticmethod
+    #def post_het2_vecch(U_sp_post, L_sp, invGamma, invGammay):
+    #    """Calculate the conditional posterior mean and covariance of the mean 
+    #       of the heteroskedastic Gaussian likelihood when there are repetitions
+    #       in the training data under the Vecchia approximation.
+    #    """
+    #    sd = np.random.rand(len(invGammay))
+    #    L_sp_post = U_sp_post.transpose()
+    #    U_sp = L_sp.transpose()
+    #    samp = spsolve(L_sp_post, sd)
+    #    intermediate_P_invGammay = spsolve(U_sp_post, invGammay)
+    #    P_invGammay = spsolve(L_sp_post, intermediate_P_invGammay)
+    #    Gamma_P_Gammay = invGamma.dot(P_invGammay)
+    #    Gammay_Gamma_P_Gammay = invGammay - Gamma_P_Gammay
+    #    intermediate_mu = spsolve(U_sp, Gammay_Gamma_P_Gammay)
+    #    mu = spsolve(L_sp, intermediate_mu)
+    #    f = mu + samp
+    #    return f
+        
+    #@staticmethod
+    #def post_het1_vecch(L_sp, invGamma, y_mask):
+    #    """Calculate the conditional posterior mean and covariance of the mean 
+    #       of the heteroskedastic Gaussian likelihood when there are no repetitions
+    #       in the training data under the Vecchia approximation.
+    #    """
+    #    P = (L_sp.transpose()).dot(L_sp)
+    #    invGammaP = invGamma + P
+    #    invGammay = invGamma.dot(y_mask)
+    #    cg_sampler = HetroSampler(invGammaP, L_sp, invGammay)
+    #    f = cg_sampler.sample()
+    #    return f
+    
+    #@staticmethod
+    #def post_het2_vecch(L_sp, invGamma, invGammay):
+    #    """Calculate the conditional posterior mean and covariance of the mean 
+    #       of the heteroskedastic Gaussian likelihood when there are repetitions
+    #       in the training data under the Vecchia approximation.
+    #    """
+    #    P = (L_sp.transpose()).dot(L_sp)
+    #    invGammaP = invGamma + P
+    #    cg_sampler = HetroSamplerRep(invGamma, invGammaP, L_sp, invGammay)
+    #    f = cg_sampler.sample()
+    #    return f
+
     @staticmethod
     def post_het1(v,Gamma,y_mask):
         """Calculate the conditional posterior mean and covariance of the mean 
@@ -199,6 +282,7 @@ class NegBin:
         self.input_dim=input_dim
         self.exact_post_idx=None
         self.rep=None
+        #self.rep_sp=None
     
     def llik(self):
         y,mu,sigma=(self.output).flatten(),np.exp(self.input[:,0]),np.exp(self.input[:,1])

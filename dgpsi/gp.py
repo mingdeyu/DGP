@@ -3,9 +3,11 @@ import platform
 import numpy as np
 from scipy.spatial.distance import cdist
 from .functions import mice_var
+from .vecchia import get_pred_nn, loo_gp_vecch
 from pathos.multiprocessing import ProcessingPool as Pool
 import psutil 
 import copy
+from numba import set_num_threads
 
 class gp:
     """
@@ -16,16 +18,26 @@ class gp:
             each column is an input dimension.
         Y (ndarray): a numpy 2d-array with only one column and each row being an input data point.
         kernel (class): a :class:`.kernel` class that specifies the features of the GP. 
+        vecchia (bool): a bool indicating if Vecchia approximation will be used. Defaults to `False`. 
+        m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
     """
 
-    def __init__(self, X, Y, kernel):
+    def __init__(self, X, Y, kernel, vecchia=False, m=25):
         self.X=X
         self.Y=Y
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
         self.kernel=kernel
+        self.vecch=vecchia
+        self.n_data=self.X.shape[0]
+        if self.n_data>=1e5:
+            self.kernel.nn_method = 'approx'
+        self.m=min(m, self.n_data-1)
         self.initialize()
-        self.kernel.compute_stats()
+        if self.vecch:
+            self.kernel.ord_nn()
+        else:
+            self.kernel.compute_stats()
 
     def initialize(self):
         """Assign input/output data to the kernel for training.
@@ -46,13 +58,16 @@ class gp:
         #if self.kernel.scale_est:
         #    self.kernel.compute_scale() 
         self.kernel.para_path=np.atleast_2d(np.concatenate((self.kernel.scale,self.kernel.length,self.kernel.nugget)))
+        self.kernel.vecch = self.vecch
+        self.kernel.m = self.m
         if self.kernel.prior_name=='ref':
             p=np.shape(self.kernel.input)[1]
             if self.kernel.global_input is not None:
                 p+=np.shape(self.kernel.global_input)[1]
-            b=1/len(self.kernel.output)**(1/p)*(self.kernel.prior_coef+p)
+            b=1/self.n_data**(1/p)*(self.kernel.prior_coef+p)
             self.kernel.prior_coef=np.concatenate((self.kernel.prior_coef, b))
             self.kernel.compute_cl()
+        self.kernel.target='gp'
 
     def update_xy(self, X, Y, reset=False):
         """Update the trained GP emulator with new input and output data.
@@ -66,8 +81,15 @@ class gp:
         self.Y=Y
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
+        self.n_data=self.X.shape[0]
+        if self.n_data>=1e5:
+            self.kernel.nn_method = 'approx'
+        self.m=min(self.m, self.n_data-1)
         self.update_kernel(reset_lengthscale=reset)
-        self.kernel.compute_stats()
+        if self.vecch:
+            self.kernel.ord_nn()
+        else:
+            self.kernel.compute_stats()
     
     def update_kernel(self, reset_lengthscale):
         """Assign new input/output data to the kernel.
@@ -80,6 +102,7 @@ class gp:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=self.X[:,self.kernel.connect]
         self.kernel.output=self.Y.copy()
+        self.kernel.m = self.m
         if reset_lengthscale:
             initial_hypers=self.kernel.para_path[0,:]
             self.kernel.scale=initial_hypers[[0]]
@@ -92,7 +115,8 @@ class gp:
         """Train the GP model.
         """
         self.kernel.maximise()
-        self.kernel.compute_stats()
+        if not self.vecch:
+            self.kernel.compute_stats()
 
     def export(self):
         """Export the trained GP.
@@ -100,29 +124,29 @@ class gp:
         final_struct=copy.deepcopy(self.kernel)
         return [final_struct]
 
-    def pmetric(self, x_cand, method='MICE',nugget_s=1.,score_only=False,chunk_num=None,core_num=None):
+    def pmetric(self, x_cand, method='MICE',nugget_s=1.,m=50,score_only=False,chunk_num=None,core_num=None):
         """Implement parallel computation of the ALM, MICE, or VIGF criterion for sequential designs.
 
         Args:
-            x_cand, method, nugget_s, score_only: see descriptions of the method :meth:`.gp.metric`.
+            x_cand, method, nugget_s, m, score_only: see descriptions of the method :meth:`.gp.metric`.
             chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
 
         Returns:
             Same as the method :meth:`.gp.metric`.
         """
         if method == 'ALM':
-            _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            _, sigma2 = self.ppredict(x=x_cand,m=m,chunk_num=chunk_num,core_num=core_num)
             if score_only:
                 return sigma2
             else:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,0]
         elif method == 'MICE':
-            _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
-            sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
+            _, sigma2 = self.ppredict(x=x_cand,m=m,chunk_num=chunk_num,core_num=core_num)
+            sigma2_s = mice_var(x_cand, x_cand, self.kernel.input_dim, self.kernel.connect, self.kernel.name, self.kernel.length, self.kernel.scale, self.kernel.nugget[0], nugget_s)
             mice_val = sigma2/sigma2_s
             if score_only:
                 return mice_val
@@ -131,11 +155,14 @@ class gp:
                 return idx, mice_val[idx,0]
         elif method == 'VIGF':
             X0 = np.unique(self.X, axis=0)
-            if len(X0) != len(self.X):
+            if len(X0) != self.n_data:
                 raise Exception('VIGF criterion is currently not applicable to GP emulators whose training data contain replicates.')
-            Dist=cdist(x_cand, self.X, "euclidean")
-            index=np.argmin(Dist, axis=1)
-            mu, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            if self.vecch or self.n_data>500:
+                index = get_pred_nn(x_cand, self.X, 1, method = self.kernel.nn_method).flatten()
+            else:
+                Dist=cdist(x_cand, self.X, "euclidean")
+                index=np.argmin(Dist, axis=1)
+            mu, sigma2 = self.ppredict(x=x_cand,m=m,chunk_num=chunk_num,core_num=core_num)
             bias=(mu-self.Y[index,:])**2
             vigf=4*sigma2*bias+2*sigma2**2
             if score_only:
@@ -144,7 +171,7 @@ class gp:
                 idx = np.argmax(vigf, axis=0)
                 return idx, vigf[idx,0]
             
-    def metric(self, x_cand, method='MICE',nugget_s=1.,score_only=False):
+    def metric(self, x_cand, method='MICE',nugget_s=1.,m=50,score_only=False):
         """Compute the value of the ALM, MICE, or VIGF criterion for sequential designs.
 
         Args:
@@ -153,6 +180,7 @@ class gp:
             method (str, optional): the sequential design approach: MICE (`MICE`), ALM 
                 (`ALM`) or VIGF (`VIGF`). Defaults to `MICE`.
             nugget_s (float, optional): the value of the smoothing nugget term used when **method** = '`MICE`'. Defaults to `1.0`.
+            m (int, optional): the size of the conditioning set for metric calculations if the GP was built under the Vecchia approximation. Defaults to `50`.
             score_only (bool, optional): whether to return only the scores of ALM or MICE criterion at all design points contained in **x_cand**.
                 Defaults to `False`.
 
@@ -166,15 +194,15 @@ class gp:
                 which is given by the second element.
         """
         if method == 'ALM':
-            _, sigma2 = self.predict(x=x_cand)
+            _, sigma2 = self.predict(x=x_cand, m=m)
             if score_only:
                 return sigma2
             else:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,0]
         elif method == 'MICE':
-            _, sigma2 = self.predict(x=x_cand)
-            sigma2_s = mice_var(x_cand, x_cand, copy.deepcopy(self.kernel), nugget_s)
+            _, sigma2 = self.predict(x=x_cand, m=m)
+            sigma2_s = mice_var(x_cand, x_cand, self.kernel.input_dim, self.kernel.connect, self.kernel.name, self.kernel.length, self.kernel.scale, self.kernel.nugget[0], nugget_s)
             mice_val = sigma2/sigma2_s
             if score_only:
                 return mice_val
@@ -183,11 +211,14 @@ class gp:
                 return idx, mice_val[idx,0]
         elif method == 'VIGF':
             X0 = np.unique(self.X, axis=0)
-            if len(X0) != len(self.X):
+            if len(X0) != self.n_data:
                 raise Exception('VIGF criterion is currently not applicable to GP emulators whose training data contain replicates.')
-            Dist=cdist(x_cand, self.X, "euclidean")
-            index=np.argmin(Dist, axis=1)
-            mu, sigma2 = self.predict(x=x_cand)
+            if self.vecch or self.n_data>500:
+                index = get_pred_nn(x_cand, self.X, 1, method = self.kernel.nn_method).flatten()
+            else:
+                Dist=cdist(x_cand, self.X, "euclidean")
+                index=np.argmin(Dist, axis=1)
+            mu, sigma2 = self.predict(x=x_cand, m=m)
             bias=(mu-self.Y[index,:])**2
             vigf=4*sigma2*bias+2*sigma2**2
             if score_only:
@@ -196,20 +227,23 @@ class gp:
                 idx = np.argmax(vigf, axis=0)
                 return idx, vigf[idx,0]
 
-    def esloo(self):
+    def esloo(self, m=30):
         """Compute the (normalised) expected squared LOO of a GP model.
+
+        Args:
+            m (int, optional): the size of the conditioning set for loo calculations involved under the Vecchia approximation. Defaults to `30`.
 
         Returns:
             ndarray: a numpy 2d-array is returned. The array has only one column with its rows corresponding to training data positions.
         """
-        mu, sigma2 = self.loo()
+        mu, sigma2 = self.loo(m=m)
         error=(mu-self.Y)**2
         esloo=sigma2+error
         normaliser=2*sigma2**2+4*sigma2*error
         nesloo=esloo/np.sqrt(normaliser)
         return nesloo
 
-    def loo(self, method='mean_var', sample_size=50):
+    def loo(self, method='mean_var', sample_size=50, m=30):
         """Implement the Leave-One-Out cross-validation of a GP model.
 
         Args:
@@ -217,6 +251,7 @@ class gp:
                 (`sampling`) approach for the LOO. Defaults to `mean_var`.
             sample_size (int, optional): the number of samples to draw from the predictive distribution of
                  GP if **method** = '`sampling`'. Defaults to `50`.
+            m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
 
         Returns:
             tuple_or_ndarray: 
@@ -227,43 +262,54 @@ class gp:
             if the argument **method** = '`sampling`', a numpy 2d-array is returned. The array has its rows corresponding to to training data positions 
                 and columns corresponding to `sample_size` number of samples drawn from the predictive distribution of GP.
         """
-        scale = self.kernel.scale
-        Rinv = self.kernel.Rinv
-        Rinv_y = self.kernel.Rinv_y[:,np.newaxis]
-        sigma2 = (1/np.diag(Rinv)).reshape(-1,1)
-        mu = self.Y - Rinv_y*sigma2
-        sigma2 = scale*sigma2
+        if self.vecch:
+            X_scale = self.X/self.kernel.length
+            NNarray = get_pred_nn(X_scale, X_scale, m+1, method=self.kernel.nn_method)
+            mu,sigma2 = loo_gp_vecch(self.X, NNarray, self.Y, self.kernel.scale[0], self.kernel.length, self.kernel.nugget[0], self.kernel.name)
+            mu,sigma2 = mu.reshape(-1,1), sigma2.reshape(-1,1)
+        else:
+            scale = self.kernel.scale
+            Rinv = self.kernel.Rinv
+            Rinv_y = self.kernel.Rinv_y[:,np.newaxis]
+            sigma2 = (1/np.diag(Rinv)).reshape(-1,1)
+            mu = self.Y - Rinv_y*sigma2
+            sigma2 = scale*sigma2
         if method=='mean_var':
             return mu, sigma2
         elif method=='sampling':
             samples=np.random.normal(mu.flatten(),np.sqrt(sigma2.flatten()),size=(sample_size,len(mu))).T
             return samples
 
-    def ppredict(self,x,method='mean_var',sample_size=50,chunk_num=None,core_num=None):
+    def ppredict(self,x,method='mean_var',sample_size=50,m=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained GP model.
 
         Args:
-            x, method, sample_size: see descriptions of the method :meth:`.gp.predict`.
+            x, method, sample_size, m: see descriptions of the method :meth:`.gp.predict`.
             chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
                 Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
 
         Returns:
             Same as the method :meth:`.gp.predict`.
         """
         if platform.system()=='Darwin':
             ctx._force_start_method('forkserver')
+        total_cores = psutil.cpu_count(logical = False)
         if core_num is None:
-            core_num=psutil.cpu_count(logical = False)-1
+            core_num = total_cores//2
         if chunk_num is None:
             chunk_num=core_num
         if chunk_num<core_num:
             core_num=chunk_num
-        f=lambda x: self.predict(*x) 
+        num_thread = total_cores // core_num
+        def f(params):
+            x, method, sample_size, m = params
+            set_num_threads(num_thread)
+            return self.predict(x, method, sample_size, m)
         z=np.array_split(x,chunk_num)
         with Pool(core_num) as pool:
-            res = pool.map(f, [[x, method, sample_size] for x in z])
+            res = pool.map(f, [[x, method, sample_size, m] for x in z])
             pool.close()
             pool.join()
             pool.clear()
@@ -272,7 +318,7 @@ class gp:
         elif method == 'sampling':
             return np.concatenate(res)
 
-    def predict(self,x,method='mean_var',sample_size=50):
+    def predict(self,x,method='mean_var',sample_size=50,m=50):
         """Implement predictions from the trained GP model.
 
         Args:
@@ -282,6 +328,7 @@ class gp:
                 (`sampling`) approach. Defaults to `mean_var`.
             sample_size (int, optional): the number of samples to draw from the predictive distribution of
                  GP if **method** = '`sampling`'. Defaults to `50`.
+            m (int, optional): the size of the conditioning set for predictions if the GP was built under the Vecchia approximation. Defaults to `50`.
 
         Returns:
             tuple_or_ndarray: 
@@ -305,6 +352,7 @@ class gp:
             z_k_in=overall_global_test_input[:,self.kernel.connect]
         else:
             z_k_in=None
+        self.kernel.pred_m = m
         if method=='mean_var':
             mu,sigma2=self.kernel.gp_prediction(x=overall_global_test_input[:,self.kernel.input_dim],z=z_k_in)
             return mu.reshape(-1,1), sigma2.reshape(-1,1)
