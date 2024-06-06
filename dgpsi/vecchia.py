@@ -463,7 +463,7 @@ def cond_mean_vecch(x, z, w1, global_w1, y, scale, length, nugget, name, m, nn_m
         x=np.concatenate((x, z),1)
         w1=np.concatenate((w1, global_w1),1)
     NNarray = get_pred_nn(x/length, w1/length, m, method = nn_method)
-    m,_ = gp_vecch(x, w1, NNarray, y, scale, length, nugget, name)
+    m,_ = gp_vecch(x, w1, NNarray, y, scale[0], length, nugget[0], name)
     return m
 
 @njit(cache=True, parallel=True)
