@@ -26,6 +26,7 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
 * Fast Leave-One-Out (LOO) cross validations for GP and DGP emulators.
 * Calculations of ALM, MICE, PEI, and VIGF sequential design criterions.
+* Large-scale GP, DGP, and Linked (D)GP emulations.
 
 ## Installation
 `dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
