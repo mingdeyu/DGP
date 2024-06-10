@@ -49,6 +49,33 @@ class emulator:
     #        when the :class:`.emulator` class has already been built.
     #    """
     #    self.nb_parallel=nb_parallel
+            
+    def to_vecchia(self):
+        """Convert the DGP emulator to the Vecchia mode.
+        """
+        if self.vecch:
+            raise Exception('The DGP emulator is already in Vecchia mode.')
+        else:
+            self.vecch=True
+            for one_imputed_layer in self.all_layer_set:
+                for layer in one_imputed_layer:
+                    for kernel in layer:
+                        if kernel.type == 'gp':
+                            kernel.vecch = self.vecch
+
+    def remove_vecchia(self):
+        """Remove the Vecchia mode from the DGP emulator.
+        """
+        if self.vecch:
+            self.vecch = False
+            for one_imputed_layer in self.all_layer_set:
+                for layer in one_imputed_layer:
+                    for kernel in layer:
+                        if kernel.type == 'gp':
+                            kernel.vecch = self.vecch
+                            kernel.compute_stats()
+        else:
+            raise Exception('The DGP emulator is already in non-Vecchia mode.')
         
     def esloo(self, X, Y, m=30):
         """Compute the (normalised) expected squared LOO from a DGP emulator.

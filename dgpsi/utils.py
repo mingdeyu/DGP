@@ -182,6 +182,17 @@ def summary(obj, tablefmt='fancy_grid'):
         print("1. 'Connection' gives the indices of emulators and the associated output dimensions that are linked to the emulator referred by 'Layer No.' and 'Emulator No.'.")
         print("2. 'External Inputs' indicates if the emulator (referred by 'Layer No.' and 'Emulator No.') has external inputs that are not provided by the feeding emulators.")
 
+def have_same_shape(list1, list2):
+    if len(list1) != len(list2):
+        return False
+    for sublist1, sublist2 in zip(list1, list2):
+        if isinstance(sublist1, list) and isinstance(sublist2, list):
+            if not have_same_shape(sublist1, sublist2):
+                return False
+        elif isinstance(sublist1, list) or isinstance(sublist2, list):
+            return False
+    return True
+
 class NystromKPCA():
     def __init__(self, n_components, m = 200):
         self.m = m 

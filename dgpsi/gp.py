@@ -69,6 +69,31 @@ class gp:
             self.kernel.compute_cl()
         self.kernel.target='gp'
 
+    def to_vecchia(self, m=25):
+        """Convert the GP emulator to the Vecchia mode.
+
+        Args:
+            m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
+        """
+        if self.vecch:
+            raise Exception('The GP emulator is already in Vecchia mode.')
+        else:
+            self.vecch=True
+            self.m = min(m, self.n_data-1)
+            self.kernel.vecch = self.vecch
+            self.kernel.m = self.m
+            self.kernel.ord_nn()
+
+    def remove_vecchia(self):
+        """Remove the Vecchia mode from the GP emulator.
+        """
+        if self.vecch:
+            self.vecch = False
+            self.kernel.vecch = self.vecch
+            self.kernel.compute_stats()
+        else:
+            raise Exception('The GP emulator is already in non-Vecchia mode.')
+
     def update_xy(self, X, Y, reset=False):
         """Update the trained GP emulator with new input and output data.
 

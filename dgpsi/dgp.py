@@ -222,6 +222,65 @@ class dgp:
             if l!=self.n_layer-1:
                 In=copy.copy(Out)
 
+    def to_vecchia(self, m=25):
+        """Convert the DGP structure to the Vecchia mode.
+
+        Args:
+            m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
+        """
+        if self.vecch:
+            raise Exception('The DGP structure is already in Vecchia mode.')
+        else:
+            self.vecch = True
+            self.m = min(m, self.n_data-1)
+            n_layer = len(self.all_layer)
+            for l in range(n_layer):
+                layer = self.all_layer[l]
+                for k, kernel in enumerate(layer):
+                    if kernel.type == 'gp':
+                        kernel.vecch, kernel.m = self.vecch, self.m
+                        compute_pointer = False
+                        if l==self.n_layer-2:
+                            linked_layer=self.all_layer[l+1]
+                            linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
+                            if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
+                                idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
+                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                    compute_pointer = True
+                        if k == 0:
+                            kernel.ord_nn(pointer=compute_pointer)
+                        else:
+                            if len(kernel.length) == 1:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and len(layer[j].length) == 1:
+                                        kernel.ord_nn(ord = layer[j].ord, NNarray = layer[j].NNarray, pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+                            else:
+                                found_match = False
+                                for j in range(k):
+                                    if np.array_equal(kernel.input_dim, layer[j].input_dim) and np.array_equal(kernel.connect, layer[j].connect) and np.array_equal(kernel.length, layer[j].length):
+                                        kernel.ord_nn(ord = layer[j].ord.copy(), NNarray = layer[j].NNarray.copy(), pointer=compute_pointer)
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    kernel.ord_nn(pointer=compute_pointer)
+
+    def remove_vecchia(self):
+        """Remove the Vecchia mode from the DGP structure.
+        """
+        if self.vecch:
+            self.vecch = False
+            for layer in self.all_layer:
+                for kernel in layer:
+                    if kernel.type == 'gp':
+                        kernel.vecch = self.vecch
+        else:
+            raise Exception('The DGP structure is already in non-Vecchia mode.')
+
     def update_all_layer(self, all_layer):
         """Update the class with a new dgp structure with given hyperparameter and latent layer values.
         """

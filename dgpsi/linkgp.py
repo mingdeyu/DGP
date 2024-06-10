@@ -6,6 +6,7 @@ import psutil
 from .imputation import imputer
 import copy
 from numba import set_num_threads
+from .utils import have_same_shape
 
 class container:
     """
@@ -53,6 +54,33 @@ class container:
                 (self.imp).update_ord_nn()
             self.imp.sample(burnin=50)
         self.local_input_idx=local_input_idx
+
+    def to_vecchia(self):
+        """Convert the container to the Vecchia mode.
+        """
+        if not self.vecch:
+            self.vecch=True
+            if self.type == 'gp':
+                self.structure.vecch = self.vecch
+            elif self.type == 'dgp':
+                for layer in self.structure:
+                    for kernel in layer:
+                        if kernel.type == 'gp':
+                            kernel.vecch = self.vecch
+
+    def remove_vecchia(self):
+        """Remove the Vecchia mode from the container.
+        """
+        if self.vecch:
+            self.vecch = False
+            if self.type == 'gp':
+                self.structure.vecch = self.vecch
+                self.structure.compute_stats()
+            elif self.type == 'dgp':
+                for layer in self.structure:
+                    for kernel in layer:
+                        if kernel.type == 'gp':
+                            kernel.vecch = self.vecch
 
     def set_local_input(self, idx, new = False):
         """Set the **local_input_idx** argument and optionally output a copy of the container with a different **local_input_idx**.
@@ -127,6 +155,34 @@ class lgp:
                         layer.append(copy.deepcopy(cont))
                 one_imputation.append(layer)
             self.all_layer_set.append(one_imputation)
+
+    def set_vecchia(self, mode):
+        """Convert the (D)GP emulators in the linked system to Vecchia or non-Vecchia mode.
+
+        Args:
+            mode (bool_or_list): a bool or a list of bools.
+
+            1. If **mode** is a bool, it indicates whether to set all (D)GP emulators in the linked system to 
+               the Vecchia (`True`) or non-Vecchia (`False`) mode.
+            2. If **mode** is a list, it is a list contains *L* (the number of layers of a systems of computer models) sub-lists, 
+               each of which represents a layer and contains same number of bools as that of the GP/DGP emulators of computer models 
+               in the same layer. The list has the same shape as the **all_layer** argument of :class:`.lgp` class.
+
+        """
+        if isinstance(mode, list):
+            if not have_same_shape(self.all_layer, mode):
+                raise Exception('mode has a different shape as all_layer.')
+        else:
+            mode = [[mode for _ in layer] for layer in self.all_layer]
+        for one_imputed in self.all_layer_set:
+            for layer, mode_layer in zip(one_imputed, mode):
+                for cont, cont_mode in zip(layer, mode_layer):
+                    if cont_mode:
+                        cont.to_vecchia()
+                    else:
+                        cont.remove_vecchia()
+                        if cont.type=='dgp':
+                            (cont.imp).key_stats()
     
     def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained DGP model.
