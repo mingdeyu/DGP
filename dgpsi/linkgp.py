@@ -112,6 +112,7 @@ class container:
         new_inst = type(self).__new__(self.__class__)
         new_inst.type = self.type
         new_inst.structure = self.structure
+        new_inst.vecch = self.vecch
         if self.type=='dgp':
             new_inst.imp = self.imp
         new_inst.local_input_idx = copy.copy(self.local_input_idx)
