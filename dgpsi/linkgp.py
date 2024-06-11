@@ -55,6 +55,11 @@ class container:
             self.imp.sample(burnin=50)
         self.local_input_idx=local_input_idx
 
+    def __setstate__(self, state):
+        if 'vecch' not in state:
+            state['vecch'] = False
+        self.__dict__.update(state)
+
     def to_vecchia(self):
         """Convert the container to the Vecchia mode.
         """
@@ -156,6 +161,11 @@ class lgp:
                         layer.append(copy.deepcopy(cont))
                 one_imputation.append(layer)
             self.all_layer_set.append(one_imputation)
+
+    def __setstate__(self, state):
+        if 'nb_parallel' in state:
+            del state['nb_parallel']
+        self.__dict__.update(state)
 
     def set_vecchia(self, mode):
         """Convert the (D)GP emulators in the linked system to Vecchia or non-Vecchia mode.

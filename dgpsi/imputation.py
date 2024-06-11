@@ -14,6 +14,11 @@ class imputer:
         self.all_layer=all_layer
         self.block=block
 
+    def __setstate__(self, state):
+        if 'block' not in state:
+            state['block'] = True
+        self.__dict__.update(state)
+
     def sample(self,burnin=0):
         """Implement the imputation via the ESS-within-Gibbs.
 

@@ -38,6 +38,18 @@ class gp:
             self.kernel.ord_nn()
         else:
             self.kernel.compute_stats()
+    
+    def __setstate__(self, state):
+        if 'vecch' not in state:
+            state['vecch'] = False
+        if 'n_data' not in state:
+            state['n_data'] = state['X'].shape[0]
+        if 'nn_method' not in state:
+            state['nn_method'] = 'exact'
+        if 'm' not in state:
+            state['m'] = 25
+        self.__dict__.update(state)
+        self.kernel.target = 'gp'
 
     def initialize(self):
         """Assign input/output data to the kernel for training.

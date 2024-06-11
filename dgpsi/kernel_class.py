@@ -140,6 +140,57 @@ class kernel:
         self.R2=None
         self.loo_state=False
 
+    def __setstate__(self, state):
+        if 'g' in state:
+            del state['g']
+        if 'gfod' in state:
+            del state['gfod']
+            if state['prior_name']=='ga':
+                state['prior_coef'][0] -= 1
+            elif state['prior_name']=='inv_ga':
+                state['prior_coef'][0] += 1
+        if 'rff' in state:
+            del state['rff']
+        if 'vecch' not in state:
+            state['vecch'] = False
+        if 'M' in state:
+            del state['M']
+        if 'W' in state:
+            del state['W']
+        if 'b' in state:
+            del state['b']
+        if 'ord' not in state:
+            state['ord'] = None
+        if 'rev_ord' not in state:
+            state['rev_ord'] = None
+        if 'm' not in state:
+            state['m'] = 25
+        if 'pred_m' not in state:
+            state['pred_m'] = None
+        if 'NNarray' not in state:
+            state['NNarray'] = None
+        if 'imp_NNarray' not in state:
+            state['imp_NNarray'] = None
+        if 'imp_pointer_row' not in state:
+            state['imp_pointer_row'] = None
+        if 'imp_pointer_col' not in state:
+            state['imp_pointer_col'] = None
+        if 'nn_method' not in state:
+            state['nn_method'] = 'exact'
+        if 'iter_count' not in state:
+            state['iter_count'] = 0
+        if 'target' not in state:
+            state['target'] = 'dgp'
+        new_R2_added = False
+        if 'R2' not in state:
+            state['R2'] = None
+            new_R2_added = True
+        if 'loo_state' not in state:
+            state['loo_state'] = False
+        self.__dict__.update(state)
+        if new_R2_added:
+            self.r2(overwritten=True)
+
     def compute_cl(self):
         if len(self.length)==1:
             if self.global_input is not None:

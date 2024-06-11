@@ -49,6 +49,14 @@ class emulator:
     #        when the :class:`.emulator` class has already been built.
     #    """
     #    self.nb_parallel=nb_parallel
+    def __setstate__(self, state):
+        if 'all_layer_set_copy' in state:
+            del state['all_layer_set_copy']
+        if 'vecch' not in state:
+            state['vecch'] = False
+        if 'nb_parallel' in state:
+            del state['nb_parallel']
+        self.__dict__.update(state)
             
     def to_vecchia(self):
         """Convert the DGP emulator to the Vecchia mode.

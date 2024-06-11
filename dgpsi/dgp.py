@@ -106,6 +106,23 @@ class dgp:
         self.N=0
         self.burnin=None
 
+    def __setstate__(self, state):
+        if 'block' not in state:
+            state['block'] = True
+        if 'vecch' not in state:
+            state['vecch'] = False
+        if 'n_data' not in state:
+            state['n_data'] = state['X'].shape[0]
+        if 'nn_method' not in state:
+            state['nn_method'] = 'exact'
+        if 'm' not in state:
+            state['m'] = 25
+        if 'rff' in state:
+            del state['rff']
+        if 'M' in state:
+            del state['M']
+        self.__dict__.update(state)
+
     def initialize(self):
         """Initialise all_layer attribute for training.
         """
