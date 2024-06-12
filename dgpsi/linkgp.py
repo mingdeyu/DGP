@@ -185,6 +185,12 @@ class lgp:
                 raise Exception('mode has a different shape as all_layer.')
         else:
             mode = [[mode for _ in layer] for layer in self.all_layer]
+        for layer, mode_layer in zip(self.all_layer, mode):
+            for cont, cont_mode in zip(layer, mode_layer):
+                if cont_mode:
+                    cont.to_vecchia()
+                else:
+                    cont.remove_vecchia()
         for one_imputed in self.all_layer_set:
             for layer, mode_layer in zip(one_imputed, mode):
                 for cont, cont_mode in zip(layer, mode_layer):
