@@ -7,6 +7,7 @@ from .imputation import imputer
 import copy
 from numba import set_num_threads
 from .utils import have_same_shape
+from contextlib import contextmanager
 
 class container:
     """
@@ -145,27 +146,36 @@ class lgp:
         if np.sum(np.concatenate([[cont.type=='dgp' for cont in all_layer[l]] for l in range(self.L)]))==0:
             N=1
         self.all_layer_set=[]
-        for _ in range(N):
-            one_imputation=[]
-            for l in range(self.L):
-                layer=[]
-                for cont in all_layer[l]:
-                    if cont.type=='gp':
-                        layer.append(copy.deepcopy(cont))
-                    elif cont.type=='dgp':
-                        if cont.vecch:
-                            (cont.imp).update_ord_nn()
-                        (cont.imp).sample()
-                        if not cont.vecch:
-                            (cont.imp).key_stats()
-                        layer.append(copy.deepcopy(cont))
-                one_imputation.append(layer)
-            self.all_layer_set.append(one_imputation)
+        with self.temp_all_layer() as temp_all_layer:
+            for _ in range(N):
+                one_imputation=[]
+                for l in range(self.L):
+                    layer=[]
+                    for cont in temp_all_layer[l]:
+                        if cont.type=='gp':
+                            layer.append(copy.deepcopy(cont))
+                        elif cont.type=='dgp':
+                            if cont.vecch:
+                                (cont.imp).update_ord_nn()
+                            (cont.imp).sample()
+                            if not cont.vecch:
+                                (cont.imp).key_stats()
+                            layer.append(copy.deepcopy(cont))
+                    one_imputation.append(layer)
+                self.all_layer_set.append(one_imputation)
 
     def __setstate__(self, state):
         if 'nb_parallel' in state:
             del state['nb_parallel']
         self.__dict__.update(state)
+
+    @contextmanager
+    def temp_all_layer(self):
+        original_state = copy.deepcopy(self.all_layer)
+        try:
+            yield original_state
+        finally:
+            pass
 
     def set_vecchia(self, mode):
         """Convert the (D)GP emulators in the linked system to Vecchia or non-Vecchia mode.
