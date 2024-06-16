@@ -31,7 +31,9 @@ class emulator:
         self.imp=imputer(self.all_layer, block)
         if self.vecch:
             (self.imp).update_ord_nn()
-        (self.imp).sample(burnin=50)
+            (self.imp).sample(burnin=20)
+        else:
+            (self.imp).sample(burnin=50)
         self.all_layer_set=[]
         for _ in range(N):
             if self.vecch:
