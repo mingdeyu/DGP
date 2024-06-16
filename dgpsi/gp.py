@@ -30,8 +30,8 @@ class gp:
         self.kernel=kernel
         self.vecch=vecchia
         self.n_data=self.X.shape[0]
-        if self.n_data>=1e5:
-            self.kernel.nn_method = 'approx'
+        #if self.n_data>=1e5:
+        #    self.kernel.nn_method = 'approx'
         self.m=min(m, self.n_data-1)
         self.initialize()
         if self.vecch:
@@ -119,8 +119,8 @@ class gp:
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
         self.n_data=self.X.shape[0]
-        if self.n_data>=1e5:
-            self.kernel.nn_method = 'approx'
+        #if self.n_data>=1e5:
+        #    self.kernel.nn_method = 'approx'
         self.m=min(self.m, self.n_data-1)
         self.update_kernel(reset_lengthscale=reset)
         if self.vecch:

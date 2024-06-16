@@ -86,10 +86,10 @@ class dgp:
             self.X=X
         self.vecch=vecchia
         self.n_data=self.X.shape[0]
-        if self.n_data>=1e4:
-            self.nn_method = 'approx'
-        else:
-            self.nn_method = 'exact'
+        #if self.n_data>=1e4:
+        #    self.nn_method = 'approx'
+        #else:
+        self.nn_method = 'exact'
         self.m=min(m, self.n_data-1)
         if all_layer is None:
             D, Y_D=np.shape(self.X)[1], np.shape(self.Y)[1]
@@ -389,10 +389,10 @@ class dgp:
         else:
             self.vecch=True if n_data>=300 else False
         self.n_data = n_data
-        if self.n_data>=1e4:
-            self.nn_method = 'approx'
-        else:
-            self.nn_method = 'exact'
+        #if self.n_data>=1e4:
+        #    self.nn_method = 'approx'
+        #else:
+        self.nn_method = 'exact'
         self.m=min(self.m, self.n_data-1)
         if reset:
             self.reinit_all_layer(reset_lengthscale=True)
