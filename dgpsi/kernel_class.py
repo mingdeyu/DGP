@@ -134,6 +134,7 @@ class kernel:
         self.imp_pointer_row=None
         self.imp_pointer_col=None
         self.nn_method='exact'
+        self.ord_fun=None
         self.iter_count=0
         self.target='dgp'
         self.bds=bds
@@ -177,6 +178,8 @@ class kernel:
             state['imp_pointer_col'] = None
         if 'nn_method' not in state:
             state['nn_method'] = 'exact'
+        if 'ord_fun' not in state:
+            state['ord_fun'] = None
         if 'iter_count' not in state:
             state['iter_count'] = 0
         if 'target' not in state:
@@ -229,7 +232,14 @@ class kernel:
         """Specify the ordering and NN for the Vecchia approximation
         """
         if ord is None:
-            self.ord = np.random.permutation(self.input.shape[0])
+            if self.ord_fun is None:
+                self.ord = np.random.permutation(self.input.shape[0])
+            else:
+                if self.global_input is not None:
+                    X = np.concatenate((self.input, self.global_input),1)/self.length
+                else:
+                    X = self.input/self.length
+                self.ord = self.ord_fun(X)
         else:
             self.ord = ord
         self.rev_ord = np.argsort(self.ord)

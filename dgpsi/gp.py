@@ -20,9 +20,10 @@ class gp:
         kernel (class): a :class:`.kernel` class that specifies the features of the GP. 
         vecchia (bool): a bool indicating if Vecchia approximation will be used. Defaults to `False`. 
         m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
+        ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation.
     """
 
-    def __init__(self, X, Y, kernel, vecchia=False, m=25):
+    def __init__(self, X, Y, kernel, vecchia=False, m=25, ord_fun=None):
         self.X=X
         self.Y=Y
         if (self.Y).ndim==1 or X.ndim==1:
@@ -33,6 +34,7 @@ class gp:
         #if self.n_data>=1e5:
         #    self.kernel.nn_method = 'approx'
         self.m=min(m, self.n_data-1)
+        self.ord_fun=ord_fun
         self.initialize()
         if self.vecch:
             self.kernel.ord_nn()
@@ -48,6 +50,8 @@ class gp:
             state['nn_method'] = 'exact'
         if 'm' not in state:
             state['m'] = 25
+        if 'ord_fun' not in state:
+            state['ord_fun'] = None
         self.__dict__.update(state)
         self.kernel.target = 'gp'
 
@@ -72,6 +76,8 @@ class gp:
         self.kernel.para_path=np.atleast_2d(np.concatenate((self.kernel.scale,self.kernel.length,self.kernel.nugget)))
         self.kernel.vecch = self.vecch
         self.kernel.m = self.m
+        if self.ord_fun is not None:
+            self.kernel.ord_fun = self.ord_fun
         if self.kernel.prior_name=='ref':
             p=np.shape(self.kernel.input)[1]
             if self.kernel.global_input is not None:
@@ -81,19 +87,23 @@ class gp:
             self.kernel.compute_cl()
         self.kernel.target='gp'
 
-    def to_vecchia(self, m=25):
+    def to_vecchia(self, m=25, ord_fun=None):
         """Convert the GP emulator to the Vecchia mode.
 
         Args:
             m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
+            ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation.
         """
         if self.vecch:
             raise Exception('The GP emulator is already in Vecchia mode.')
         else:
             self.vecch=True
             self.m = min(m, self.n_data-1)
+            self.ord_fun = ord_fun
             self.kernel.vecch = self.vecch
             self.kernel.m = self.m
+            if self.ord_fun is not None:
+                self.kernel.ord_fun = self.ord_fun
             self.kernel.ord_nn()
 
     def remove_vecchia(self):
@@ -330,7 +340,8 @@ class gp:
         Returns:
             Same as the method :meth:`.gp.predict`.
         """
-        if platform.system()=='Darwin':
+        os_type = platform.system()
+        if os_type in ['Darwin', 'Linux']:
             ctx._force_start_method('forkserver')
         total_cores = psutil.cpu_count(logical = False)
         if core_num is None:

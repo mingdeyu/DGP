@@ -224,7 +224,8 @@ class lgp:
         Returns:
             Same as the method `predict`.
         """
-        if platform.system()=='Darwin':
+        os_type = platform.system()
+        if os_type in ['Darwin', 'Linux']:
             ctx._force_start_method('forkserver')
         total_cores = psutil.cpu_count(logical = False)
         if core_num==None:

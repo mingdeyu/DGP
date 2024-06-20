@@ -240,7 +240,8 @@ class emulator:
                 idx = np.argmax(sigma2, axis=0)
                 return idx, sigma2[idx,np.arange(sigma2.shape[1])]
         elif method == 'MICE':
-            if platform.system()=='Darwin':
+            os_type = platform.system()
+            if os_type in ['Darwin', 'Linux']:
                 ctx._force_start_method('forkserver')
             total_cores = psutil.cpu_count(logical = False)
             if core_num is None:
@@ -304,7 +305,8 @@ class emulator:
                 idx = np.argmax(avg_mice, axis=0)
                 return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
         elif method == 'VIGF':
-            if platform.system()=='Darwin':
+            os_type = platform.system()
+            if os_type in ['Darwin', 'Linux']:
                 ctx._force_start_method('forkserver')
             total_cores = psutil.cpu_count(logical = False)
             if core_num is None:
@@ -626,7 +628,8 @@ class emulator:
         Returns:
             Same as the method :meth:`.emulator.predict`.
         """
-        if platform.system()=='Darwin':
+        os_type = platform.system()
+        if os_type in ['Darwin', 'Linux']:
             ctx._force_start_method('forkserver')
         total_cores = psutil.cpu_count(logical = False)
         if core_num is None:

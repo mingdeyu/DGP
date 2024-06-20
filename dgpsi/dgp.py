@@ -38,7 +38,7 @@ class dgp:
         block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations during the training. Defaults to `True`.
         vecchia (bool): a bool indicating if Vecchia approximation will be used. Defaults to `False`. 
         m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
-        
+        ord_fun (function, optional): a function that decides the ordering of the input of the GP nodes in the DGP structure for the Vecchia approximation.
     Remark:
         This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
         are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use :class:`.lgp` class for 
@@ -60,7 +60,7 @@ class dgp:
 
     """
 
-    def __init__(self, X, Y, all_layer=None, check_rep=True, block=True, vecchia=False, m=25):
+    def __init__(self, X, Y, all_layer=None, check_rep=True, block=True, vecchia=False, m=25, ord_fun=None):
         self.Y=Y
         if isinstance(self.Y, list):
             if len(self.Y)==1:
@@ -91,6 +91,7 @@ class dgp:
         #else:
         self.nn_method = 'exact'
         self.m=min(m, self.n_data-1)
+        self.ord_fun=ord_fun
         if all_layer is None:
             D, Y_D=np.shape(self.X)[1], np.shape(self.Y)[1]
             layer1 = [ker(length=np.array([1.])) for _ in range(D)]
@@ -117,6 +118,8 @@ class dgp:
             state['nn_method'] = 'exact'
         if 'm' not in state:
             state['m'] = 25
+        if 'ord_fun' not in state:
+            state['ord_fun'] = None
         if 'rff' in state:
             del state['rff']
         if 'M' in state:
@@ -188,6 +191,8 @@ class dgp:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=global_in[:,kernel.connect]
                     kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    if self.ord_fun is not None:
+                        kernel.ord_fun = self.ord_fun
                     kernel.D=np.shape(kernel.input)[1]
                     if kernel.connect is not None:
                         kernel.D+=len(kernel.connect)
@@ -239,23 +244,27 @@ class dgp:
             if l!=self.n_layer-1:
                 In=copy.copy(Out)
 
-    def to_vecchia(self, m=25):
+    def to_vecchia(self, m=25, ord_fun=None):
         """Convert the DGP structure to the Vecchia mode.
 
         Args:
             m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
+            ord_fun (function, optional): a function that decides the ordering of the input of the GP nodes in the DGP structure for the Vecchia approximation.
         """
         if self.vecch:
             raise Exception('The DGP structure is already in Vecchia mode.')
         else:
             self.vecch = True
             self.m = min(m, self.n_data-1)
+            self.ord_fun = ord_fun
             n_layer = len(self.all_layer)
             for l in range(n_layer):
                 layer = self.all_layer[l]
                 for k, kernel in enumerate(layer):
                     if kernel.type == 'gp':
                         kernel.vecch, kernel.m = self.vecch, self.m
+                        if self.ord_fun is not None:
+                            kernel.ord_fun = self.ord_fun
                         compute_pointer = False
                         if l==self.n_layer-2:
                             linked_layer=self.all_layer[l+1]
@@ -384,15 +393,15 @@ class dgp:
         else:
             self.X=X
         n_data=self.X.shape[0]
-        if self.n_data<300 and self.vecch:
-            self.vecch=True if n_data>=100 else False
-        else:
-            self.vecch=True if n_data>=300 else False
+        #if self.n_data<300 and self.vecch:
+        #    self.vecch=True if n_data>=100 else False
+        #else:
+        #    self.vecch=True if n_data>=300 else False
         self.n_data = n_data
         #if self.n_data>=1e4:
         #    self.nn_method = 'approx'
         #else:
-        self.nn_method = 'exact'
+        #self.nn_method = 'exact'
         self.m=min(self.m, self.n_data-1)
         if reset:
             self.reinit_all_layer(reset_lengthscale=True)
@@ -431,7 +440,8 @@ class dgp:
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l!=self.n_layer-1:
-                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    kernel.m = self.m
                     if kernel.vecch:
                         if kernel.connect is not None:
                             mu=cond_mean_vecch(In[~mask,:][:,kernel.input_dim], global_in[~mask,:][:,kernel.connect], kernel.input, kernel.global_input, kernel.output, kernel.scale, kernel.length, kernel.nugget, kernel.name, 50, kernel.nn_method)
@@ -494,7 +504,8 @@ class dgp:
                                 kernel.global_input=(global_in[:,kernel.connect]).copy()
                             else:
                                 kernel.global_input=(global_in[kernel.rep,:][:,kernel.connect]).copy()
-                        kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                        #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                        kernel.m = self.m
                         if kernel.vecch:
                             if k == 0:
                                 kernel.ord_nn(pointer=False)
@@ -556,7 +567,8 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=(self.X[:,kernel.connect]).copy()
-                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    kernel.m = self.m
                     if kernel.vecch:
                         compute_pointer = False
                         if l==self.n_layer-2:
@@ -641,7 +653,8 @@ class dgp:
                             if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
                                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
                             kernel.global_input=global_in[:,kernel.connect]
-                    kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
+                    kernel.m = self.m
                     if reset_lengthscale:
                         initial_hypers=kernel.para_path[0,:]
                         kernel.scale=initial_hypers[[0]]
@@ -727,7 +740,8 @@ class dgp:
             core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
                 the number of cores is set to ``(max physical cores available - 1)``.
         """
-        if platform.system()=='Darwin':
+        os_type = platform.system()
+        if os_type in ['Darwin', 'Linux']:
             ctx._force_start_method('forkserver')
         total_cores = psutil.cpu_count(logical = False)
         if core_num is None:
