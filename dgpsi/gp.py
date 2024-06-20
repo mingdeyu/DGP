@@ -20,7 +20,7 @@ class gp:
         kernel (class): a :class:`.kernel` class that specifies the features of the GP. 
         vecchia (bool): a bool indicating if Vecchia approximation will be used. Defaults to `False`. 
         m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
-        ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation.
+        ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation. If set to `None`, then the default random ordering is used. Defaults to `None`.
     """
 
     def __init__(self, X, Y, kernel, vecchia=False, m=25, ord_fun=None):
@@ -92,7 +92,7 @@ class gp:
 
         Args:
             m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
-            ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation.
+            ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation. If set to `None`, then the default random ordering is used. Defaults to `None`.
         """
         if self.vecch:
             raise Exception('The GP emulator is already in Vecchia mode.')
@@ -102,8 +102,7 @@ class gp:
             self.ord_fun = ord_fun
             self.kernel.vecch = self.vecch
             self.kernel.m = self.m
-            if self.ord_fun is not None:
-                self.kernel.ord_fun = self.ord_fun
+            self.kernel.ord_fun = self.ord_fun
             self.kernel.ord_nn()
 
     def remove_vecchia(self):

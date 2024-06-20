@@ -39,6 +39,7 @@ class dgp:
         vecchia (bool): a bool indicating if Vecchia approximation will be used. Defaults to `False`. 
         m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
         ord_fun (function, optional): a function that decides the ordering of the input of the GP nodes in the DGP structure for the Vecchia approximation.
+            If set to `None`, then the default random ordering is used. Defaults to `None`.
     Remark:
         This class is used for DGP structures, in which internal I/O are unobservable. When some internal layers
         are fully observable, the DGP model reduces to linked (D)GP model. In such a case, use :class:`.lgp` class for 
@@ -249,7 +250,7 @@ class dgp:
 
         Args:
             m (int): an integer that gives the size of the conditioning set for the Vecchia approximation in the training. Defaults to `25`. 
-            ord_fun (function, optional): a function that decides the ordering of the input of the GP nodes in the DGP structure for the Vecchia approximation.
+            ord_fun (function, optional): a function that decides the ordering of the input of the GP nodes in the DGP structure for the Vecchia approximation. If set to `None`, then the default random ordering is used. Defaults to `None`.
         """
         if self.vecch:
             raise Exception('The DGP structure is already in Vecchia mode.')
@@ -263,8 +264,7 @@ class dgp:
                 for k, kernel in enumerate(layer):
                     if kernel.type == 'gp':
                         kernel.vecch, kernel.m = self.vecch, self.m
-                        if self.ord_fun is not None:
-                            kernel.ord_fun = self.ord_fun
+                        kernel.ord_fun = self.ord_fun
                         compute_pointer = False
                         if l==self.n_layer-2:
                             linked_layer=self.all_layer[l+1]
