@@ -77,10 +77,11 @@ class dgp:
         self.check_rep=check_rep
         self.indices=None
         if self.check_rep:
-            X0, indices = np.unique(X, return_inverse=True,axis=0)
+            X0, indices, counts = np.unique(X, return_inverse=True,return_counts=True,axis=0)
             if len(X0) != len(X):
                 self.X = X0
                 self.indices=indices
+                self.max_rep=np.max(counts)
             else:  
                 self.X=X
         else:
@@ -121,6 +122,8 @@ class dgp:
             state['m'] = 25
         if 'ord_fun' not in state:
             state['ord_fun'] = None
+        if 'max_rep' not in state:
+            state['max_rep'] = None
         if 'rff' in state:
             del state['rff']
         if 'M' in state:
@@ -204,8 +207,11 @@ class dgp:
                             linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
                             if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
-                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
+                                    if self.indices is not None:
+                                        kernel.max_rep = self.max_rep
+                                        kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -258,6 +264,8 @@ class dgp:
             self.vecch = True
             self.m = min(m, self.n_data-1)
             self.ord_fun = ord_fun
+            if self.indices is not None:
+                self.max_rep = np.max(np.bincount(self.indices))
             n_layer = len(self.all_layer)
             for l in range(n_layer):
                 layer = self.all_layer[l]
@@ -271,8 +279,11 @@ class dgp:
                             linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
                             if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
-                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
+                                    if self.indices is not None:
+                                        kernel.max_rep = self.max_rep
+                                        kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -315,6 +326,8 @@ class dgp:
         for l in range(self.n_layer):
             layer=self.all_layer[l]
             for k, kernel in enumerate(layer):
+                if l==self.n_layer-1 and kernel.rep is not None:
+                    self.indices=kernel.rep
                 if kernel.type=='gp':
                     kernel.para_path=np.atleast_2d(np.concatenate((kernel.scale,kernel.length,kernel.nugget)))
                     kernel.D=np.shape(kernel.input)[1]
@@ -327,8 +340,15 @@ class dgp:
                             linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
                             if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
-                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
+                                    if self.indices is not None:
+                                        if kernel.max_rep is None:
+                                            self.max_rep = np.max(np.bincount(self.indices))
+                                            kernel.max_rep = self.max_rep
+                                        else:
+                                            self.max_rep = kernel.max_rep
+                                        kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -384,10 +404,11 @@ class dgp:
         self.indices=None
         origin_X=(self.X).copy()
         if self.check_rep:
-            X0, indices = np.unique(X, return_inverse=True,axis=0)
+            X0, indices, counts = np.unique(X, return_inverse=True,return_counts=True,axis=0)
             if len(X0) != len(X):
                 self.X = X0
                 self.indices=indices
+                self.max_rep=np.max(counts)
             else:  
                 self.X=X
         else:
@@ -468,8 +489,11 @@ class dgp:
                             linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
                             if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
-                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
+                                    if self.indices is not None:
+                                        kernel.max_rep = self.max_rep
+                                        kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -576,8 +600,11 @@ class dgp:
                             linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
                             if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
-                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
+                                    if self.indices is not None:
+                                        kernel.max_rep = self.max_rep
+                                        kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -667,8 +694,11 @@ class dgp:
                             linked_upper_kernels=[linked_kernel for linked_kernel in linked_layer if linked_kernel.input_dim is None or k in linked_kernel.input_dim]
                             if len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx!=None:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
-                                if idxx in linked_upper_kernels[0].exact_post_idx and linked_upper_kernels[0].rep is None:
+                                if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
+                                    if self.indices is not None:
+                                        kernel.max_rep = self.max_rep
+                                        kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:

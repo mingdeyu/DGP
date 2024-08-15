@@ -4,7 +4,7 @@ from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist, squareform
 from .functions import Pmatrix, gp, link_gp, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, logdet_nb, trace_nb, g
-from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, imp_pointers, link_gp_vecch
+from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, imp_pointers, imp_pointers_rep, link_gp_vecch
 class kernel:
     """
     Class that defines the GPs in the DGP hierarchy.
@@ -116,7 +116,7 @@ class kernel:
         self.input=None
         self.output=None
         self.rep=None
-        #self.rep_sp=None
+        self.rep_hetero=None
         self.Rinv=None
         self.Rinv_y=None
         self.R2sexp=None
@@ -128,9 +128,8 @@ class kernel:
         self.m=None
         self.pred_m=None
         self.NNarray=None
+        self.max_rep=None
         self.imp_NNarray=None
-        #self.pointer_row=None
-        #self.pointer_col=None
         self.imp_pointer_row=None
         self.imp_pointer_col=None
         self.nn_method='exact'
@@ -170,6 +169,10 @@ class kernel:
             state['pred_m'] = None
         if 'NNarray' not in state:
             state['NNarray'] = None
+        if 'max_rep' not in state:
+            state['max_rep'] = None
+        if 'rep_hetero' not in state:
+            state['rep_hetero'] = None    
         if 'imp_NNarray' not in state:
             state['imp_NNarray'] = None
         if 'imp_pointer_row' not in state:
@@ -224,7 +227,7 @@ class kernel:
             _, resids = lstsq(X, self.input, rcond = None)[:2]
             rsq = 1 - resids / (len(self.input) * np.var(self.input, axis=0))
             if overwritten:
-                self.R2 = rsq
+                self.R2 = np.atleast_2d(rsq)
             else:
                 self.R2 = np.vstack((self.R2,rsq))
 
@@ -257,8 +260,10 @@ class kernel:
             prev = NNs < np.tile(np.arange(n), (self.m-1, 1)).T
             NNs[prev] = NNs[prev] + n
             self.imp_NNarray = np.hstack((np.arange(n).reshape(-1,1) + n, np.arange(n).reshape(-1,1), NNs))
-            self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
-            #self.pointer_row, self.pointer_col = pointers(self.NNarray)
+            if self.max_rep is None:
+                self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
+            else:
+                self.imp_pointer_row, self.imp_pointer_col = imp_pointers_rep(self.imp_NNarray, self.max_rep, self.rep_hetero, self.ord)
 
     def log_t(self):
         """Log transform the model parameters (lengthscales and nugget).
