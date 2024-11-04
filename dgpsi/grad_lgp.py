@@ -22,7 +22,7 @@ def gp_pred(x,z,Rinv,Rinv_y,scale,length,nugget,name):
         v[i] = np.abs(scale*(1+nugget-r_Rinv_r))[0]
     return m, v
 
-# @njit(cache=True)
+@njit(cache=True)
 def epsilon_sexp_with_derivative(x, z_m, z_v, length, scale):
     """ compute the epsilon function in the I function.
     N is the number of samples
