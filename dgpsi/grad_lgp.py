@@ -84,7 +84,6 @@ def sexp_k_one_vector_derivative(x_star, X, length, scale):
     return grad_k 
 
 
-
 @njit(cache=True)
 def matern_k_one_vector_derivative(x_star, X, length, scale):
     """
@@ -129,6 +128,7 @@ def matern_k_one_vector_derivative(x_star, X, length, scale):
     grad_k = (dk_dr * inv_r)[:, :, None] * diff  # Broadcasting to shape (M, N, D)
     return grad_k
 
+    
 
 
 def nabla_sexp_I(x_star:np.array, all_layers:list):
@@ -153,6 +153,7 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
     var_first_layer = np.zeros((M, num_gp_nodes))
     dmu_dx = np.zeros((M, num_gp_nodes, D, 1)) 
     dvar_dx = np.zeros((M, num_gp_nodes, D, 1))
+    # var_dx_1 = np.zeros((M, num_gp_nodes, D))
 
     for p in range(num_gp_nodes):
         Rinv = first_layer[p].Rinv
@@ -184,7 +185,11 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
         # print(k_one_vec(x_star, w1, length, name).shape)
         term1 = np.einsum('mdn,mn->md', term1, k_one_vec(x_star, w1, length, name))[:,:,None]# Shape: (M, D, 1)
         dvar_dx[:,p,:,:] = scale*term1
+
+        # var_dx_1[:,p,:] = np.clip(scale/length**2 - term1, 1e-12, None)[:,:,0]
+        # print(var_dx_1[:,p,:].mean())
     w1 = second_layer[0].input
+    scale = second_layer[0].scale[0]
     
     # ============ epsilon function ============
     epsilon_xstar, d_epsilon_dz_m, d_epsilon_dz_v = epsilon_sexp_with_derivative(w1, 
@@ -192,10 +197,51 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
                                                     var_first_layer, 
                                                     np.array([second_layer[0].length[0] for i in range(num_gp_nodes)]),
                                                     scale=scale)
+    
+    # approxiamte the variance of the deep GP
+    # Var(\nabla f_l(x_star)) = (1) \nabla f_{l-1}(x_star)^T * Var(f_l(x_star)) * \nabla f_{l-1}(x_star) 
+    #                           (2) + Var(\nabla f_{l}(w_star|x_star))
+    # (1)
+    # shape of dmu_dx: (M, Num_gp_nodes, D, 1)
+    dmu_dx_T = np.transpose(dmu_dx, axes=(0, 2, 1, 3)) # shape: (M, D, Num_gp_nodes, 1)
+
+    nabla_rw = sexp_k_one_vector_derivative(mu_first_layer, w1, second_layer[0].length, scale) # Shape: (M, N, G)
+    nabla_rw_T = np.transpose(nabla_rw, axes=(0, 2, 1)) # Shape: (M, G, N)
+    # dmu2_dw = np.einsum('mdn,n->md', nabla_rw_T,
+    #                     second_layer[0].Rinv_y) # shape: (M, Num_gp_nodes)
+    
+    # weighted_dmu2_dw = np.einsum("mg, mg->mg", dmu2_dw, var_first_layer) # shape: (M, Num_gp_nodes)
+    # weighted_dmu2_dw = np.einsum('mg,mgd->md', weighted_dmu2_dw, dmu_dx[:,:,:,0]) # shape: (M, D)
+
+    # (2)
+    # print("scale: ", scale)
+    # print("length: ", second_layer[0].length)
+
+    var_dx_2 = scale/length**4 if length > 1 else scale
+    # print(var_dx_2.mean())
+    quad_term = np.einsum('mgn,nk->mgk', nabla_rw_T, second_layer[0].Rinv) # shape: (M, G, N)
+    quad_term = np.einsum('mgn,mnk->mgk', quad_term, nabla_rw) # shape: (M, G, G)
+    # print(quad_term.mean())
+    var_dx_2 = var_dx_2 + quad_term
+            # + second_layer[0].nugget*np.eye(num_gp_nodes)[None, :, :].repeat(M,axis=0)) # shape: (M, G, G)
+    
+    # def if_positive_definite(matrix):
+    #     if np.all(np.linalg.eigvals(matrix) > 0):
+    #         print("Positive definite")
+    #     else:
+    #         print("Not positive definite")
+    # for m in range(M):
+    #     if_positive_definite(quad_term[m])
+
+    V_nabla_f = np.einsum('mdg, mgk->mdk', dmu_dx_T[:,:,:,0], var_dx_2) # shape: (M, D, G)
+    V_nabla_f = np.einsum('mdg, mgk->mdk', V_nabla_f, dmu_dx[:,:,:,0]) # shape: (M, D)
+
+    # for m in range(M):
+    #     if_positive_definite(V_nabla_f[m])
+
     for d in range(D):
         # partial derivative of I with respect to d-dimension x_star
         partial_I_partial_xd = np.zeros((M,N))
-        s = np.zeros((M,N))
         for p in range(num_gp_nodes):
             # chain rule: dI/dx = dI/dz_m * dz_m/dx + dI/dz_v * dz_v/dx
             # shape of d_epsilon_dx_star: (M, N)
@@ -207,7 +253,7 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
 
         nabla_I[:,:,d] = partial_I_partial_xd
 
-    return nabla_I
+    return nabla_I, V_nabla_f
 
 def grad_lgp(x_star, all_layers):
     """Compute the gradient of the linked GP for the squared exponential kernel.
@@ -219,12 +265,13 @@ def grad_lgp(x_star, all_layers):
     assert len(all_layers[1]) == 1, "Only support one GP in the second layer now."
     assert all_layers[1][0].name == 'sexp', "Only support squared exponential kernel now."
 
-    nabla_I = nabla_sexp_I(x_star, all_layers)
+    nabla_I, V_nabla_f = nabla_sexp_I(x_star, all_layers)
     Rinv_y = all_layers[1][0].Rinv_y
     nabla_I = np.transpose(nabla_I, axes=(0,2,1))
 
     nabla_I_Rinv_y = np.einsum('mdn,n->md', nabla_I, Rinv_y)
-    return nabla_I_Rinv_y
+
+    return nabla_I_Rinv_y, V_nabla_f
 
 
 if __name__ == "__main__":
@@ -235,6 +282,8 @@ if __name__ == "__main__":
 
     np.random.seed(123)
     nb_seed(123)
+
+
     
 
     # Define the benchmark function
@@ -279,10 +328,12 @@ if __name__ == "__main__":
 
 
     grad_pred = np.zeros((100, 2))
+    grad_pred_var = np.zeros((100, 2, 2))
     num_imp = len(emu.all_layer_set)
     for i in range(num_imp):
-        tmp_grad_pred = grad_lgp(grid_eval_grid, emu.all_layer_set[i])
+        tmp_grad_pred, tmp_grad_pred_var = grad_lgp(grid_eval_grid, emu.all_layer_set[i])
         grad_pred += tmp_grad_pred/num_imp
+        grad_pred_var += tmp_grad_pred_var/(10*num_imp)
 
 
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
@@ -297,6 +348,7 @@ if __name__ == "__main__":
 
     ax[1].quiver(grid_eval_grid[:, 0], grid_eval_grid[:, 1], grad_pred[:, 0], grad_pred[:, 1])
     colorbar_2 = ax[1].imshow(pred_mu.reshape(50, 50), extent=(-1, 1, -1, 1))
+    
     fig.colorbar(colorbar_2, ax=ax[1])
     ax[1].set_title("Emulator prediction", fontsize=15)
     ax[1].set_xlabel("x1", fontsize=12)
