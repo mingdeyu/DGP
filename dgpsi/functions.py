@@ -169,7 +169,9 @@ def categorical_sampler_3d(pvals):
     
     return samples
 
-def logloss(probs, truth):
+def logloss(probs, truth, ord = None):
+    if ord is not None:
+        probs = probs[:, ord, :]
     num_samples, num_points, _ = probs.shape
     true_class_probs = probs[np.arange(num_samples)[:, None], np.arange(num_points), truth]
     log_loss_values = -np.log(true_class_probs)
