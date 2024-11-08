@@ -453,6 +453,8 @@ class dgp:
                 raise Exception('Y has to be a numpy 2d-array rather than a list. The list version of Y (for linked emulation) has been reduced. Please use the dedicated lgp class for linked emulation.')
         if (self.Y).ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
+        if self.all_layer[-1][0].name == 'Categorical':
+            self.Y = self.all_layer[-1][0].class_encoder.transform(self.Y.flatten()).reshape(-1,1)
         self.indices=None
         origin_X=(self.X).copy()
         if self.check_rep:

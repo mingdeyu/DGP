@@ -159,7 +159,7 @@ class emulator:
                             kernel.vecch = False
                         kernel.loo_state = False
         
-    def loo(self, X, method=None, sample_size=50, m=30):
+    def loo(self, X, method=None, mode = 'prob', sample_size=50, m=30):
         """Implement the Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
@@ -169,6 +169,7 @@ class emulator:
                 (`sampling`) approach is used for DGP emulators with a categorical likelihood. Otherwise, 
                 mean-variance (`mean_var`) approach is used. mean-variance (`mean_var`) approach is not applicable
                 to DGP emulators with a categorical likelihood. Defaults to None.
+            mode (str, optional): whether to return samples of probabilities of classes (`prob`) or the classes themselves (`label`). Defaults to `prob`.
             sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
                  Defaults to `50`.
             m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
@@ -178,10 +179,10 @@ class emulator:
             if the argument **method** = '`mean_var`', a tuple is returned. The tuple contains two numpy 2d-arrays, one for the predictive means 
                 and another for the predictive variances. Each array has its rows corresponding to training input
                 positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
-
-            if the argument **method** = '`sampling`', a list is returned. The list contains *D* (i.e., the number of GP/likelihood nodes in the 
-                final layer) numpy 2d-arrays. Each array has its rows corresponding to training input positions and columns corresponding to samples 
-                of size: **N** * **sample_size**;
+            
+            If the argument **method** = '`sampling`', the function returns a list. This list contains *D* elements, where *D* represents either the number 
+            of GP/likelihood nodes in the final layer or the number of classes (when **mode** = '`prob`' and the emulator uses a categorical likelihood). 
+            Each element in the list is a 2d-array in which rows correspond to training input positions, and columns represent samples of size **N** * **sample_size**.
         """
         if method is None:
             if self.all_layer[-1][0].name == 'Categorical':
@@ -197,7 +198,7 @@ class emulator:
         m_pred = m+1 if self.vecch else X.shape[0]
         with self.change_vecch_state():
             if self.all_layer[-1][0].name == 'Categorical':
-                final_res = self.classify(X, mode = 'label', sample_size=sample_size, m=m_pred)
+                final_res = self.classify(X, mode = mode, sample_size=sample_size, m=m_pred)
             else:
                 final_res = self.predict(X, method=method, sample_size=sample_size, m=m_pred)
         if isrep:
@@ -205,11 +206,11 @@ class emulator:
             final_res = type(final_res)(modified_items)
         return final_res
     
-    def ploo(self, X, method=None, sample_size=50, m=30, core_num=None):
+    def ploo(self, X, method=None, mode = 'prob', sample_size=50, m=30, core_num=None):
         """Implement the parallel Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
-            X, method, sample_size, m: see descriptions of the method :meth:`.emulator.loo`.
+            X, method, mode, sample_size, m: see descriptions of the method :meth:`.emulator.loo`.
             core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
                 the number of cores is set to ``max physical cores available // 2``.
 
@@ -230,7 +231,7 @@ class emulator:
         m_pred = m+1 if self.vecch else X.shape[0]
         with self.change_vecch_state():
             if self.all_layer[-1][0].name == 'Categorical':
-                final_res = self.pclassify(X, mode = 'label', sample_size=sample_size, m=m_pred, core_num=core_num)
+                final_res = self.pclassify(X, mode = mode, sample_size=sample_size, m=m_pred, core_num=core_num)
             else:
                 final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
         if isrep:
