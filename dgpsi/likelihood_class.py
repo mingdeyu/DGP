@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.special import loggamma
 from scipy.linalg import cholesky, cho_solve
-from .functions import fmvn_mu
+from .functions import categorical_sampler #fmvn_mu
 from .vecchia import backward_substitute, forward_substitute
 
 class Poisson:
@@ -145,8 +145,8 @@ class Hetero:
                 #V_mask=v[mask_f,:][:,mask_f]
                 #mu,cov=self.post_het2(v,Gamma,v_mask,V_mask,y_mask)
                 mu,cov=self.post_het2(v,Gamma,self.rep,self.output)
-            #f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
-            f_mu=fmvn_mu(mu,cov)
+            f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
+            #f_mu=fmvn_mu(mu,cov)
             return f_mu
         
     def posterior_vecch(self, idx, U_sp_l, U_sp_ol, ord, rev_ord):
@@ -252,5 +252,82 @@ class NegBin:
         y_sample=np.random.negative_binomial(k,p)
         return y_sample.flatten()
 
+class Categorical:
+    """Class to implement categorical likelihood for binary and multi-class classifications. It can only be added as the final layer of a DGP model.
 
+    Args:
+        num_classes (int, optional): an integer indicating the number of classes in the training data.
+        input_dim (ndarray, optional): a numpy 1d-array of length one that contains the indices of one GP (if the output has two classes) and K
+            (if the output has K > 2 classes) in the feeding layer whose outputs feed into the likelihood node. When set to `None`, 
+            all outputs from GPs of the feeding layer feed into the likelihood node, and in this case one needs to ensure there is only one GP
+            node (for binary classification) or K GP nodes (for multi-class classification) specified in the feeding layer. Defaults to `None`.
+
+    Attributes:
+        type (str): identifies that the node is a likelihood node;
+        input (ndarray): a numpy 2d-array (each row as a data point and each column as a likelihood parameter from the
+            DGP part) that contains the input data (according to the argument **input_dim**) to the likelihood node. The value of 
+            this attribute is assigned during the initialisation of :class:`.dgp` class. 
+        output (ndarray): a numpy 2d-array with only one column that contains the output data to the likelihood node.
+            The value of this attribute is assigned during the initialisation of :class:`.dgp` class.
+        exact_post_idx (ndarray): a numpy 1d-array that indicates the indices of the likelihood parameters that allow closed-form
+            conditional posterior distributions. Defaults to `None`.
+        rep (ndarray): a numpy 1d-array used to re-construct repetitions in the data according to the repetitions in the global input,
+            i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position has multiple outputs. Otherwise, it is
+            `None`. Defaults to `None`. 
+    """
+    def __init__(self, num_classes=None, input_dim=None):
+        self.type='likelihood'
+        self.name='Categorical'
+        self.input=None
+        self.output=None
+        self.input_dim=input_dim
+        self.exact_post_idx=None
+        self.rep=None
+        self.num_classes=num_classes
+        self.class_encoder=None
+
+    def llik(self):
+        """The log-likelihood function of Categorical distribution.
+
+        Returns:
+            ndarray: a numpy 1d-array of log-likelihood.
+        """
+        if self.num_classes==2:
+            llik = np.sum(self.output * self.input - np.log(1 + np.exp(self.input)))
+        else: 
+            max_logits = np.max(self.input, axis=1, keepdims=True)
+            stable_exp = np.exp(self.input - max_logits)
+            log_sum_exp = np.log(np.sum(stable_exp, axis=1)) + max_logits.flatten()
+            llik = np.sum(self.input[np.arange(len(self.output)), self.output.flatten()] - log_sum_exp)
+        return llik
+    
+    def pllik(self, y, f):
+        if self.num_classes==2:
+            pllik = y * f - np.log(1 + np.exp(f))
+        else:
+            max_logits = np.max(f, axis=2, keepdims=True)
+            stable_exp = np.exp(f - max_logits)
+            log_sum_exp = np.log(np.sum(stable_exp, axis=2)) + np.squeeze(max_logits, axis=2)
+            pllik = (f[np.arange(len(y)), :, y.flatten()] - log_sum_exp)[:, :, None]
+        return pllik
+    
+    def sampling(self, f_sample, mode='prob'):
+        if self.num_classes==2:
+            if mode == 'prob':
+                prob_sample = 1 / (1 + np.exp(-f_sample))
+                y_sample = np.concatenate((1-prob_sample, prob_sample), axis=1)
+            elif mode == 'label':
+                prob_sample = 1 / (1 + np.exp(-f_sample))
+                y_sample = np.random.binomial(1, prob_sample.flatten())
+                y_sample = self.class_encoder.inverse_transform(y_sample).reshape(-1,1)
+        else:
+            if mode == 'prob':
+                exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
+                y_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
+            elif mode == 'label':
+                exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
+                prob_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
+                y_sample = categorical_sampler(prob_sample)
+                y_sample = self.class_encoder.inverse_transform(y_sample).reshape(-1,1)
+        return y_sample
         

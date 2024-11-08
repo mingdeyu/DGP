@@ -118,6 +118,28 @@ def fmvn(cov):
     samp=(L@sn).flatten()
     return samp
 
+@njit(cache=True)
+def categorical_sampler(pvals):
+    """
+    Perform categorical sampling using numpy.random.multinomial inside Numba for efficiency.
+    
+    Parameters:
+    pvals (numpy.ndarray): A 2D array of shape (num_samples, num_classes) representing the probability vectors for each sample.
+    
+    Returns:
+    numpy.ndarray: A 1D array of sampled categorical outcomes (class indices).
+    """
+    num_samples = pvals.shape[0]
+    samples = np.zeros(num_samples, dtype=np.int32)
+    
+    for i in range(num_samples):
+        # Perform a multinomial sample with n=1 for each set of probabilities
+        sample = np.random.multinomial(1, pvals[i])
+        # Get the index of the selected category (one-hot encoded result)
+        samples[i] = np.argmax(sample)
+    
+    return samples
+
 #@jit(nopython=True,cache=True)
 #def fmvn_mu(mu,cov):
 #    """Generate multivariate Gaussian random samples with means.

@@ -408,6 +408,7 @@ class lgp:
                                 m_input_lk.append( m_l_next[i][:,idx] )
                                 v_input_lk.append( v_l_next[i][:,idx] )
                         m_input_lk, v_input_lk = np.concatenate(m_input_lk, axis=1), np.concatenate(v_input_lk, axis=1)
+                        #m_input_lk, v_input_lk = None if not m_input_lk else np.concatenate(m_input_lk, axis=1), None if not v_input_lk else np.concatenate(v_input_lk, axis=1)
                         if model.type=='gp':
                             m_lk, v_lk=self.gp_pred(None,m_input_lk,v_input_lk,external_input_lk,model.structure,m)
                             if method=='sampling':
@@ -505,6 +506,9 @@ class lgp:
         """
         structure.pred_m = m_pred
         if x is None:
+        #    if m is None:
+        #        m,v=structure.gp_prediction(x=z,z=None)
+        #    else:
             m,v=structure.linkgp_prediction(m=m,v=v,z=z)
         else:
             m,v=structure.gp_prediction(x=x,z=z)
@@ -515,6 +519,9 @@ class lgp:
         """Compute predictive mean and variance from a DGP (DGP+likelihood) emulator when the testing input is either deterministic or normally distributed.
         """
         if x is None:
+        #    if m is None:
+        #        M = len(z)
+        #    else:
             M=len(m)
         else:
             M=len(x)
@@ -535,6 +542,9 @@ class lgp:
                     kernel=layer[k]
                     kernel.pred_m = pred_m
                     if x is None:
+                    #    if m is None:
+                    #        m_k,v_k=kernel.gp_prediction(x=z,z=None)
+                    #    else:
                         m_k,v_k=kernel.linkgp_prediction(m=m,v=v,z=z)
                     else:
                         m_k,v_k=kernel.gp_prediction(x=x,z=z)
@@ -548,6 +558,9 @@ class lgp:
                         kernel.pred_m = pred_m
                         if kernel.connect is not None:
                             if x is None:
+                            #    if m is None:
+                            #        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,kernel.connect])
+                            #    else:
                                 if external_idx is None:
                                     idx=np.where(kernel.connect[:, None] == internal_idx[None, :])[1]
                                     m_k,v_k=kernel.linkgp_prediction_full(m=m_k_in,v=v_k_in,m_z=m[:,idx],v_z=v[:,idx],z=None)
@@ -575,6 +588,9 @@ class lgp:
                     m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
                     if kernel.connect is not None:
                         if x is None:
+                        #    if m is None:
+                        #        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z[:,kernel.connect])
+                        #    else:
                             D=np.shape(m)[1]
                             idx1,idx2=kernel.connect[kernel.connect<=(D-1)],kernel.connect[kernel.connect>(D-1)]
                             if idx1.size==0:

@@ -9,6 +9,10 @@ from .functions import cond_mean
 from .utils import NystromKPCA
 from .vecchia import cond_mean_vecch
 from sklearn.decomposition import KernelPCA
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import LabelEncoder
 from scipy.linalg import cho_solve
 import multiprocess.context as ctx
 import platform
@@ -81,6 +85,7 @@ class dgp:
             if len(X0) != len(X):
                 self.X = X0
                 self.indices=indices
+                self.counts=counts
                 self.max_rep=np.max(counts)
             else:  
                 self.X=X
@@ -101,6 +106,11 @@ class dgp:
             all_layer=combine(layer1,layer2)
         self.all_layer=all_layer
         self.n_layer=len(self.all_layer)
+        if self.all_layer[-1][0].name == 'Categorical':
+            self.all_layer[-1][0].class_encoder = LabelEncoder()
+            self.Y = self.all_layer[-1][0].class_encoder.fit_transform(self.Y.flatten()).reshape(-1,1)
+            if self.all_layer[-1][0].num_classes is None:
+                self.all_layer[-1][0].num_classes = len(self.all_layer[-1][0].class_encoder.classes_)
         self.initialize()
         self.block=block
         self.imp=imputer(self.all_layer, self.block)
@@ -124,6 +134,8 @@ class dgp:
             state['ord_fun'] = None
         if 'max_rep' not in state:
             state['max_rep'] = None
+        if 'counts' not in state:
+            state['counts'] = None
         if 'rff' in state:
             del state['rff']
         if 'M' in state:
@@ -139,17 +151,57 @@ class dgp:
             layer=self.all_layer[l]
             num_kernel=len(layer)
             if l!=self.n_layer-1:
-                if np.shape(In)[1]==num_kernel:
-                    Out=copy.copy(In)
-                elif np.shape(In)[1]>num_kernel:
-                    if self.vecch or self.n_data>=500:
-                        pca=NystromKPCA(n_components=num_kernel)
-                        Out=pca.fit_transform(In)
+                if l==self.n_layer-2 and num_kernel==2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='Hetero':
+                    Out = np.empty((np.shape(In)[0], num_kernel))
+                    if self.indices is None:
+                        Out[:,0] = self.Y.flatten()
+                        Out[:,1] = np.log(np.var(self.Y.flatten()))
                     else:
-                        pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
-                        Out=pca.fit_transform(In)
+                        sum_Y = np.zeros((np.shape(In)[0], 1))
+                        sum_Y2 = np.zeros((np.shape(In)[0], 1))
+                        # Accumulate the sum and sum of squares for each group
+                        np.add.at(sum_Y, self.indices, self.Y)
+                        np.add.at(sum_Y2, self.indices, self.Y**2)
+                        # Compute the mean and variance for each group
+                        mean_Y = sum_Y / self.counts[:, None]
+                        mean_Y2 = sum_Y2 / self.counts[:, None]
+                        variance_Y = mean_Y2 - mean_Y**2
+                        variance_Y[variance_Y == 0] = np.var(self.Y)
+                        Out[:,0] = mean_Y.flatten()
+                        Out[:,1] = np.log(variance_Y.flatten())
+                    if self.all_layer[l+1][0].input_dim is not None:
+                        Out = Out[:,self.all_layer[l+1][0].input_dim]
+                elif l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='Categorical':
+                    if self.all_layer[l+1][0].num_classes==2:
+                        if num_kernel != 1:
+                            raise Exception('You need one GP node to feed the categorical likelihood node.')
+                    else:
+                        if num_kernel != self.all_layer[l+1][0].num_classes:
+                            raise Exception('You need ' + str(self.all_layer[l+1][0].num_classes) + ' GP nodes to feed the ' + kernel.name + ' likelihood node.')
+                    if self.indices is None:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", category=ConvergenceWarning)
+                            lgm = LogisticRegression().fit(self.X, self.Y.flatten())
+                        w, b = lgm.coef_, lgm.intercept_
+                        Out = np.dot(self.X, w.T) + b
+                    else:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", category=ConvergenceWarning)
+                            lgm = LogisticRegression().fit(self.X[self.indices,:], self.Y.flatten())
+                        w, b = lgm.coef_, lgm.intercept_
+                        Out = np.dot(self.X, w.T) + b
                 else:
-                    Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
+                    if np.shape(In)[1]==num_kernel:
+                        Out=copy.copy(In)
+                    elif np.shape(In)[1]>num_kernel:
+                        if self.vecch or self.n_data>=500:
+                            pca=NystromKPCA(n_components=num_kernel)
+                            Out=pca.fit_transform(In)
+                        else:
+                            pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
+                            Out=pca.fit_transform(In)
+                    else:
+                        Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:

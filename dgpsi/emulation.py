@@ -159,13 +159,16 @@ class emulator:
                             kernel.vecch = False
                         kernel.loo_state = False
         
-    def loo(self, X, method='mean_var', sample_size=50, m=30):
+    def loo(self, X, method=None, sample_size=50, m=30):
         """Implement the Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
             X (ndarray): the training input data used to build the DGP emulator via the :class:`.dgp` class.
             method (str, optional): the prediction approach: mean-variance (`mean_var`) or sampling 
-                (`sampling`) approach for the LOO. Defaults to `mean_var`.
+                (`sampling`) approach for the LOO. If set to None, sampling 
+                (`sampling`) approach is used for DGP emulators with a categorical likelihood. Otherwise, 
+                mean-variance (`mean_var`) approach is used. mean-variance (`mean_var`) approach is not applicable
+                to DGP emulators with a categorical likelihood. Defaults to None.
             sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
                  Defaults to `50`.
             m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
@@ -180,18 +183,29 @@ class emulator:
                 final layer) numpy 2d-arrays. Each array has its rows corresponding to training input positions and columns corresponding to samples 
                 of size: **N** * **sample_size**;
         """
+        if method is None:
+            if self.all_layer[-1][0].name == 'Categorical':
+                method = 'sampling'
+            else:
+                method = 'mean_var'
+        else:
+            if self.all_layer[-1][0].name == 'Categorical' and method == 'mean_var':
+                raise Exception("The method argument must be 'sampling' when the DGP emulator has a categorical likelihood layer.")
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
         m_pred = m+1 if self.vecch else X.shape[0]
         with self.change_vecch_state():
-            final_res = self.predict(X, method=method, sample_size=sample_size, m=m_pred)
+            if self.all_layer[-1][0].name == 'Categorical':
+                final_res = self.classify(X, mode = 'label', sample_size=sample_size, m=m_pred)
+            else:
+                final_res = self.predict(X, method=method, sample_size=sample_size, m=m_pred)
         if isrep:
             modified_items = [item[indices, :] for item in final_res]
             final_res = type(final_res)(modified_items)
         return final_res
     
-    def ploo(self, X, method='mean_var', sample_size=50, m=30, core_num=None):
+    def ploo(self, X, method=None, sample_size=50, m=30, core_num=None):
         """Implement the parallel Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
@@ -202,12 +216,23 @@ class emulator:
         Returns:
             Same as the method :meth:`.emulator.loo`.
         """
+        if method is None:
+            if self.all_layer[-1][0].name == 'Categorical':
+                method = 'sampling'
+            else:
+                method = 'mean_var'
+        else:
+            if self.all_layer[-1][0].name == 'Categorical' and method == 'mean_var':
+                raise Exception("The method argument must be 'sampling' when the DGP emulator has a categorical likelihood layer.")
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
         m_pred = m+1 if self.vecch else X.shape[0]
         with self.change_vecch_state():
-            final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
+            if self.all_layer[-1][0].name == 'Categorical':
+                final_res = self.pclassify(X, mode = 'label', sample_size=sample_size, m=m_pred, core_num=core_num)
+            else:
+                final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
         if isrep:
             modified_items = [item[indices, :] for item in final_res]
             final_res = type(final_res)(modified_items)
@@ -714,6 +739,8 @@ class emulator:
         """
         if x.ndim==1:
             raise Exception('The testing input has to be a numpy 2d-array')
+        if self.all_layer[-1][0].name=='Categorical':
+            raise Exception('Use `classify` method to make predictions for the catagorical likelihood.' )
         M=len(x)
         if method=='mean_var':
             sample_size=1
@@ -845,7 +872,160 @@ class emulator:
                     mu=likelihood_mean
                     sigma2=likelihood_variance
             return mu, sigma2
+    
+    def pclassify(self, x, mode = 'prob', full_layer=False, sample_size=50, m=50, chunk_num=None, core_num=None):
+        """Implement parallel classification from the trained DGP model with a categorical likelihood.
 
+        Args:
+            x, mode, full_layer, sample_size, m: see descriptions of the method :meth:`.emulator.classify`.
+            chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
+                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
+            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
+                the number of cores is set to ``max physical cores available // 2``.
+
+        Returns:
+            Same as the method :meth:`.emulator.classify`.
+        """
+        if self.all_layer[-1][0].name != 'Categorical':
+            raise Exception('`pclassify` method is only applicable for DGP models with a catagorical likelihood.')
+        os_type = platform.system()
+        if os_type in ['Darwin', 'Linux']:
+            ctx._force_start_method('forkserver')
+        total_cores = psutil.cpu_count(logical = False)
+        if core_num is None:
+            core_num = total_cores//2
+        if chunk_num is None:
+            chunk_num=core_num
+        if chunk_num<core_num:
+            core_num=chunk_num
+        num_thread = total_cores // core_num
+        
+        def f(params):
+            x_chunk, mode, full_layer, sample_size, m = params
+            set_num_threads(num_thread)
+            return self.classify(x_chunk, mode, full_layer, sample_size, m)
+        z=np.array_split(x,chunk_num)
+        with Pool(core_num) as pool:
+            #pool.restart()
+            res = pool.map(f, [[x, mode, full_layer, sample_size, m] for x in z])
+            pool.close()
+            pool.join()
+            pool.clear()
+        if full_layer:
+            combined_res=[]
+            for layer in zip(*res):
+                combined_res.append(list(np.concatenate(workers) for workers in zip(*list(layer))))
+            return combined_res
+        else:
+            return list(np.concatenate(worker) for worker in zip(*res))
+    
+    def classify(self, x, mode = 'prob', full_layer=False, sample_size=50, m=50):
+        """Implement sampling-based classification from the trained DGP model with a categorical likelihood.
+
+        Args:
+            x (ndarray): a numpy 2d-array where each row is an input testing data point and 
+                each column is an input dimension.
+            mode (str, optional): whether to generate samples of probabilities of classes (`prob`) or the classes themselves (`label`). Defaults to `prob`.
+            full_layer (bool, optional): whether to output the predictions of all layers. Defaults to `False`.
+            sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
+                 Defaults to `50`.
+            m (int, optional): the size of the conditioning set for predictions if the DGP was built under the Vecchia approximation. Defaults to `50`.
+            
+        Returns:
+            list: 
+                1. If **full_layer** = `False`, the output is a list of *D* numpy 2d-arrays. *D* equals the number of classes if **mode** = `prob` or one
+                   if **mode** = `label`. If **mode** = `prob`, each array represents a class and has dimensions where: Rows correspond to the testing positions;
+                   Columns correspond to the sampled probabilities (of size **N** * **sample_size**) for that class. If **mode** = `label`, the single 2d-array 
+                   in the list represents the sampled class labels (of size **N** * **sample_size**).
+                2. If **full_layer** = `True`, the list contains *L* (i.e., the number of layers) sub-lists. Each of the first *L-1* sub-list 
+                   represents samples drawn from GPs in each of the first *L-1* layers. Within each sub-list, there are
+                   *D* numpy 2d-arrays, where *D* is the number of GP nodes in that layer. Each 2d-array contains sampled outputs for one of the *D* GPs at 
+                   different testing positions. The rows correspond to testing positions, and columns corresponding to samples of size: **N** * **sample_size**.
+                   The final sub-list contains either sampled probabilities of each class (when **mode** = `prob`) or sampled class labels (when **mode** = `label`), 
+                   as described above when **full_layer** = `False`.
+        """
+        if self.all_layer[-1][0].name != 'Categorical':
+            raise Exception('`classify` method is only applicable for DGP models with a catagorical likelihood.' )
+        if x.ndim==1:
+            raise Exception('The testing input has to be a numpy 2d-array')
+        M=len(x)
+        #start predictions
+        mean_pred=[]
+        variance_pred=[]
+        for s in range(len(self.all_layer_set)):
+            overall_global_test_input=x
+            one_imputed_all_layer=self.all_layer_set[s]
+            if full_layer:
+                mean_pred_oneN=[]
+                variance_pred_oneN=[]
+            for l in range(self.n_layer-1):
+                layer=one_imputed_all_layer[l]
+                n_kerenl=len(layer)
+                overall_test_output_mean=np.empty((M,n_kerenl))
+                overall_test_output_var=np.empty((M,n_kerenl))
+                if l==0:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        kernel.pred_m = m
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+                    if full_layer:
+                        mean_pred_oneN.append(overall_test_input_mean)
+                        variance_pred_oneN.append(overall_test_input_var)
+                else:
+                    for k in range(n_kerenl):
+                        kernel=layer[k]
+                        kernel.pred_m = m
+                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
+                        if kernel.connect is not None:
+                            z_k_in=overall_global_test_input[:,kernel.connect]
+                        else:
+                            z_k_in=None
+                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
+                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
+                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+                    if full_layer:
+                        mean_pred_oneN.append(overall_test_input_mean)
+                        variance_pred_oneN.append(overall_test_input_var)
+            for _ in range(sample_size):
+                if full_layer:
+                    mean_pred.append(mean_pred_oneN)
+                    variance_pred.append(variance_pred_oneN)
+                else:
+                    mean_pred.append(overall_test_input_mean)
+                    variance_pred.append(overall_test_input_var)
+        if full_layer:
+            mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
+            var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
+            samples=[]
+            for l in range(self.n_layer):
+                samples_layerwise=[]
+                if l==self.n_layer-1:
+                    for dgp_sample in samples_layer_before_likelihood:
+                        realisation=self.all_layer[-1][0].sampling(dgp_sample[:,self.all_layer[-1][0].input_dim], mode=mode)
+                        samples_layerwise.append(realisation)
+                else:
+                    for mu, sigma2 in zip(mu_layerwise[l], var_layerwise[l]):
+                        realisation=np.random.normal(mu,np.sqrt(sigma2))
+                        samples_layerwise.append(realisation)
+                    if l==self.n_layer-2:
+                        samples_layer_before_likelihood=samples_layerwise
+                samples_layerwise=np.asarray(samples_layerwise).transpose(2,1,0)
+                samples.append(list(samples_layerwise))
+        else:
+            samples=[]
+            for mu_dgp, sigma2_dgp in zip(mean_pred, variance_pred):
+                dgp_sample=np.random.normal(mu_dgp,np.sqrt(sigma2_dgp))
+                realisation=self.all_layer[-1][0].sampling(dgp_sample[:,self.all_layer[-1][0].input_dim], mode=mode)
+                samples.append(realisation)
+            samples=list(np.asarray(samples).transpose(2,1,0))
+        return samples
+        
     def nllik(self,x,y,m=50):
         """Compute the negative predicted log-likelihood from a trained DGP model with likelihood layer.
 
@@ -864,6 +1044,9 @@ class emulator:
         else:
             if self.all_layer[-1][0].type!='likelihood':
                 raise Exception('The method is only applicable to a DGP with the final layer formed by only ONE node, which must be a likelihood node.')
+        X0, indices = np.unique(x, return_inverse=True, axis=0)
+        if len(X0) != len(x):
+            x = X0
         M=len(x)
         #start predictions
         predicted_lik=[]
@@ -898,7 +1081,7 @@ class emulator:
                         m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
                         overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
                     overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-            predicted_lik.append(ghdiag(one_imputed_all_layer[-1][0].pllik,overall_test_input_mean,overall_test_input_var,y))
+            predicted_lik.append(ghdiag(one_imputed_all_layer[-1][0].pllik,overall_test_input_mean[indices,:],overall_test_input_var[indices,:],y))
         nllik=-np.log(np.mean(predicted_lik,axis=0)).flatten()
         average_nllik=np.mean(nllik)
         return average_nllik, nllik
