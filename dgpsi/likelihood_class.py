@@ -145,7 +145,7 @@ class Hetero:
                 #V_mask=v[mask_f,:][:,mask_f]
                 #mu,cov=self.post_het2(v,Gamma,v_mask,V_mask,y_mask)
                 mu,cov=self.post_het2(v,Gamma,self.rep,self.output)
-            f_mu=np.random.default_rng().multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
+            f_mu=np.random.multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
             #f_mu=fmvn_mu(mu,cov)
             return f_mu
         
