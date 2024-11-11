@@ -1105,7 +1105,7 @@ class emulator:
             raise Exception('The method is only applicable to DGPs with categorical likelihoods.')
         x_unique, order = np.unique(x, return_inverse = True, axis = 0)
         prob_samp = self.classify(x = x_unique, mode = 'prob', full_layer=False, sample_size=sample_size, m=m)
-        prob_samp = prob_samp.transpose(2,1,0)
+        prob_samp = np.asarray(prob_samp).transpose(2,1,0)
         y_encode = self.all_layer[-1][0].class_encoder.transform(y)
         ll = logloss(prob_samp, y_encode, order)
         return(ll)
