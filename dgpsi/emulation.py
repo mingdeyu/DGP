@@ -6,7 +6,7 @@ import psutil
 from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
-from .functions import ghdiag, mice_var, esloo_calculation
+from .functions import ghdiag, mice_var, esloo_calculation, logloss
 from .vecchia import get_pred_nn
 from contextlib import contextmanager
 from numba import set_num_threads
@@ -928,7 +928,7 @@ class emulator:
                 each column is an input dimension.
             mode (str, optional): whether to generate samples of probabilities of classes (`prob`) or the classes themselves (`label`). Defaults to `prob`.
             full_layer (bool, optional): whether to output the predictions of all layers. Defaults to `False`.
-            sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
+            sample_size (int, optional): the number of samples to draw for each given imputation.
                  Defaults to `50`.
             m (int, optional): the size of the conditioning set for predictions if the DGP was built under the Vecchia approximation. Defaults to `50`.
             
@@ -1086,6 +1086,29 @@ class emulator:
         nllik=-np.log(np.mean(predicted_lik,axis=0)).flatten()
         average_nllik=np.mean(nllik)
         return average_nllik, nllik
+
+    def log_loss(self, x, y, sample_size=50, m=50):
+        """Compute the log loss from a trained DGP classifier.
+
+        Args:
+            x (ndarray): a numpy 2d-array where each row is an input testing data point and 
+                each column is an input dimension.
+            y (ndarray): a numpy 1d-array that gives the testing output labels.
+            sample_size (int, optional): the number of samples to draw for each given imputation.
+                 Defaults to `50`.
+            m (int, optional): the size of the conditioning set for predictions if the DGP was built under the Vecchia approximation. Defaults to `50`.
+
+        Returns:
+            a scalar that gives the log loss value.
+        """
+        if self.all_layer[-1][0].name!='Categorical':
+            raise Exception('The method is only applicable to DGPs with categorical likelihoods.')
+        x_unique, order = np.unique(x, return_inverse = True, axis = 0)
+        prob_samp = self.classify(x = x_unique, mode = 'prob', full_layer=False, sample_size=sample_size, m=m)
+        prob_samp = prob_samp.transpose(2,1,0)
+        y_encode = self.all_layer[-1][0].class_encoder.transform(y)
+        ll = logloss(prob_samp, y_encode, order)
+        return(ll)
 
         
       
