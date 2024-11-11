@@ -1,11 +1,8 @@
 # dgpsi
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mingdeyu/DGP?display_name=release&include_prereleases&style=flat-square)](https://github.com/mingdeyu/DGP/releases)
-[![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
 [![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
 ![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?color=orange&style=flat-square)
-[![REF](https://img.shields.io/badge/REF-Linked%20GP-informational)](https://epubs.siam.org/doi/abs/10.1137/20M1323771)
-[![REF](https://img.shields.io/badge/REF-Deep%20GP-informational)](https://doi.org/10.1080/00401706.2022.2124311)
-[![REF](https://img.shields.io/badge/REF-Linked%20DGP-informational)](https://arxiv.org/abs/2306.01212)
+[![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
 [![GitHub R package version](https://img.shields.io/github/r-package/v/mingdeyu/dgpsi-R)](https://github.com/mingdeyu/dgpsi-R)
 
 ## For R users
@@ -27,6 +24,7 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * Fast Leave-One-Out (LOO) cross validations for GP and DGP emulators.
 * Calculations of ALM, MICE, PEI, and VIGF sequential design criterions.
 * Large-scale GP, DGP, and Linked (D)GP emulations.
+* Scalable DGP classification using Stochastic Imputation.
 
 ## Installation
 `dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
