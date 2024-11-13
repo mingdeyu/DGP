@@ -83,7 +83,7 @@ def sexp_k_one_vector_derivative(x_star, X, length, scale):
     grad_k = - 2 * diff / length**2 * k_values[:, :, None]  # Broadcasting k_values to shape (M, N, D)
     return grad_k 
 
-
+sqrt_5 = np.sqrt(5.0)
 @njit(cache=True)
 def matern_k_one_vector_derivative(x_star, X, length, scale):
     """
@@ -107,11 +107,13 @@ def matern_k_one_vector_derivative(x_star, X, length, scale):
     diff = x_star[:, None, :] - X[None, :, :]  # Shape: (M, N, D)
     # Compute squared distances and distances
     sq_dist = np.sum(diff ** 2, axis=-1)  # Shape: (M, N)
+    # r = diff
+    # r = np.sum(np.abs(diff), axis=-1)  # Shape: (M, N, D)
     r = np.sqrt(sq_dist + 1e-12)  # Add a small value to avoid division by zero
     # Compute constants
-    sqrt_5 = np.sqrt(5.0)
     l = length
     # Compute the kernel values
+
     A = (1.0 + (sqrt_5 * r) / l + (5.0 * r ** 2) / (3.0 * l ** 2))
     exp_part = np.exp(-sqrt_5 * r / l)
     # k_values = A * exp_part  # Shape: (M, N)
@@ -177,7 +179,7 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
             d_k_one_vector_d_x_star = matern_k_one_vector_derivative(x_star, w1, length, scale)
         else:
             raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
-        d_k_one_vector_d_x_star = sexp_k_one_vector_derivative(x_star, w1, length, scale) # Shape: (M, N, D)
+        
         d_k_one_vector_d_x_star_transpose = np.transpose(d_k_one_vector_d_x_star, (0, 2, 1)) # Shape: (M, D, N)
         dmu_dx[:,p,:,:] = np.einsum('mdn,n->md', d_k_one_vector_d_x_star_transpose, Rinv_y)[:,:,None] # Shape: (M, D, 1)
 
@@ -218,20 +220,10 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
     # print("length: ", second_layer[0].length)
 
     var_dx_2 = scale/length**4 if length > 1 else scale
-    # print(var_dx_2.mean())
     quad_term = np.einsum('mgn,nk->mgk', nabla_rw_T, second_layer[0].Rinv) # shape: (M, G, N)
     quad_term = np.einsum('mgn,mnk->mgk', quad_term, nabla_rw) # shape: (M, G, G)
     # print(quad_term.mean())
     var_dx_2 = var_dx_2 + quad_term
-            # + second_layer[0].nugget*np.eye(num_gp_nodes)[None, :, :].repeat(M,axis=0)) # shape: (M, G, G)
-    
-    # def if_positive_definite(matrix):
-    #     if np.all(np.linalg.eigvals(matrix) > 0):
-    #         print("Positive definite")
-    #     else:
-    #         print("Not positive definite")
-    # for m in range(M):
-    #     if_positive_definite(quad_term[m])
 
     V_nabla_f = np.einsum('mdg, mgk->mdk', dmu_dx_T[:,:,:,0], var_dx_2) # shape: (M, D, G)
     V_nabla_f = np.einsum('mdg, mgk->mdk', V_nabla_f, dmu_dx[:,:,:,0]) # shape: (M, D)
@@ -255,6 +247,92 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
 
     return nabla_I, V_nabla_f
 
+def nabla_matern_I(x_star, all_layers):
+    """Compute the nabla of the I function for the Matern-2.5 kernel.
+    input: x_star: the input point
+    all_layers: all layers in the DGP model
+    return: nabla_I: the nabla of the I function about x_star
+    """
+    assert len(all_layers) == 2, "Only support two layers now."
+    assert len(all_layers[1]) == 1, "Only support one GP in the second layer now."
+    first_layer = all_layers[0]
+    second_layer = all_layers[1]
+    
+    global_input = first_layer[0].input
+    M, _ = x_star.shape
+    N, D = global_input.shape 
+    # nabla_I = np.zeros((M, N, D))
+
+    # compute the output of the first layer given x_star
+    num_gp_nodes = len(first_layer)
+    mu_first_layer = np.zeros((M, num_gp_nodes))
+    var_first_layer = np.zeros((M, num_gp_nodes))
+    dmu_dx = np.zeros((M, num_gp_nodes, D, 1)) 
+    dvar_dx = np.zeros((M, num_gp_nodes, D, 1))
+    var_dx = np.zeros((M, num_gp_nodes, D, D))
+
+    for p in range(num_gp_nodes):
+        Rinv = first_layer[p].Rinv
+        Rinv_y = first_layer[p].Rinv_y
+        scale = first_layer[p].scale[0]
+        length = first_layer[p].length
+        w1 = first_layer[p].input
+        nugget = first_layer[p].nugget
+        name = first_layer[p].name
+
+
+        mu, var = gp_pred(x=x_star, z=w1, Rinv=Rinv, Rinv_y=Rinv_y, 
+                  scale=scale, length=length, nugget=nugget, name=name)
+        mu_first_layer[:,p] = mu
+        var_first_layer[:,p] = var
+    
+        # dmu_dx
+        if name == 'sexp':
+            d_k_one_vector_d_x_star = sexp_k_one_vector_derivative(x_star, w1, length, scale)
+        elif name == 'matern2.5':
+            d_k_one_vector_d_x_star = matern_k_one_vector_derivative(x_star, w1, length, scale)
+        else:
+            raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
+        
+        d_k_one_vector_d_x_star_transpose = np.transpose(d_k_one_vector_d_x_star, (0, 2, 1)) # Shape: (M, D, N)
+        dmu_dx[:,p,:,:] = np.einsum('mdn,n->md', d_k_one_vector_d_x_star_transpose, Rinv_y)[:,:,None] # Shape: (M, D, 1)
+
+        term1 = -2*np.einsum('mdn,nk->mdk', d_k_one_vector_d_x_star_transpose, Rinv) # Shape: (M, D, N)
+        # print(k_one_vec(x_star, w1, length, name).shape)
+        term1 = np.einsum('mdn,mn->md', term1, k_one_vec(x_star, w1, length, name))[:,:,None] # Shape: (M, D)
+        dvar_dx[:,p,:,:] = scale*term1
+        
+        # # compute the variance of gradient of GP in the first layer
+        # quad_term = np.einsum('mdn,nk->mdk', d_k_one_vector_d_x_star_transpose, Rinv) # shape: (M, D, N)
+        # quad_term = np.einsum('mdn,mnk->mdk', quad_term, d_k_one_vector_d_x_star) # shape: (M, D, D)
+        # quad_term = scale/length**4 - quad_term + 1e-12*np.eye(D)[None, :, :].repeat(M,axis=0) # shape: (M, D, D)
+        # var_dx[:,p,:,:] = quad_term
+
+
+    w = second_layer[0].input
+    scale = second_layer[0].scale[0]
+    length = second_layer[0].length[0]
+    Rinv_y = second_layer[0].Rinv_y
+    
+    d_k_one_vector_d_w_star = matern_k_one_vector_derivative(mu_first_layer, 
+                                                             w, length, scale)
+    d_k_one_vector_d_w_star_transpose = np.transpose(d_k_one_vector_d_w_star, axes=(0, 2, 1)) # shape: (M, D, N)
+    dmu2_dmu1 = np.einsum('mdn,n->md', d_k_one_vector_d_w_star_transpose, Rinv_y) # shape: (M, Num_gp_nodes)
+    dmu2_dx = np.einsum('mp,mpd->md', dmu2_dmu1, dmu_dx[:,:,:,0]) # shape: (M, D)
+
+    # sq_dmu2_dmu1 = np.square(dmu2_dmu1) # shape: (M, Num_gp_nodes)
+    # var2_dx = np.einsum('mg,mgdh->mdh', sq_dmu2_dmu1, var_dx) # shape: (M, D, D)
+
+    var2_dw = np.einsum('mdn,nk->mdk', d_k_one_vector_d_w_star_transpose, second_layer[0].Rinv) # shape: (M, D, N)
+    var2_dw = np.einsum('mdn,mnk->mdk', var2_dw, d_k_one_vector_d_w_star) # shape: (M, D, D)
+
+    var2_dx = np.einsum('mdg, mgk->mdk', np.transpose(dmu_dx[:,:,:,0],axes=(0, 2, 1)), var2_dw) # shape: (M, D, D)
+    var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) # shape: (M, D)
+
+    return dmu2_dx, var2_dx
+
+
+
 def grad_lgp(x_star, all_layers):
     """Compute the gradient of the linked GP for the squared exponential kernel.
     input: x_star: the input point
@@ -263,15 +341,22 @@ def grad_lgp(x_star, all_layers):
     """
     assert len(all_layers) == 2, "Only support two layers now."
     assert len(all_layers[1]) == 1, "Only support one GP in the second layer now."
-    assert all_layers[1][0].name == 'sexp', "Only support squared exponential kernel now."
+    # assert all_layers[1][0].name == 'sexp', "Only support squared exponential kernel now."
 
-    nabla_I, V_nabla_f = nabla_sexp_I(x_star, all_layers)
-    Rinv_y = all_layers[1][0].Rinv_y
-    nabla_I = np.transpose(nabla_I, axes=(0,2,1))
+    if all_layers[1][0].name == 'sexp':
+        nabla_I, V_nabla_f = nabla_sexp_I(x_star, all_layers)
+        Rinv_y = all_layers[1][0].Rinv_y
+        nabla_I = np.transpose(nabla_I, axes=(0,2,1))
 
-    nabla_I_Rinv_y = np.einsum('mdn,n->md', nabla_I, Rinv_y)
+        nabla_I_Rinv_y = np.einsum('mdn,n->md', nabla_I, Rinv_y)
 
-    return nabla_I_Rinv_y, V_nabla_f
+        return nabla_I_Rinv_y, V_nabla_f
+    
+    elif all_layers[1][0].name == 'matern2.5':
+        return nabla_matern_I(x_star, all_layers)
+    
+    else:
+        raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
 
 
 if __name__ == "__main__":
@@ -282,9 +367,6 @@ if __name__ == "__main__":
 
     np.random.seed(123)
     nb_seed(123)
-
-
-    
 
     # Define the benchmark function
     def test_f(x):
