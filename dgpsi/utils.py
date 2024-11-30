@@ -3,7 +3,14 @@ from tabulate import tabulate
 from numba import njit, set_num_threads, get_num_threads
 import numpy as np
 from scipy.linalg import svd
+from scipy.optimize import minimize, Bounds
 from sklearn.metrics.pairwise import pairwise_kernels
+from pathos.multiprocessing import ProcessingPool as Pool
+from numba import set_num_threads
+from typing import Callable, Tuple, Any, Optional
+import multiprocess.context as ctx
+import platform
+import psutil 
 #import copy
 #from contextlib import contextmanager
 
@@ -261,3 +268,87 @@ class NystromKPCA():
         scores_flipped = scores @ flip_matrix
         return scores_flipped
     
+def multistart(
+    func: Callable[[np.ndarray, Any], float],
+    initials: np.ndarray,
+    lb: np.ndarray,
+    up: np.ndarray,
+    args: Tuple = (),
+    method: str = 'L-BFGS-B',
+    core_num: Optional[int] = None,
+    out_dim: Optional[int] = 0
+) -> np.ndarray:
+    """
+    Perform parallel multistart optimization and return the best optimized x.
+    
+    Parameters:
+    - func: The objective function to be minimized. Should accept (x, *args).
+    - initials: 2D NumPy array where each row is a starting point.
+    - lb: 1D NumPy array of lower bounds for each parameter.
+    - up: 1D NumPy array of upper bounds for each parameter.
+    - args: Additional arguments to pass to the objective function.
+    - method: Optimization method (default 'L-BFGS-B').
+    - core_num: Number of worker processes to use.
+    - out_dim: The index of the output to which the optimization is to be implemented.
+    
+    Returns:
+    - best_x: Optimized parameters corresponding to the lowest target value.
+    """
+    
+    # Create a Bounds object using Scipy's Bounds class
+    bounds = Bounds(lb, up)
+    D = len(lb)
+    os_type = platform.system()
+    if os_type in ['Darwin', 'Linux']:
+        ctx._force_start_method('forkserver')
+    total_cores = psutil.cpu_count(logical = False)
+    if core_num is None:
+        core_num = total_cores//2
+    num_thread = total_cores // core_num
+
+    def wrapped_func(x, *args):
+        # Convert 1D x0 to 2D array with one row
+        x_2d = np.atleast_2d(x)
+        # Compute negative of the function
+        return -func(x_2d, *args)[0][out_dim]
+    
+    def optimize_from_x0(x0: np.ndarray) -> Tuple[np.ndarray, float]:
+        """
+        Optimize the objective function from a single starting point.
+        
+        Parameters:
+        - x0: Initial starting point.
+        
+        Returns:
+        - Tuple containing the optimized x and the corresponding fun value.
+        """
+        set_num_threads(num_thread)
+        res = minimize(
+            wrapped_func,
+            x0,
+            args=args,
+            method=method,
+            bounds=bounds,
+            options={'maxiter': 100, 'maxfun': np.max((30,20+5*D))}
+        )
+        return res.x, res.fun
+    
+    if core_num == 1:
+        results = [optimize_from_x0(x) for x in initials]
+    else:
+    # Create a pool of worker processes
+        with Pool(core_num) as pool:
+            results = pool.map(optimize_from_x0, [x for x in initials])
+    
+    # Convert results to NumPy arrays for efficient processing
+    optimized_x, fun_values = zip(*results)
+    optimized_x = np.array(optimized_x)
+    fun_values = np.array(fun_values)
+    
+    # Identify the index of the minimum fun value
+    best_idx = np.argmin(fun_values)
+    
+    # Extract the best optimized x
+    best_x = optimized_x[best_idx]
+    
+    return best_x
