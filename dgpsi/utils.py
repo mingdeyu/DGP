@@ -276,7 +276,9 @@ def multistart(
     args: Tuple = (),
     method: str = 'L-BFGS-B',
     core_num: Optional[int] = None,
-    out_dim: Optional[int] = 0
+    out_dim: Optional[int] = 0,
+    extra_func: Optional[Callable] = None,
+    extra_func_kwargs: Optional[dict] = None
 ) -> np.ndarray:
     """
     Perform parallel multistart optimization and return the best optimized x.
@@ -290,6 +292,8 @@ def multistart(
     - method: Optimization method (default 'L-BFGS-B').
     - core_num: Number of worker processes to use.
     - out_dim: The index of the output to which the optimization is to be implemented.
+    - extra_func: An additional auxiliary function.
+    - extra_func_kwargs: A dictionary of keyword arguments for the auxiliary function.
     
     Returns:
     - best_x: Optimized parameters corresponding to the lowest target value.
@@ -306,11 +310,17 @@ def multistart(
         core_num = total_cores//2
     num_thread = total_cores // core_num
 
-    def wrapped_func(x, *args):
-        # Convert 1D x0 to 2D array with one row
-        x_2d = np.atleast_2d(x)
-        # Compute negative of the function
-        return -func(x_2d, *args)[0][out_dim]
+    def wrapped_func_factory(func, extra_func, extra_func_kwargs):
+        def wrapped_func(x, *args):
+            x_2d = np.atleast_2d(x)
+            if extra_func:
+                res = func(x_2d, *args)
+                aggre_res = extra_func(res, **extra_func_kwargs)
+                return -aggre_res[0]
+            return -func(x_2d, *args)[0][out_dim]
+        return wrapped_func
+    
+    wrapped_func = wrapped_func_factory(func, extra_func, extra_func_kwargs or {})
     
     def optimize_from_x0(x0: np.ndarray) -> Tuple[np.ndarray, float]:
         """
