@@ -316,7 +316,7 @@ def multistart(
             if extra_func:
                 res = func(x_2d, *args)
                 aggre_res = extra_func(res, **extra_func_kwargs)
-                return -aggre_res[0]
+                return -np.asarray(aggre_res).flat[0]
             return -func(x_2d, *args)[0][out_dim]
         return wrapped_func
     
