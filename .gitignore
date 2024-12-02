@@ -3,3 +3,4 @@ dgpsi.egg-info
 build
 figures
 paper_results
+*.npy

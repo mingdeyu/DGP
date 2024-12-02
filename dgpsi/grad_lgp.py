@@ -133,7 +133,7 @@ def matern_k_one_vector_derivative(x_star, X, length, scale):
     
 
 
-def nabla_sexp_I(x_star:np.array, all_layers:list):
+def nabla_sexp_I(x_star:np.array, all_layers:list, return_variance=True):
     """Compute the nabla of the I function for the squared exponential kernel.
     input: x_star: the input point
            all_layers: all layers in the DGP model
@@ -219,15 +219,6 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
     # print("scale: ", scale)
     # print("length: ", second_layer[0].length)
 
-    var_dx_2 = scale/length**4 if length > 1 else scale
-    quad_term = np.einsum('mgn,nk->mgk', nabla_rw_T, second_layer[0].Rinv) # shape: (M, G, N)
-    quad_term = np.einsum('mgn,mnk->mgk', quad_term, nabla_rw) # shape: (M, G, G)
-    # print(quad_term.mean())
-    var_dx_2 = var_dx_2 + quad_term
-
-    V_nabla_f = np.einsum('mdg, mgk->mdk', dmu_dx_T[:,:,:,0], var_dx_2) # shape: (M, D, G)
-    V_nabla_f = np.einsum('mdg, mgk->mdk', V_nabla_f, dmu_dx[:,:,:,0]) # shape: (M, D)
-
     # for m in range(M):
     #     if_positive_definite(V_nabla_f[m])
 
@@ -245,9 +236,21 @@ def nabla_sexp_I(x_star:np.array, all_layers:list):
 
         nabla_I[:,:,d] = partial_I_partial_xd
 
-    return nabla_I, V_nabla_f
+    if return_variance:
+        var_dx_2 = scale/length**4 if length > 1 else scale
+        quad_term = np.einsum('mgn,nk->mgk', nabla_rw_T, second_layer[0].Rinv) # shape: (M, G, N)
+        quad_term = np.einsum('mgn,mnk->mgk', quad_term, nabla_rw) # shape: (M, G, G)
+        # print(quad_term.mean())
+        var_dx_2 = var_dx_2 + quad_term
 
-def nabla_matern_I(x_star, all_layers):
+        V_nabla_f = np.einsum('mdg, mgk->mdk', dmu_dx_T[:,:,:,0], var_dx_2) # shape: (M, D, G)
+        V_nabla_f = np.einsum('mdg, mgk->mdk', V_nabla_f, dmu_dx[:,:,:,0]) # shape: (M, D)
+
+        return nabla_I, V_nabla_f
+    else:
+        return nabla_I
+
+def nabla_matern_I(x_star, all_layers, return_variance=True):
     """Compute the nabla of the I function for the Matern-2.5 kernel.
     input: x_star: the input point
     all_layers: all layers in the DGP model
@@ -323,17 +326,20 @@ def nabla_matern_I(x_star, all_layers):
     # sq_dmu2_dmu1 = np.square(dmu2_dmu1) # shape: (M, Num_gp_nodes)
     # var2_dx = np.einsum('mg,mgdh->mdh', sq_dmu2_dmu1, var_dx) # shape: (M, D, D)
 
-    var2_dw = np.einsum('mdn,nk->mdk', d_k_one_vector_d_w_star_transpose, second_layer[0].Rinv) # shape: (M, D, N)
-    var2_dw = np.einsum('mdn,mnk->mdk', var2_dw, d_k_one_vector_d_w_star) # shape: (M, D, D)
+    if return_variance:
+        var2_dw = np.einsum('mdn,nk->mdk', d_k_one_vector_d_w_star_transpose, second_layer[0].Rinv) # shape: (M, D, N)
+        var2_dw = np.einsum('mdn,mnk->mdk', var2_dw, d_k_one_vector_d_w_star) # shape: (M, D, D)
 
-    var2_dx = np.einsum('mdg, mgk->mdk', np.transpose(dmu_dx[:,:,:,0],axes=(0, 2, 1)), var2_dw) # shape: (M, D, D)
-    var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) # shape: (M, D)
+        var2_dx = np.einsum('mdg, mgk->mdk', np.transpose(dmu_dx[:,:,:,0],axes=(0, 2, 1)), var2_dw) # shape: (M, D, D)
+        var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) # shape: (M, D)
 
-    return dmu2_dx, var2_dx
+        return dmu2_dx, var2_dx
+    else:
+        return dmu2_dx
 
 
 
-def grad_lgp(x_star, all_layers):
+def grad_lgp(x_star, all_layers, return_variance=True):
     """Compute the gradient of the linked GP for the squared exponential kernel.
     input: x_star: the input point
            all_layers: all layers in the DGP model
@@ -344,16 +350,24 @@ def grad_lgp(x_star, all_layers):
     # assert all_layers[1][0].name == 'sexp', "Only support squared exponential kernel now."
 
     if all_layers[1][0].name == 'sexp':
-        nabla_I, V_nabla_f = nabla_sexp_I(x_star, all_layers)
-        Rinv_y = all_layers[1][0].Rinv_y
-        nabla_I = np.transpose(nabla_I, axes=(0,2,1))
+        if return_variance:
+            nabla_I, V_nabla_f = nabla_sexp_I(x_star, all_layers, return_variance=return_variance)
+            Rinv_y = all_layers[1][0].Rinv_y
+            nabla_I = np.transpose(nabla_I, axes=(0,2,1))
 
-        nabla_I_Rinv_y = np.einsum('mdn,n->md', nabla_I, Rinv_y)
+            nabla_I_Rinv_y = np.einsum('mdn,n->md', nabla_I, Rinv_y)
 
-        return nabla_I_Rinv_y, V_nabla_f
+            return nabla_I_Rinv_y, V_nabla_f
+        else:
+            nabla_I = nabla_sexp_I(x_star, all_layers, return_variance=return_variance)
+            Rinv_y = all_layers[1][0].Rinv_y
+            nabla_I = np.transpose(nabla_I, axes=(0,2,1))
+            nabla_I_Rinv_y = np.einsum('mdn,n->md', nabla_I, Rinv_y)
+
+            return nabla_I_Rinv_y
     
     elif all_layers[1][0].name == 'matern2.5':
-        return nabla_matern_I(x_star, all_layers)
+        return nabla_matern_I(x_star, all_layers, return_variance=return_variance)
     
     else:
         raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
