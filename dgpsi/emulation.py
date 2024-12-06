@@ -258,7 +258,13 @@ class emulator:
         #if self.all_layer[self.n_layer-1][0].type=='likelihood':
         #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
-            _, sigma2 = self.ppredict(x=x_cand,full_layer=True,m=m,chunk_num=chunk_num,core_num=core_num) if islikelihood else self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
+            if islikelihood:
+                if self.all_layer[-1][0].name=='Categorical':
+                    _, sigma2 = self.pclassify(x=x_cand,full_layer=True, m=m, chunk_num=chunk_num,core_num=core_num)
+                else:
+                    _, sigma2 = self.ppredict(x=x_cand,full_layer=True,m=m,chunk_num=chunk_num,core_num=core_num)
+            else:
+                _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
             sigma2 = sigma2[-2] if islikelihood else sigma2
             if score_only:
                 return sigma2 
@@ -417,7 +423,13 @@ class emulator:
         islikelihood = True if self.all_layer[self.n_layer-1][0].type=='likelihood' else False
         #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
-            _, sigma2 = self.predict(x=x_cand,full_layer=True, m=m) if islikelihood else self.predict(x=x_cand, m=m)
+            if islikelihood:
+                if self.all_layer[-1][0].name=='Categorical':
+                    _, sigma2 = self.classify(x=x_cand,full_layer=True, m=m)
+                else:
+                    _, sigma2 = self.predict(x=x_cand,full_layer=True, m=m)
+            else:
+                _, sigma2 = self.predict(x=x_cand, m=m)
             sigma2 = sigma2[-2] if islikelihood else sigma2
             #if self.all_layer[self.n_layer-1][0].type=='likelihood':
             #    _, sigma2 = self.predict(x=x_cand,full_layer=True)
