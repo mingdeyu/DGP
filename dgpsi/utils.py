@@ -310,7 +310,10 @@ def multistart(
         # Convert 1D x0 to 2D array with one row
         x_2d = np.atleast_2d(x)
         # Compute negative of the function
-        return -func(x_2d, *args)[0][out_dim]
+        if out_dim == -1:
+            return -np.mean(func(x_2d, *args)[0])
+        else:
+            return -func(x_2d, *args)[0][out_dim]
     
     def optimize_from_x0(x0: np.ndarray) -> Tuple[np.ndarray, float]:
         """
