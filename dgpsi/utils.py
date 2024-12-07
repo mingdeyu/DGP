@@ -276,7 +276,8 @@ def multistart(
     args: Tuple = (),
     method: str = 'L-BFGS-B',
     core_num: Optional[int] = None,
-    out_dim: Optional[int] = 0
+    out_dim: Optional[int] = 0,
+    int_mask: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
     Perform parallel multistart optimization and return the best optimized x.
@@ -290,6 +291,7 @@ def multistart(
     - method: Optimization method (default 'L-BFGS-B').
     - core_num: Number of worker processes to use.
     - out_dim: The index of the output to which the optimization is to be implemented.
+    - int_mask: Boolean mask indicating which variables in `x` must be integers.
     
     Returns:
     - best_x: Optimized parameters corresponding to the lowest target value.
@@ -307,6 +309,8 @@ def multistart(
     num_thread = total_cores // core_num
 
     def wrapped_func(x, *args):
+        if int_mask is not None:
+            x[int_mask] = np.round(x[int_mask])
         # Convert 1D x0 to 2D array with one row
         x_2d = np.atleast_2d(x)
         # Compute negative of the function
@@ -353,5 +357,8 @@ def multistart(
     
     # Extract the best optimized x
     best_x = optimized_x[best_idx]
+
+    if int_mask is not None:
+        best_x[int_mask] = np.round(best_x[int_mask])
     
     return best_x
