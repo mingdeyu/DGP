@@ -976,7 +976,7 @@ class emulator:
         if x.ndim==1:
             raise Exception('The testing input has to be a numpy 2d-array')
         M=len(x)
-        if method=='mean_var':
+        if method=='mean_var' and full_layer:
             sample_size_used=1
         else:
             sample_size_used=sample_size
