@@ -11,23 +11,24 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 ## A Python package for deep and linked Gaussian process emulations using stochastic imputation (SI)
 `dgpsi` currently implements:
 
+* Gaussian process emulations with separable or non-separable squared exponential and Mat&eacute;rn-2.5 kernels.
 * Deep Gaussian process emulation with flexible architecture construction: 
     - multiple layers;
     - multiple GP nodes;
     - separable or non-separable squared exponential and Mat&eacute;rn2.5 kernels;
     - global input connections;
-    - non-Gaussian likelihoods including Poisson, Negative-Binomial, and heteroskedastic Gaussian;
+    - non-Gaussian likelihoods (Poisson, Negative-Binomial, heteroskedastic Gaussian, and categorical);
 * Linked emulation of feed-forward systems of computer models:
     - linking GP emulators of deterministic individual computer models;
     - linking GP and DGP emulators of deterministic individual computer models;
 * Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
 * Fast Leave-One-Out (LOO) cross validations for GP and DGP emulators.
-* Calculations of ALM, MICE, PEI, and VIGF sequential design criterions.
+* Calculations of ALM, MICE, and VIGF sequential design criterions.
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Large-scale GP, DGP, and Linked (D)GP emulations.](https://github.com/mingdeyu/DGP/blob/master/demo/vecchia_SI.ipynb)
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
 
 ## Installation
-`dgpsi` currently requires Python version 3.7, 3.8, or 3.9. The package can be installed via `pip`:
+`dgpsi` currently requires Python version 3.7, 3.8, 3.9, or 3.10. The package can be installed via `pip`:
 
 ```bash
 pip install dgpsi
@@ -73,11 +74,11 @@ conda activate dgp_si
 
 ## Demo and documentation
 Please see [demo](https://github.com/mingdeyu/DGP/tree/master/demo) for some illustrative examples of the method. The API reference 
-of the package can be accessed from [https://dgpsi.readthedocs.io](https://dgpsi.readthedocs.io), and some tutorials will be soon added there.
+of the package can be accessed from [https://dgpsi.readthedocs.io](https://dgpsi.readthedocs.io).
 
 ## Tips
 * Since SI is a stochastic inference, in case of unsatisfactory results, you may want to try to restart the training multiple times even with initial values of hyperparameters unchanged;
-* The recommended DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns) or the number of parameters in the specified likelihood. The `dgp` class in the package is default to this structure.
+* The recommended DGP structure is a two-layered one with the number of GP nodes in the first layer equal to the number of input dimensions (i.e., number of input columns) and the number of GP nodes in the second layer equal to the number of output dimensions (i.e., number of output columns) or the number of parameters in the specified likelihood.
 
 ## Contact
 Please feel free to email me with any questions and feedbacks: 

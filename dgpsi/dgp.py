@@ -35,8 +35,8 @@ class dgp:
             in the same order of the specified DGP model. The final layer of DGP hierarchy can be set to a likelihood
             layer by putting an object created by a likelihood class (in :mod:`likelihood_class`) into the final sub-list of **all_layer**. 
             Defaults to `None`. If a DGP structure is not provided, an input-connected two-layered DGP 
-            structure (for deterministic model emulation) with the number of GP nodes in the first layer equal 
-            to the dimension of **X** is automatically constructed.
+            structure (for deterministic model emulation without a likelihood layer), where the number of GP nodes in the first layer equals 
+            to the dimension of **X**, is automatically constructed.
         check_rep (bool, optional): whether to check the repetitions in the dataset, i.e., if one input
             position has multiple outputs. Defaults to `True`.
         block (bool, optional): whether to use the blocked (layer-wise) ESS for the imputations during the training. Defaults to `True`.
