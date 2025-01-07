@@ -321,6 +321,59 @@ def cond_mean(x,z,w1,global_w1,Rinv_y,length,name):
  #   m=np.dot(Rinv_y, r)
 #    return m, v
 
+@njit(cache=True)
+def gp_non_parallel(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
+    """Make GP predictions
+    """
+    if z is not None:
+        x=np.concatenate((x, z),1)
+        w1=np.concatenate((w1, global_w1),1)
+    n_pred = x.shape[0]
+    m, v = np.zeros(n_pred), np.zeros(n_pred)
+    for i in range(n_pred):
+        ri=K_vec_nb(w1,x[i],length,name)
+        Rinv_ri=np.dot(Rinv,ri)
+        r_Rinv_r=np.dot(ri, Rinv_ri)
+        m[i] = np.dot(Rinv_y, ri)
+        v[i] = np.abs(scale*(1+nugget-r_Rinv_r))[0]
+    return m, v
+
+@njit(cache=True)
+def link_gp_non_parallel(m, v, z, w1, global_w1, Rinv, Rinv_y, R2sexp, Psexp, scale, length, nugget, name):
+    """Make linked GP predictions.
+    """
+    n_pred = m.shape[0]
+    m_new, v_new = np.zeros(n_pred), np.zeros(n_pred)
+    if z is not None:
+        Dw=np.shape(w1)[1]
+        Dz=np.shape(z)[1]
+        if len(length)==1:
+            length=np.full(Dw+Dz, length[0])
+    else:
+        Dw=np.shape(w1)[1]
+        if len(length)==1:
+            length=np.full(Dw, length[0])
+    for i in range(n_pred):
+        if z is not None:
+            Izi = K_vec_nb(global_w1, z[i], length[-Dz::], name)
+            Jzi = np.outer(Izi,Izi)
+            if name == 'sexp' and R2sexp is not None and Psexp is not None:
+                Ii,Ji = IJ_sexp(w1, m[i], v[i], length[:-Dz], R2sexp, Psexp)
+            else:
+                Ii,Ji = IJ_matern(w1, m[i], v[i], length[:-Dz])
+            Ii *= Izi
+            Ji *= Jzi
+        else:
+            if name == 'sexp' and R2sexp is not None and Psexp is not None:
+                Ii,Ji = IJ_sexp(w1, m[i], v[i], length, R2sexp, Psexp)
+            else:
+                Ii,Ji = IJ_matern(w1, m[i], v[i], length)
+        tr_RinvJ = trace_sum(Rinv,Ji)
+        IRinv_y = np.dot(Ii,Rinv_y)
+        m_new[i] = IRinv_y
+        v_new[i] = np.abs(quad(Ji,Rinv_y)-IRinv_y**2+scale*(1+nugget-tr_RinvJ))
+    return m_new,v_new
+
 @njit(cache=True, parallel=True)
 def gp(x,z,w1,global_w1,Rinv,Rinv_y,scale,length,nugget,name):
     """Make GP predictions
