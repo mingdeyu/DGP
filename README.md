@@ -28,7 +28,7 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
 
 ## Installation
-`dgpsi` currently requires Python version 3.8 and 3.9. The package can be installed via `pip`:
+`dgpsi` currently requires Python version 3.9. The package can be installed via `pip`:
 
 ```bash
 pip install dgpsi
