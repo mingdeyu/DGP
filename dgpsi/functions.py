@@ -8,6 +8,8 @@ import itertools
 from psutil import cpu_count
 
 core_num = cpu_count(logical = False)
+max_threads = config.NUMBA_NUM_THREADS
+core_num = min(core_num, max_threads)
 config.THREADING_LAYER = 'workqueue'
 set_num_threads(core_num)
 #######functions for optim#########

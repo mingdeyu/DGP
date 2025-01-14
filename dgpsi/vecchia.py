@@ -11,11 +11,11 @@ except ImportError:
     FAISS_AVAILABLE = False
 from psutil import cpu_count
 
-#core_num = cpu_count(logical = False)
-#max_threads = config.NUMBA_NUM_THREADS
-#core_num = min(core_num, max_threads)
+core_num = cpu_count(logical = False)
+max_threads = config.NUMBA_NUM_THREADS
+core_num = min(core_num, max_threads)
 config.THREADING_LAYER = 'workqueue'
-#set_num_threads(core_num)
+set_num_threads(core_num)
 
 def get_pred_nn(query, x, m = 50, method = 'exact', size = 40, efSearch = 100, n_jobs = -1):
     n, d = x.shape
