@@ -10,4 +10,9 @@ venv/
 .vscode/
 
 
+SimulationOutput/
 
+build/
+dgpsi.egg-info/
+
+mf_dgp_project/
