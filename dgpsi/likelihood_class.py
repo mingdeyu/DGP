@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import loggamma
-from scipy.linalg import cholesky, cho_solve
+from scipy.linalg import cholesky, solve_triangular
 from .functions import categorical_sampler #fmvn_mu
 from .vecchia import backward_substitute, forward_substitute
 
@@ -134,7 +134,7 @@ class Hetero:
         """
         if idx==0:
             if self.rep is None:
-                Gamma=np.diag(np.exp(self.input[:,1]))
+                Gamma=np.exp(self.input[:,1])
                 #y=(self.output).flatten()
                 mu,cov=self.post_het1(v,Gamma,self.output)
             else:
@@ -181,10 +181,17 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are no repetitions
            in the training data.
         """
-        L=cholesky(Gamma+v,lower=True,check_finite=False)
+        N = v.shape[0]
+        vGamma = v.copy()
+        vGamma[np.diag_indices(N)] += Gamma
+        L = cholesky(vGamma, lower=True, check_finite=False)
         #mu=np.sum(v*cho_solve((L, True), y_mask, check_finite=False),axis=1)
-        mu=(v@cho_solve((L, True), y_mask, check_finite=False)).flatten()
-        cov=v@cho_solve((L, True), Gamma, check_finite=False)
+        Linvv = solve_triangular(L, v, lower=True, trans=0, check_finite=False)
+
+        cov = v - Linvv.T@Linvv
+        mu = cov.dot(y_mask.flatten()/Gamma)
+        #mu=(v@cho_solve((L, True), y_mask, check_finite=False)).flatten()
+        #cov=v@cho_solve((L, True), Gamma, check_finite=False)
         return mu, cov
 
     @staticmethod
@@ -193,20 +200,51 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are repetitions
            in the training data.
         """
-        L=cholesky(v,lower=True,check_finite=False)
-        L_mask=L[mask_f,:]
-        v_mask=v[mask_f,:]
-        LGammaInv=L_mask.T*(1/Gamma)
-        LGammaInvL_I=LGammaInv@L_mask+np.eye(len(L))
-        LL = cholesky(LGammaInvL_I,lower=True,check_finite=False)
-        LGammaInvY=LGammaInv@y_mask
-        LGammaInvv=LGammaInv@v_mask
-        vGamma=v_mask.T*(1/Gamma)
-        vGammaInvY=vGamma@y_mask
-        vGammav=vGamma@v_mask
+        N = v.shape[0]
+        GammaInv = 1.0/Gamma
+        GammaInvY = GammaInv * y_mask.flatten()
+        MGammaInvY = np.bincount(mask_f, weights=GammaInvY, minlength=N)
+        MGammaInvM = np.bincount(mask_f, weights=GammaInv, minlength=N)
+
+        invMGammaInvM = 1.0/MGammaInvM
+        vinvMGammaInvM = v.copy()
+        vinvMGammaInvM[np.diag_indices(N)] += invMGammaInvM
+
+        L = cholesky(vinvMGammaInvM, lower=True, check_finite=False)
+        #mu=np.sum(v*cho_solve((L, True), y_mask, check_finite=False),axis=1)
+        Linvv = solve_triangular(L, v, lower=True, trans=0, check_finite=False)
+
+        cov = v - Linvv.T@Linvv
+        
+        #L = cholesky(v, lower=True, check_finite=False)
+        #sqrtInvMGammaInvM = np.diag(1.0/np.sqrt(MGammaInvM))
+        #LsqrtInvMGammaInvM = solve_triangular(L, sqrtInvMGammaInvM, lower=True, trans=0, check_finite=False)
+        #B = np.eye(N) + LsqrtInvMGammaInvM.T@LsqrtInvMGammaInvM
+        ##B = dsyrk(alpha=1.0, a=LsqrtInvMGammaInvM, lower=1, trans=1, c=np.eye(N), beta=1.0)
+        #R = cholesky(B, lower=True, check_finite=False)
+        #RsqrtInvMGammaInvM = solve_triangular(R, sqrtInvMGammaInvM, lower=True, trans=0, check_finite=False)
+        #cov = RsqrtInvMGammaInvM.T@RsqrtInvMGammaInvM
+        ##cov_lower = dsyrk(alpha=1.0, a=RsqrtInvMGammaInvM, lower=1, trans=1)
+        ##cov = cov_lower + np.tril(cov_lower, -1).T
+        ##IplusMGammaInvMv = np.eye(N) + v*MGammaInvM[None,:]
+        ##lu, piv = lu_factor(IplusMGammaInvMv)
+        ##cov = lu_solve((lu, piv), v)
+        mu = cov.dot(MGammaInvY)
+    
+        #L=cholesky(v,lower=True,check_finite=False)
+        #L_mask=L[mask_f,:]
+        #v_mask=v[mask_f,:]
+        #LGammaInv=L_mask.T*(1/Gamma)
+        #LGammaInvL_I=LGammaInv@L_mask+np.eye(len(L))
+        #LL = cholesky(LGammaInvL_I,lower=True,check_finite=False)
+        #LGammaInvY=LGammaInv@y_mask
+        #LGammaInvv=LGammaInv@v_mask
+        #vGamma=v_mask.T*(1/Gamma)
+        #vGammaInvY=vGamma@y_mask
+        #vGammav=vGamma@v_mask
         #mu=np.sum(v_mask.T*cho_solve((L, True), y_mask, check_finite=False),axis=1)
-        mu=(vGammaInvY-LGammaInvv.T@cho_solve((LL, True), LGammaInvY, check_finite=False)).flatten()
-        cov=v-vGammav+LGammaInvv.T@cho_solve((LL, True), LGammaInvv, check_finite=False)
+        #mu=(vGammaInvY-LGammaInvv.T@cho_solve((LL, True), LGammaInvY, check_finite=False)).flatten()
+        #cov=v-vGammav+LGammaInvv.T@cho_solve((LL, True), LGammaInvv, check_finite=False)
         return mu, cov    
 
 class NegBin:
