@@ -166,9 +166,10 @@ class Hetero:
            in the training data under the Vecchia approximation.
         """
         L_sp_l = U_sp_l.transpose().tocsr()
-        U_latent_obs_y = U_sp_ol.transpose().dot(y)
-        U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
-        intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_U_latent_obs_y)
+        intermediate = U_sp_ol.transpose().dot(y)
+        #U_latent_obs_y = U_sp_ol.transpose().dot(y)
+        #U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
+        #intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_obs_y)
         mu = -forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, intermediate)
         sd = np.random.rand(U_sp_l.shape[0])
         samp = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd)
