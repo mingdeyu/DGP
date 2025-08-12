@@ -533,17 +533,19 @@ def U_matrix_rep(X, revNNarray, revCond, rep, ord, row, length, nugget, scale, g
             x0 = X[idx_latent_current]
             Ki_obs = scale * K_matrix_nb(xi_obs, length, nugget, name)
             ki_obs_0 = scale * K_vec_nb(xi_obs, x0, length, name)
-            Li_obs = np.linalg.cholesky(Ki_obs)
-            Li_obs_mask = Li_obs[rep0_i,:]
-            ki_obs_0_mask = ki_obs_0[rep0_i]
-            ki_obs_0_mask_GammaInv = ki_obs_0_mask * (1/gamma_i)
-            Li_obs_mask_GammaInv = Li_obs_mask.T * (1/gamma_i)
-            Li_obs_mask_GammaInv_Li_obs_mask_Ii = Li_obs_mask_GammaInv@Li_obs_mask + np.eye(len(Li_obs))
-            L_Li_obs_mask_GammaInv_Li_obs_mask_Ii = np.linalg.cholesky(Li_obs_mask_GammaInv_Li_obs_mask_Ii)
-            Li_obs_mask_GammaInv_ki_obs_0_mask = np.dot(Li_obs_mask_GammaInv, ki_obs_0_mask)
-            L_Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv_ki_obs_0_mask = backward_solve(L_Li_obs_mask_GammaInv_Li_obs_mask_Ii.T, forward_solve(L_Li_obs_mask_GammaInv_Li_obs_mask_Ii, Li_obs_mask_GammaInv_ki_obs_0_mask).flatten()).flatten()
-            B = ki_obs_0_mask_GammaInv - np.dot(Li_obs_mask_GammaInv.T, L_Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv_ki_obs_0_mask)
-            a = scale * (1 + nugget) - np.dot(B, ki_obs_0_mask)
+
+            GammaInv = 1.0/gamma_i
+            N = Ki_obs.shape[0]
+            MTGammaInvM = np.bincount(rep0_i, weights=GammaInv, minlength=N)
+            invMTGammaInvM = 1.0/MTGammaInvM
+            Ki_obs_invMTGammaInvM = Ki_obs.copy()
+            add_to_diag_square(Ki_obs_invMTGammaInvM, invMTGammaInvM)
+            Li_obs = np.linalg.cholesky(Ki_obs_invMTGammaInvM)
+            Li_obs_forward = forward_solve(Li_obs, ki_obs_0).flatten()
+            B11 = backward_solve(Li_obs.T, Li_obs_forward).flatten()
+            B = B11 * invMTGammaInvM
+            B = B[rep0_i] * GammaInv
+            a = scale * (1 + nugget) - np.dot(Li_obs_forward, Li_obs_forward)
             val = np.concatenate((-1/np.sqrt(a)*B, 1/np.sqrt(np.array([a]))))
         else:
             xi_latent = X[idx_latent_prev,:]
@@ -553,33 +555,33 @@ def U_matrix_rep(X, revNNarray, revCond, rep, ord, row, length, nugget, scale, g
             ki_obs_latent = scale * K_cross_nb(xi_obs, xi_latent, length, name)
             ki_obs_0 = scale * K_vec_nb(xi_obs, x0, length, name)
             ki_latent_0 = scale * K_vec_nb(xi_latent, x0, length, name)
-            Li_obs = np.linalg.cholesky(Ki_obs)
-            Li_obs_mask = Li_obs[rep0_i,:]
-            ki_obs_latent_mask = ki_obs_latent[rep0_i,:]
-            ki_obs_0_mask = ki_obs_0[rep0_i]
-            ki_obs_0_mask_GammaInv = ki_obs_0_mask * (1/gamma_i)
-            Li_obs_mask_GammaInv = Li_obs_mask.T * (1/gamma_i)
-            Li_obs_mask_GammaInv_Li_obs_mask_Ii = Li_obs_mask_GammaInv@Li_obs_mask + np.eye(len(Li_obs))
-            Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv = np.linalg.solve(Li_obs_mask_GammaInv_Li_obs_mask_Ii, Li_obs_mask_GammaInv)
-            Li_obs_mask_GammaInv_ki_obs_0_mask = np.dot(Li_obs_mask_GammaInv, ki_obs_0_mask)
-            ki_obs_0_mask_A = ki_obs_0_mask_GammaInv - np.dot(Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv.T, Li_obs_mask_GammaInv_ki_obs_0_mask)
-            ki_obs_latent_mask_GammaInv = ki_obs_latent_mask.T * (1/gamma_i)
-            Li_obs_mask_Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv = np.dot(Li_obs_mask, Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv)
-            ki_obs_latent_mask_A = ki_obs_latent_mask_GammaInv - np.dot(ki_obs_latent_mask_GammaInv, Li_obs_mask_Li_obs_mask_GammaInv_Li_obs_mask_Ii_Li_obs_mask_GammaInv)
-            ki_obs_latent_mask_A_ki_obs_latent_mask = np.dot(ki_obs_latent_mask_A, ki_obs_latent_mask)
-            Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask = Ki_latent - ki_obs_latent_mask_A_ki_obs_latent_mask
-            L_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask = np.linalg.cholesky(Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask)
-            ki_obs_latent_mask_ki_obs_0_mask_A = np.dot(ki_obs_latent_mask.T, ki_obs_0_mask_A)
-            Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_obs_latent_mask_ki_obs_0_mask_A = backward_solve(L_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask.T, forward_solve(L_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask, ki_obs_latent_mask_ki_obs_0_mask_A).flatten()).flatten()
-            ki_obs_latent_mask_A_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_obs_latent_mask_ki_obs_0_mask_A = np.dot(ki_obs_latent_mask_A.T, Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_obs_latent_mask_ki_obs_0_mask_A)
-            Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_latent_0 = backward_solve(L_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask.T, forward_solve(L_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask, ki_latent_0).flatten()).flatten()
-            ki_obs_latent_mask_A_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_latent_0 = np.dot(ki_obs_latent_mask_A.T, Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_latent_0)
-            B1 = ki_obs_0_mask_A + ki_obs_latent_mask_A_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_obs_latent_mask_ki_obs_0_mask_A - ki_obs_latent_mask_A_Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_latent_0
-            B2 = Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_latent_0 - Ki_latent_ki_obs_latent_mask_A_ki_obs_latent_mask_ki_obs_latent_mask_ki_obs_0_mask_A
-            a = scale * (1 + nugget) - np.dot(B1, ki_obs_0_mask) - np.dot(B2, ki_latent_0)
+            
+            GammaInv = 1.0/gamma_i
+            N = Ki_obs.shape[0]
+            MTGammaInvM = np.bincount(rep0_i, weights=GammaInv, minlength=N)
+            invMTGammaInvM = 1.0/MTGammaInvM
+            Ki_obs_invMTGammaInvM = Ki_obs.copy()
+            add_to_diag_square(Ki_obs_invMTGammaInvM, invMTGammaInvM)
+            Z1 = np.linalg.solve(Ki_obs_invMTGammaInvM, ki_obs_latent)
+            Z2 = np.linalg.solve(Ki_obs_invMTGammaInvM, ki_obs_0)
+            D = Ki_latent - np.dot(ki_obs_latent.T, Z1)
+            y = ki_latent_0 - np.dot(ki_obs_latent.T, Z2)
+            Li = np.linalg.cholesky(D)
+            B2 = backward_solve(Li.T, forward_solve(Li, y).flatten()).flatten()
+            B11 = Z2 - np.dot(Z1, B2)
+            B1 = B11 * invMTGammaInvM
+            B1 = B1[rep0_i] * GammaInv
+            a = scale * (1 + nugget) - np.dot(B11, ki_obs_0) - np.dot(B2, ki_latent_0)
             val = np.concatenate((-1/np.sqrt(a)*B1, -1/np.sqrt(a)*B2, 1/np.sqrt(np.array([a]))))
         U_matrix[row==i] = val
     return U_matrix
+
+@njit(cache=True)
+def add_to_diag_square(A, d):
+    n = A.shape[0]
+    flat = A.ravel()
+    step = n + 1
+    flat[0 : n*n : step] += d[:n]
 
 def U_matrix_sp_rep(X, NNarray, rep, ord, scale, length, nugget, name, gamma, rows, cols):
     n = X.shape[0]
