@@ -4,7 +4,7 @@ from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist, squareform
 from .functions import Pmatrix, gp, gp_non_parallel, link_gp, link_gp_non_parallel, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, logdet_nb, trace_nb, g
-from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, imp_pointers_rep, link_gp_vecch, link_gp_vecch_non_parallel
+from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, link_gp_vecch, link_gp_vecch_non_parallel
 from .utils import get_thread
 class kernel:
     """
@@ -261,10 +261,10 @@ class kernel:
             prev = NNs < np.tile(np.arange(n), (self.m-1, 1)).T
             NNs[prev] = NNs[prev] + n
             self.imp_NNarray = np.hstack((np.arange(n).reshape(-1,1) + n, np.arange(n).reshape(-1,1), NNs))
-            if self.max_rep is None:
-                self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
-            else:
-                self.imp_pointer_row, self.imp_pointer_col = imp_pointers_rep(self.imp_NNarray, self.max_rep, self.rep_hetero, self.ord)
+            #if self.max_rep is None:
+            self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
+            #else:
+            #    self.imp_pointer_row, self.imp_pointer_col = imp_pointers_rep(self.imp_NNarray, self.max_rep, self.rep_hetero, self.ord)
 
     def log_t(self):
         """Log transform the model parameters (lengthscales and nugget).

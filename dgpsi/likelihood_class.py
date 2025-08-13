@@ -1,8 +1,9 @@
 import numpy as np
 from scipy.special import loggamma
 from scipy.linalg import cholesky, solve_triangular
+#from scipy.sparse.linalg import spsolve_triangular
 from .functions import categorical_sampler #fmvn_mu
-from .vecchia import backward_substitute, forward_substitute
+from .vecchia import forward_substitute
 
 class Poisson:
     """Class to implement Poisson likelihood. It can only be added as the final layer of a DGP model.
@@ -149,14 +150,16 @@ class Hetero:
             #f_mu=fmvn_mu(mu,cov)
             return f_mu
         
-    def posterior_vecch(self, idx, U_sp_l, U_sp_ol, ord, rev_ord):
+    def posterior_vecch(self, idx, U_sp_l, U_sp_ol, ord, rev_ord, invd = None, invg = None):
         """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood under the Vecchia Approximation.
         """
         if idx==0:
             if self.rep is None:
                 f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, self.output[ord,0])[rev_ord]
             else:
-                f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, self.output[:,0])[rev_ord]
+                num = np.bincount(self.rep, weights=invg*self.output.flatten(), minlength=U_sp_l.shape[0])[ord]
+                y = num * invd
+                f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, y)[rev_ord]
             return f_mu
         
     @staticmethod
@@ -171,8 +174,10 @@ class Hetero:
         #U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
         #intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_obs_y)
         mu = -forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, intermediate)
+        #mu = -spsolve_triangular(L_sp_l, intermediate)
         sd = np.random.rand(U_sp_l.shape[0])
         samp = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd)
+        #samp = spsolve_triangular(L_sp_l, sd)
         f = mu + samp
         return f
 
