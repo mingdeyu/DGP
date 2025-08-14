@@ -423,7 +423,8 @@ def U_matrix(X, revNNarray, revCond, length, nugget, scale, gamma, name):
         Ii[-1] = 1.0
         xi = X[idx,:]
         gammai = gamma[idx] * ~cond
-        Ki = scale * K_matrix_nb(xi, length, nugget, name) + np.diag(gammai)
+        Ki = scale * K_matrix_nb(xi, length, nugget, name)
+        add_to_diag_square(Ki, gammai + 1e-10)
         Li = np.linalg.cholesky(Ki)
         LiIi = backward_solve(Li.T, Ii)
         U_matrix[i, :bsize] = LiIi.T[0]
@@ -576,12 +577,12 @@ def imp_pointers(NNarray):
 #         U_matrix[row==i] = val
 #     return U_matrix
 
-# @njit(cache=True)
-# def add_to_diag_square(A, d):
-#     n = A.shape[0]
-#     flat = A.ravel()
-#     step = n + 1
-#     flat[0 : n*n : step] += d[:n]
+@njit(cache=True)
+def add_to_diag_square(A, d):
+    n = A.shape[0]
+    flat = A.ravel()
+    step = n + 1
+    flat[0 : n*n : step] += d[:n]
 
 # def U_matrix_sp_rep(X, NNarray, rep, ord, scale, length, nugget, name, gamma, rows, cols):
 #     n = X.shape[0]
