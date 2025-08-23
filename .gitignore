@@ -15,6 +15,5 @@ SimulationOutput/
 build/
 dgpsi.egg-info/
 
-mf_dgp_project/
 
 demo/grad_est_with_W.ipynb
