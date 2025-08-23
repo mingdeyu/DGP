@@ -90,7 +90,7 @@ Deyu Ming <[deyu.ming.16@ucl.ac.uk](mailto:deyu.ming.16@ucl.ac.uk)>.
 This package is part of an ongoing research initiative. For detailed information about the research aspects and guidelines for use, please refer to our [Research Notice](./RESEARCH-NOTICE.md).
 
 ## References
-> [Yang, Y., Ming, D. and Guillas, S. (2025) Distribution of Deep Gaussian process Gradients and Sequential Design for Simulators with Sharp Variations. arXiv:2503.16027.](https://arxiv.org/pdf/2503.16027)
+<!-- > [Yang, Y., Ming, D. and Guillas, S. (2025) Distribution of Deep Gaussian process Gradients and Sequential Design for Simulators with Sharp Variations. arXiv:2503.16027.](https://arxiv.org/pdf/2503.16027) -->
 
 > [Ming, D. and Williamson, D. (2023) Linked deep Gaussian process emulation for model networks. arXiv:2306.01212.](https://arxiv.org/abs/2306.01212)
 
