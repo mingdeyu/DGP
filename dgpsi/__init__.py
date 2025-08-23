@@ -6,4 +6,4 @@ from .likelihood_class import Poisson, Hetero, NegBin, Categorical
 from .linkgp import container, lgp
 from .synthetic import path
 from .utils import write, read, summary, nb_seed, set_thread, get_thread
-from .grad import sexp_k_one_vector_derivative, grad_lgp, matern_k_one_vector_derivative, gp_pred, grad_dgp
+from .grad import sexp_k_one_vector_derivative, grad_lgp, matern_k_one_vector_derivative, gp_pred, grad_dgp, grad_gp

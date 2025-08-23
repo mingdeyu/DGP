@@ -5,6 +5,8 @@ from dgpsi.vecchia import K_vec_nb
 from dgpsi.functions import k_one_vec
 
 core_num = cpu_count(logical = False)
+max_threads = config.NUMBA_NUM_THREADS
+core_num = min(core_num, max_threads)
 config.THREADING_LAYER = 'workqueue'
 set_num_threads(core_num)
 
@@ -22,29 +24,8 @@ def gp_pred(x,z,Rinv,Rinv_y,scale,length,nugget,name):
         v[i] = np.abs(scale*(1+nugget-r_Rinv_r))[0]
     return m, v
 
-def grad_gp(x_star, emu, return_variance=True):
-    D = x_star.shape[1]
-    from dgpsi import gp 
-    """Compute the gradient of the GP emulator."""
-    assert isinstance(emu, gp), "The input emulator should be a gp object."
-    if emu.kernel.name == 'sexp':
-        nabla_r = sexp_k_one_vector_derivative(x_star, emu.X, emu.kernel.length)
-    elif emu.kernel.name == 'matern2.5':
-        nabla_r = matern_k_one_vector_derivative(x_star, emu.X, emu.kernel.length)
-
-    if return_variance == False:
-        grad_pred_mu = np.einsum('mnd,n->md', nabla_r, emu.kernel.Rinv_y)
-        return grad_pred_mu
-    else:
-        grad_pred_mu = np.einsum('mnd,n->md', nabla_r, emu.kernel.Rinv_y)
-        grad_pred_var = np.einsum('mdn,nk->mdk', np.transpose(nabla_r, (0,2,1)), emu.kernel.Rinv)
-        grad_pred_var = np.einsum('mkn,mnd->mkd', grad_pred_var, nabla_r)
-        grad_pred_var = grad_pred_var[:,:,0] if D == 1 else grad_pred_var
-        grad_pred_var = np.sqrt(np.clip(grad_pred_var, a_min=1e-6, a_max=None))
-        return grad_pred_mu, grad_pred_var
-
 @njit(cache=True)
-def epsilon_sexp_with_derivative(x, z_m, z_v, length):
+def epsilon_sexp_with_derivative(x, z_m, z_v, length, scale):
     """ compute the epsilon function in the I function.
     N is the number of samples
     M is the number of prediction points
@@ -77,7 +58,7 @@ def epsilon_sexp_with_derivative(x, z_m, z_v, length):
 
 
 @njit(cache=True)
-def sexp_k_one_vector_derivative(x_star, X, length):
+def sexp_k_one_vector_derivative(x_star, X, length, scale):
     """Compute the derivative of the squared exponential kernel.
     r(x) = [k(x, x_1), k(x, x_2), ..., k(x, x_n)]
     input: x_star: the input point (M, D)
@@ -86,8 +67,6 @@ def sexp_k_one_vector_derivative(x_star, X, length):
     # Ensure that x_star is a 2D array [M, D]
     assert x_star.ndim == 2, "x_star should be a 2D array with shape [M, D]"
     # Get the shapes
-    M, D = x_star.shape
-    N, _ = X.shape
     # Compute pairwise differences
     diff = x_star[:, None, :] - X[None, :, :]  # Shape: (M, N, D)
     # Compute squared exponential kernel values for all pairs
@@ -99,7 +78,7 @@ def sexp_k_one_vector_derivative(x_star, X, length):
 
 sqrt_5 = np.sqrt(5.0)
 @njit(cache=True)
-def matern_k_one_vector_derivative(x_star, X, length):
+def matern_k_one_vector_derivative(x_star, X, length, scale):
     """
     Compute the derivative of the Matern-2.5 kernel with respect to x_star.
 
@@ -107,6 +86,7 @@ def matern_k_one_vector_derivative(x_star, X, length):
     - x_star: ndarray of shape (M, D), the input points where the derivative is evaluated.
     - X: ndarray of shape (N, D), the training input points.
     - length: float, the length scale parameter (l).
+    - scale: float, the signal variance (sigma^2).
 
     Returns:
     - grad_k: ndarray of shape (M, N, D), the gradients of the kernel.
@@ -114,8 +94,6 @@ def matern_k_one_vector_derivative(x_star, X, length):
     # Ensure that x_star is a 2D array [M, D]
     assert x_star.ndim == 2, "x_star should be a 2D array with shape [M, D]"
     # Get the shapes
-    M, D = x_star.shape
-    N, _ = X.shape
     # Compute pairwise differences
     diff = x_star[:, None, :] - X[None, :, :]  # Shape: (M, N, D)
     # Compute squared distances and distances
@@ -185,9 +163,9 @@ def nabla_sexp_I(x_star:np.array, all_layers:list, return_variance=True):
 
         # dmu_dx
         if name == 'sexp':
-            d_k_one_vector_d_x_star = sexp_k_one_vector_derivative(x_star, w1, length)
+            d_k_one_vector_d_x_star = sexp_k_one_vector_derivative(x_star, w1, length, scale)
         elif name == 'matern2.5':
-            d_k_one_vector_d_x_star = matern_k_one_vector_derivative(x_star, w1, length)
+            d_k_one_vector_d_x_star = matern_k_one_vector_derivative(x_star, w1, length, scale)
         else:
             raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
         
@@ -195,9 +173,12 @@ def nabla_sexp_I(x_star:np.array, all_layers:list, return_variance=True):
         dmu_dx[:,p,:,:] = np.einsum('mdn,n->md', d_k_one_vector_d_x_star_transpose, Rinv_y)[:,:,None] # Shape: (M, D, 1)
 
         term1 = -2*np.einsum('mdn,nk->mdk', d_k_one_vector_d_x_star_transpose, Rinv) # Shape: (M, D, N)
+        # print(k_one_vec(x_star, w1, length, name).shape)
         term1 = np.einsum('mdn,mn->md', term1, k_one_vec(x_star, w1, length, name))[:,:,None]# Shape: (M, D, 1)
         dvar_dx[:,p,:,:] = scale*term1
 
+        # var_dx_1[:,p,:] = np.clip(scale/length**2 - term1, 1e-12, None)[:,:,0]
+        # print(var_dx_1[:,p,:].mean())
     w1 = second_layer[0].input
     scale = second_layer[0].scale[0]
     
@@ -205,7 +186,8 @@ def nabla_sexp_I(x_star:np.array, all_layers:list, return_variance=True):
     epsilon_xstar, d_epsilon_dz_m, d_epsilon_dz_v = epsilon_sexp_with_derivative(w1, 
                                                     mu_first_layer, 
                                                     var_first_layer, 
-                                                    np.array([second_layer[0].length[0] for _ in range(num_gp_nodes)]))
+                                                    np.array([second_layer[0].length[0] for i in range(num_gp_nodes)]),
+                                                    scale=scale)
     
     # approxiamte the variance of the deep GP
     # Var(\nabla f_l(x_star)) = (1) \nabla f_{l-1}(x_star)^T * Var(f_l(x_star)) * \nabla f_{l-1}(x_star) 
@@ -214,7 +196,7 @@ def nabla_sexp_I(x_star:np.array, all_layers:list, return_variance=True):
     # shape of dmu_dx: (M, Num_gp_nodes, D, 1)
     dmu_dx_T = np.transpose(dmu_dx, axes=(0, 2, 1, 3)) # shape: (M, D, Num_gp_nodes, 1)
 
-    nabla_rw = sexp_k_one_vector_derivative(mu_first_layer, w1, second_layer[0].length) # Shape: (M, N, G)
+    nabla_rw = sexp_k_one_vector_derivative(mu_first_layer, w1, second_layer[0].length, scale) # Shape: (M, N, G)
     nabla_rw_T = np.transpose(nabla_rw, axes=(0, 2, 1)) # Shape: (M, G, N)
 
     for d in range(D):
@@ -286,9 +268,9 @@ def nabla_matern_I(x_star, all_layers, return_variance=True):
     
         # dmu_dx
         if name == 'sexp':
-            d_k_one_vector_d_x_star = sexp_k_one_vector_derivative(x_star, w1, length)
+            d_k_one_vector_d_x_star = sexp_k_one_vector_derivative(x_star, w1, length, scale)
         elif name == 'matern2.5':
-            d_k_one_vector_d_x_star = matern_k_one_vector_derivative(x_star, w1, length)
+            d_k_one_vector_d_x_star = matern_k_one_vector_derivative(x_star, w1, length, scale)
         else:
             raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
         
@@ -298,6 +280,7 @@ def nabla_matern_I(x_star, all_layers, return_variance=True):
         term1 = -2*np.einsum('mdn,nk->mdk', d_k_one_vector_d_x_star_transpose, Rinv) # Shape: (M, D, N)
         term1 = np.einsum('mdn,mn->md', term1, k_one_vec(x_star, w1, length, name))[:,:,None] # Shape: (M, D)
         dvar_dx[:,p,:,:] = scale*term1
+    
 
 
     w = second_layer[0].input
@@ -306,7 +289,7 @@ def nabla_matern_I(x_star, all_layers, return_variance=True):
     Rinv_y = second_layer[0].Rinv_y
     
     d_k_one_vector_d_w_star = matern_k_one_vector_derivative(mu_first_layer, 
-                                                             w, length)
+                                                             w, length, scale)
     d_k_one_vector_d_w_star_transpose = np.transpose(d_k_one_vector_d_w_star, axes=(0, 2, 1)) # shape: (M, D, N)
     dmu2_dmu1 = np.einsum('mdn,n->md', d_k_one_vector_d_w_star_transpose, Rinv_y) # shape: (M, Num_gp_nodes)
     dmu2_dx = np.einsum('mp,mpd->md', dmu2_dmu1, dmu_dx[:,:,:,0]) # shape: (M, D)
@@ -316,12 +299,11 @@ def nabla_matern_I(x_star, all_layers, return_variance=True):
         var2_dw = np.einsum('mdn,mnk->mdk', var2_dw, d_k_one_vector_d_w_star) # shape: (M, D, D)
 
         var2_dx = np.einsum('mdg, mgk->mdk', np.transpose(dmu_dx[:,:,:,0],axes=(0, 2, 1)), var2_dw) # shape: (M, D, D)
-        var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) * (1/num_gp_nodes) # shape: (M, D)
+        var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) # shape: (M, D)
 
         return dmu2_dx, var2_dx
     else:
         return dmu2_dx
-
 
 
 def grad_lgp(x_star, all_layers, return_variance=True):
@@ -332,7 +314,7 @@ def grad_lgp(x_star, all_layers, return_variance=True):
     """
     assert len(all_layers) == 2, "Only support two layers now."
     assert len(all_layers[1]) == 1, "Only support one GP in the second layer now."
-
+    # assert all_layers[1][0].name == 'sexp', "Only support squared exponential kernel now."
 
     if all_layers[1][0].name == 'sexp':
         if return_variance:
@@ -357,6 +339,7 @@ def grad_lgp(x_star, all_layers, return_variance=True):
     else:
         raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
     
+
 def grad_dgp(x_star, emu, return_variance=True):
     N, D = x_star.shape
     num_imp = len(emu.all_layer_set)
@@ -373,10 +356,6 @@ def grad_dgp(x_star, emu, return_variance=True):
             grad_pred_var += tmp_grad_pred_var / num_imp
 
     return (grad_pred, grad_pred_var) if return_variance else grad_pred
-
-
-
-
 
 
 if __name__ == "__main__":
@@ -414,7 +393,8 @@ if __name__ == "__main__":
     m.train(N=100)
     final_layer_obj=m.estimate()
     emu=emulator(final_layer_obj,N=50)
-
+    # gp_emu = gp(x_train, y_train, kernel(length=np.array([1]), name='sexp', scale_est=True))
+    # gp_emu.train()
     grid_eval_func = np.linspace(-1, 1, 50)
     grid_eval_func = np.meshgrid(grid_eval_func, grid_eval_func)
     grid_eval_func = np.stack([grid_eval_func[0].flatten(), grid_eval_func[1].flatten()], axis=-1)
@@ -487,4 +467,5 @@ if __name__ == "__main__":
 
 
     plt.show()
-            
+
+
