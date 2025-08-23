@@ -1,0 +1,19 @@
+# cache 
+__pycache__/
+.DS_Store
+
+# virtualenv
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+
+SimulationOutput/
+
+build/
+dgpsi.egg-info/
+
+
+demo/grad_est_with_W.ipynb
