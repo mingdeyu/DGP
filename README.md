@@ -26,7 +26,7 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * Calculations of ALM, MICE, and VIGF sequential design criterions.
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Large-scale GP, DGP, and Linked (D)GP emulations.](https://github.com/mingdeyu/DGP/blob/master/demo/vecchia_SI.ipynb)
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
-* ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Analytical Approximations to the Distributions of GP/LGP/DGP Predictive Gradients.](https://github.com/mingdeyu/DGP/blob/master/demo/grad_est.ipynb)
+* ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Analytical Approximations to the Distributions of GP/LGP/DGP Predictive Gradients.](https://github.com/yyimingucl/DGP/blob/master/demo/grad_est.ipynb)
 
 ## Installation
 `dgpsi` currently requires Python version 3.9. The package can be installed via `pip`:
