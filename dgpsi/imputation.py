@@ -1,7 +1,7 @@
 from numpy.random import uniform
 import numpy as np
 from .functions import update_f, fmvn
-from .vecchia import fmvn_sp, U_matrix_sp, U_matrix_sp_rep
+from .vecchia import fmvn_sp, U_matrix_sp
 
 class imputer:
     """Class to implement imputation of latent variables.
@@ -140,14 +140,18 @@ class imputer:
             if idx in linked_upper_kernels[0].exact_post_idx:
                 if target_kernel.vecch:
                     if linked_upper_kernels[0].rep is not None:                     
-                        Gamma = np.exp(linked_upper_kernels[0].input[:,1])
-                        U_sp_latent, U_sp_obs_latent= U_matrix_sp_rep(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.rep_hetero, target_kernel.ord, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name, Gamma, target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
-                        f = linked_upper_kernels[0].posterior_vecch(idx=idx, U_sp_l=U_sp_latent, U_sp_ol=U_sp_obs_latent, ord=target_kernel.ord, rev_ord=target_kernel.rev_ord)    
+                        invGamma = 1.0/np.exp(linked_upper_kernels[0].input[:,1])
+                        invd = 1/(np.bincount(linked_upper_kernels[0].rep, weights=invGamma, minlength=X.shape[0])[target_kernel.ord])
+                        U_sp_latent, U_sp_obs_latent = U_matrix_sp(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.scale[0], target_kernel.length, 0.0, target_kernel.name, np.concatenate((invd, invd)), target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
+                        f=linked_upper_kernels[0].posterior_vecch(idx=idx, U_sp_l=U_sp_latent, U_sp_ol=U_sp_obs_latent, ord=target_kernel.ord, rev_ord=target_kernel.rev_ord, invd=invd, invg=invGamma)
+                        #U_sp_latent, U_sp_obs_latent= U_matrix_sp_rep(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.rep_hetero, target_kernel.ord, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name, Gamma, target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
+                        #f = linked_upper_kernels[0].posterior_vecch(idx=idx, U_sp_l=U_sp_latent, U_sp_ol=U_sp_obs_latent, ord=target_kernel.ord, rev_ord=target_kernel.rev_ord)    
                     else:
                         Gamma = np.exp(linked_upper_kernels[0].input[:,1])[target_kernel.ord]
-                        U_sp_latent, U_sp_obs_latent = U_matrix_sp(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.scale[0], target_kernel.length, target_kernel.nugget[0], target_kernel.name, np.concatenate((Gamma, Gamma)), target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
+                        U_sp_latent, U_sp_obs_latent = U_matrix_sp(X[target_kernel.ord], target_kernel.imp_NNarray, target_kernel.scale[0], target_kernel.length, 0.0, target_kernel.name, np.concatenate((Gamma, Gamma)), target_kernel.imp_pointer_row, target_kernel.imp_pointer_col)
                         f=linked_upper_kernels[0].posterior_vecch(idx=idx, U_sp_l=U_sp_latent, U_sp_ol=U_sp_obs_latent, ord=target_kernel.ord, rev_ord=target_kernel.rev_ord)
                 else:
+                    #np.fill_diagonal(covariance, target_kernel.scale)
                     f=linked_upper_kernels[0].posterior(idx=idx,v=covariance)
                 if linked_upper_kernels[0].rep is None:
                     linked_upper_kernels[0].input[:,idx]=f.reshape(-1,1)

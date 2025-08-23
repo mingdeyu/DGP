@@ -86,7 +86,7 @@ class dgp:
                 self.X = X0
                 self.indices=indices
                 self.counts=counts
-                self.max_rep=np.max(counts)
+                #self.max_rep=np.max(counts)
             else:  
                 self.X=X
         else:
@@ -261,9 +261,9 @@ class dgp:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
                                 if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
-                                    if self.indices is not None:
-                                        kernel.max_rep = self.max_rep
-                                        kernel.rep_hetero = self.indices
+                                    #if self.indices is not None:
+                                    #    kernel.max_rep = self.max_rep
+                                    #    kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -316,8 +316,8 @@ class dgp:
             self.vecch = True
             self.m = min(m, self.n_data-1)
             self.ord_fun = ord_fun
-            if self.indices is not None:
-                self.max_rep = np.max(np.bincount(self.indices))
+            #if self.indices is not None:
+            #    self.max_rep = np.max(np.bincount(self.indices))
             n_layer = len(self.all_layer)
             for l in range(n_layer):
                 layer = self.all_layer[l]
@@ -333,9 +333,9 @@ class dgp:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
                                 if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
-                                    if self.indices is not None:
-                                        kernel.max_rep = self.max_rep
-                                        kernel.rep_hetero = self.indices
+                                    #if self.indices is not None:
+                                    #    kernel.max_rep = self.max_rep
+                                    #    kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -394,13 +394,13 @@ class dgp:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
                                 if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
-                                    if self.indices is not None:
-                                        if kernel.max_rep is None:
-                                            self.max_rep = np.max(np.bincount(self.indices))
-                                            kernel.max_rep = self.max_rep
-                                        else:
-                                            self.max_rep = kernel.max_rep
-                                        kernel.rep_hetero = self.indices
+                                    #if self.indices is not None:
+                                    #    if kernel.max_rep is None:
+                                    #        self.max_rep = np.max(np.bincount(self.indices))
+                                    #        kernel.max_rep = self.max_rep
+                                    #    else:
+                                    #        self.max_rep = kernel.max_rep
+                                    #    kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -462,7 +462,7 @@ class dgp:
             if len(X0) != len(X):
                 self.X = X0
                 self.indices=indices
-                self.max_rep=np.max(counts)
+                # self.max_rep=np.max(counts)
             else:  
                 self.X=X
         else:
@@ -545,9 +545,9 @@ class dgp:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
                                 if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
-                                    if self.indices is not None:
-                                        kernel.max_rep = self.max_rep
-                                        kernel.rep_hetero = self.indices
+                                    #if self.indices is not None:
+                                    #    kernel.max_rep = self.max_rep
+                                    #    kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -656,9 +656,9 @@ class dgp:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
                                 if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
-                                    if self.indices is not None:
-                                        kernel.max_rep = self.max_rep
-                                        kernel.rep_hetero = self.indices
+                                    #if self.indices is not None:
+                                    #    kernel.max_rep = self.max_rep
+                                    #    kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:
@@ -750,9 +750,9 @@ class dgp:
                                 idxx=np.where(linked_upper_kernels[0].input_dim == k)[0] if linked_upper_kernels[0].input_dim is not None else np.array([k])
                                 if idxx in linked_upper_kernels[0].exact_post_idx:
                                     compute_pointer = True
-                                    if self.indices is not None:
-                                        kernel.max_rep = self.max_rep
-                                        kernel.rep_hetero = self.indices
+                                    #if self.indices is not None:
+                                    #    kernel.max_rep = self.max_rep
+                                    #    kernel.rep_hetero = self.indices
                         if k == 0:
                             kernel.ord_nn(pointer=compute_pointer)
                         else:

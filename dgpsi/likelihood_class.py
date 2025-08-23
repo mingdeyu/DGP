@@ -1,8 +1,9 @@
 import numpy as np
 from scipy.special import loggamma
-from scipy.linalg import cholesky, cho_solve
+from scipy.linalg import cholesky, solve_triangular, cho_solve
+#from scipy.sparse.linalg import spsolve_triangular
 from .functions import categorical_sampler #fmvn_mu
-from .vecchia import backward_substitute, forward_substitute
+from .vecchia import forward_substitute, add_to_diag_square
 
 class Poisson:
     """Class to implement Poisson likelihood. It can only be added as the final layer of a DGP model.
@@ -107,8 +108,9 @@ class Hetero:
         self.rep=None
 
     def llik(self):
-        mu,var=self.input[:,0],np.exp(self.input[:,1])
-        llik=-0.5*(np.log(2*np.pi*var)+((self.output).flatten()-mu)**2/var)
+        mu,log_var=self.input[:,0],self.input[:,1]
+        r2 = ((self.output).flatten()-mu)**2
+        llik=-0.5*(np.log(2*np.pi)+log_var+np.exp(np.log(r2)-log_var))
         llik=np.sum(llik)
         return llik
 
@@ -134,9 +136,9 @@ class Hetero:
         """
         if idx==0:
             if self.rep is None:
-                Gamma=np.diag(np.exp(self.input[:,1]))
+                Gamma=np.exp(self.input[:,1])
                 #y=(self.output).flatten()
-                mu,cov=self.post_het1(v,Gamma,self.output)
+                f_mu=self.post_het1(v,Gamma,self.output)
             else:
                 Gamma=np.exp(self.input[:,1])
                 #y_mask=self.output[:,0]
@@ -144,19 +146,20 @@ class Hetero:
                 #v_mask=v[mask_f,:]
                 #V_mask=v[mask_f,:][:,mask_f]
                 #mu,cov=self.post_het2(v,Gamma,v_mask,V_mask,y_mask)
-                mu,cov=self.post_het2(v,Gamma,self.rep,self.output)
-            f_mu=np.random.multivariate_normal(mean=mu,cov=cov,check_valid='ignore')
+                f_mu=self.post_het2(v,Gamma,self.rep,self.output)
             #f_mu=fmvn_mu(mu,cov)
             return f_mu
         
-    def posterior_vecch(self, idx, U_sp_l, U_sp_ol, ord, rev_ord):
+    def posterior_vecch(self, idx, U_sp_l, U_sp_ol, ord, rev_ord, invd = None, invg = None):
         """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood under the Vecchia Approximation.
         """
         if idx==0:
             if self.rep is None:
                 f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, self.output[ord,0])[rev_ord]
             else:
-                f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, self.output[:,0])[rev_ord]
+                num = np.bincount(self.rep, weights=invg*self.output.flatten(), minlength=U_sp_l.shape[0])[ord]
+                y = num * invd
+                f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, y)[rev_ord]
             return f_mu
         
     @staticmethod
@@ -166,12 +169,15 @@ class Hetero:
            in the training data under the Vecchia approximation.
         """
         L_sp_l = U_sp_l.transpose().tocsr()
-        U_latent_obs_y = U_sp_ol.transpose().dot(y)
-        U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
-        intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_U_latent_obs_y)
+        intermediate = U_sp_ol.transpose().dot(y)
+        #U_latent_obs_y = U_sp_ol.transpose().dot(y)
+        #U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
+        #intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_obs_y)
         mu = -forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, intermediate)
-        sd = np.random.rand(U_sp_l.shape[0])
+        #mu = -spsolve_triangular(L_sp_l, intermediate)
+        sd = np.random.randn(U_sp_l.shape[0])
         samp = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd)
+        #samp = spsolve_triangular(L_sp_l, sd)
         f = mu + samp
         return f
 
@@ -181,11 +187,26 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are no repetitions
            in the training data.
         """
-        L=cholesky(Gamma+v,lower=True,check_finite=False)
-        #mu=np.sum(v*cho_solve((L, True), y_mask, check_finite=False),axis=1)
-        mu=(v@cho_solve((L, True), y_mask, check_finite=False)).flatten()
-        cov=v@cho_solve((L, True), Gamma, check_finite=False)
-        return mu, cov
+        #N = v.shape[0]
+        vGamma = v.copy()
+        #add_to_diag_square(vGamma, np.full(N, 1e-10))
+        #v_jitter = vGamma.copy()
+        add_to_diag_square(vGamma, Gamma)
+    
+        L = cholesky(vGamma, lower=True, check_finite=False)
+
+        L1 = cholesky(v, lower=True, check_finite=False)
+        mu = v.dot(cho_solve((L, True), y_mask.flatten(), check_finite=False))
+        sd = np.random.randn(len(mu),2)
+        u = L1.dot(sd[:,0])
+        w = np.sqrt(Gamma) * sd[:,1]
+        f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
+        f += (mu + u)
+
+        # Linvv = solve_triangular(L, v, lower=True, trans=0, check_finite=False)
+        # cov = v - Linvv.T@Linvv
+        # mu = cov.dot(y_mask.flatten()/Gamma)
+        return f
 
     @staticmethod
     def post_het2(v,Gamma,mask_f,y_mask):
@@ -193,21 +214,33 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are repetitions
            in the training data.
         """
-        L=cholesky(v,lower=True,check_finite=False)
-        L_mask=L[mask_f,:]
-        v_mask=v[mask_f,:]
-        LGammaInv=L_mask.T*(1/Gamma)
-        LGammaInvL_I=LGammaInv@L_mask+np.eye(len(L))
-        LL = cholesky(LGammaInvL_I,lower=True,check_finite=False)
-        LGammaInvY=LGammaInv@y_mask
-        LGammaInvv=LGammaInv@v_mask
-        vGamma=v_mask.T*(1/Gamma)
-        vGammaInvY=vGamma@y_mask
-        vGammav=vGamma@v_mask
-        #mu=np.sum(v_mask.T*cho_solve((L, True), y_mask, check_finite=False),axis=1)
-        mu=(vGammaInvY-LGammaInvv.T@cho_solve((LL, True), LGammaInvY, check_finite=False)).flatten()
-        cov=v-vGammav+LGammaInvv.T@cho_solve((LL, True), LGammaInvv, check_finite=False)
-        return mu, cov    
+        N = v.shape[0]
+        GammaInv = 1.0/Gamma
+        GammaInvY = GammaInv * y_mask.flatten()
+        MGammaInvY = np.bincount(mask_f, weights=GammaInvY, minlength=N)
+        MGammaInvM = np.bincount(mask_f, weights=GammaInv, minlength=N)
+
+        invMGammaInvM = 1.0/MGammaInvM
+        vinvMGammaInvM = v.copy()
+        #add_to_diag_square(vinvMGammaInvM, np.full(N, 1e-10))
+        #v_jitter = vinvMGammaInvM.copy()
+        add_to_diag_square(vinvMGammaInvM, invMGammaInvM)
+
+        L = cholesky(vinvMGammaInvM, lower=True, check_finite=False)
+
+        # Linvv = solve_triangular(L, v, lower=True, trans=0, check_finite=False)
+        # cov = v - Linvv.T@Linvv
+        # mu = cov.dot(MGammaInvY)
+
+        L1 = cholesky(v, lower=True, check_finite=False)
+        mu=v.dot(cho_solve((L, True), invMGammaInvM*MGammaInvY, check_finite=False))
+
+        sd = np.random.randn(len(mu),2)
+        u = L1.dot(sd[:,0])
+        w = np.sqrt(invMGammaInvM) * sd[:,1]
+        f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
+        f += (mu + u)
+        return f    
 
 class NegBin:
     """Class to implement Negative Binomial likelihood. It can only be added as the final layer of a DGP model.
