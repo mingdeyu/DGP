@@ -316,7 +316,7 @@ def nabla_matern_I(x_star, all_layers, return_variance=True):
         var2_dw = np.einsum('mdn,mnk->mdk', var2_dw, d_k_one_vector_d_w_star) # shape: (M, D, D)
 
         var2_dx = np.einsum('mdg, mgk->mdk', np.transpose(dmu_dx[:,:,:,0],axes=(0, 2, 1)), var2_dw) # shape: (M, D, D)
-        var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) * (1/num_gp_nodes) # shape: (M, D)
+        var2_dx = np.einsum('mdg, mgk->mdk', var2_dx, dmu_dx[:,:,:,0]) * (1/num_gp_nodes**D) # shape: (M, D)
 
         return dmu2_dx, var2_dx
     else:
