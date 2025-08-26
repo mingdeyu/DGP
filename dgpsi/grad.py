@@ -357,25 +357,93 @@ def grad_lgp(x_star, all_layers, return_variance=True):
     else:
         raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
     
+# def grad_dgp(x_star, emu, return_variance=True):
+#     N, D = x_star.shape
+#     num_imp = len(emu.all_layer_set)
+    
+#     # Initialize arrays using `np.zeros_like` where possible for clarity
+#     grad_pred = np.zeros_like(x_star)
+
+#     # Efficient accumulation in a loop
+#     if return_variance:
+#         grad_pred_var = np.zeros((N, D, D))
+#         grad_pred_var_imp_list = []
+#         grad_pred_mu_imp_list = []
+#         for layer in emu.all_layer_set:
+#             tmp_grad_pred, tmp_grad_pred_var = grad_lgp(x_star, layer, return_variance=True)
+#             grad_pred += tmp_grad_pred / num_imp
+#             grad_pred_mu_imp_list.append(tmp_grad_pred)
+#             grad_pred_var_imp_list.append(tmp_grad_pred_var)
+#         for i in range(len(grad_pred_var_imp_list)):
+#             grad_pred_var += (1/num_imp)*grad_pred_var_imp_list[i] + (1/num_imp)*(grad_pred_mu_imp_list[i]@grad_pred_mu_imp_list[i].T)
+#         grad_pred_var = grad_pred_var - grad_pred@grad_pred.T
+#     else:
+#         for layer in emu.all_layer_set:
+#             tmp_grad_pred = grad_lgp(x_star, layer, return_variance=False)
+#             grad_pred += tmp_grad_pred / num_imp
+#         return grad_pred
+
+
+#     # for layer in emu.all_layer_set:
+#     #     tmp_grad_pred, tmp_grad_pred_var = grad_lgp(x_star, layer, )
+#     #     grad_pred += tmp_grad_pred / num_imp
+#     #     grad_pred_var_imp_list.append(tmp_grad_pred_var) if return_variance else None
+#     #     if return_variance:
+#     #         grad_pred_var += tmp_grad_pred_var / num_imp 
+
+#     return (grad_pred, grad_pred_var) if return_variance else grad_pred
+
+
 def grad_dgp(x_star, emu, return_variance=True):
+    """
+    Gradient prediction for a Deep Gaussian Process (DGP).
+    
+    Parameters
+    ----------
+    x_star : np.ndarray, shape (N, D)
+        Test inputs.
+    emu : object
+        Emulator object containing all_layer_set.
+    return_variance : bool, default=True
+        Whether to return gradient variance.
+    
+    Returns
+    -------
+    grad_pred : np.ndarray, shape (N, D)
+        Mean gradient prediction.
+    grad_pred_var : np.ndarray, shape (N, D, D), optional
+        Gradient covariance prediction, if return_variance=True.
+    """
     N, D = x_star.shape
     num_imp = len(emu.all_layer_set)
-    
-    # Initialize arrays using `np.zeros_like` where possible for clarity
-    grad_pred = np.zeros_like(x_star)
-    grad_pred_var = np.zeros((N, D, D)) if return_variance else None
 
-    # Efficient accumulation in a loop
-    for layer in emu.all_layer_set:
-        tmp_grad_pred, tmp_grad_pred_var = grad_lgp(x_star, layer)
-        grad_pred += tmp_grad_pred / num_imp
-        if return_variance:
-            grad_pred_var += tmp_grad_pred_var / num_imp
+    # Mean gradient accumulator
+    grad_pred = np.zeros((N, D))
 
-    return (grad_pred, grad_pred_var) if return_variance else grad_pred
+    if return_variance:
+        # Expectation of covariance
+        grad_pred_var = np.zeros((N, D, D))
 
+        grad_pred_mu_imp_list = []
+        for layer in emu.all_layer_set:
+            mu_grad, cov_grad = grad_lgp(x_star, layer, return_variance=True)
+            grad_pred += mu_grad / num_imp
+            grad_pred_mu_imp_list.append(mu_grad)
+            grad_pred_var += cov_grad / num_imp
 
-
+        # Covariance of expectation
+        mu_outer_sum = np.zeros((N, D, D))
+        for i in range(len(grad_pred_mu_imp_list)):
+            mu_grad = grad_pred_mu_imp_list[i]
+            mu_outer_sum += np.einsum("ni,nj->nij", mu_grad, mu_grad) / num_imp
+        grad_pred_var += mu_outer_sum
+        grad_pred_var -= np.einsum("ni,nj->nij", grad_pred, grad_pred)
+        return grad_pred, grad_pred_var
+    else:
+        for layer in emu.all_layer_set:
+            mu_grad = grad_lgp(x_star, layer, return_variance=False)
+            grad_pred += mu_grad / num_imp
+        return grad_pred
 
 
 
