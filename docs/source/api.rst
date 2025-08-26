@@ -80,3 +80,11 @@ synthetic module
    :members:
    :undoc-members:
    :show-inheritance:
+
+
+grad module
+----------------------  
+.. automodule:: dgpsi.grad
+   :members:
+   :undoc-members:
+   :show-inheritance:
