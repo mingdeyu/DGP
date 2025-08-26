@@ -356,42 +356,6 @@ def grad_lgp(x_star, all_layers, return_variance=True):
     
     else:
         raise ValueError("Only support squared exponential and Matern-2.5 kernel now.")
-    
-# def grad_dgp(x_star, emu, return_variance=True):
-#     N, D = x_star.shape
-#     num_imp = len(emu.all_layer_set)
-    
-#     # Initialize arrays using `np.zeros_like` where possible for clarity
-#     grad_pred = np.zeros_like(x_star)
-
-#     # Efficient accumulation in a loop
-#     if return_variance:
-#         grad_pred_var = np.zeros((N, D, D))
-#         grad_pred_var_imp_list = []
-#         grad_pred_mu_imp_list = []
-#         for layer in emu.all_layer_set:
-#             tmp_grad_pred, tmp_grad_pred_var = grad_lgp(x_star, layer, return_variance=True)
-#             grad_pred += tmp_grad_pred / num_imp
-#             grad_pred_mu_imp_list.append(tmp_grad_pred)
-#             grad_pred_var_imp_list.append(tmp_grad_pred_var)
-#         for i in range(len(grad_pred_var_imp_list)):
-#             grad_pred_var += (1/num_imp)*grad_pred_var_imp_list[i] + (1/num_imp)*(grad_pred_mu_imp_list[i]@grad_pred_mu_imp_list[i].T)
-#         grad_pred_var = grad_pred_var - grad_pred@grad_pred.T
-#     else:
-#         for layer in emu.all_layer_set:
-#             tmp_grad_pred = grad_lgp(x_star, layer, return_variance=False)
-#             grad_pred += tmp_grad_pred / num_imp
-#         return grad_pred
-
-
-#     # for layer in emu.all_layer_set:
-#     #     tmp_grad_pred, tmp_grad_pred_var = grad_lgp(x_star, layer, )
-#     #     grad_pred += tmp_grad_pred / num_imp
-#     #     grad_pred_var_imp_list.append(tmp_grad_pred_var) if return_variance else None
-#     #     if return_variance:
-#     #         grad_pred_var += tmp_grad_pred_var / num_imp 
-
-#     return (grad_pred, grad_pred_var) if return_variance else grad_pred
 
 
 def grad_dgp(x_star, emu, return_variance=True):
