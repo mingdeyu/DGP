@@ -353,7 +353,7 @@ class Categorical:
             var_star = v / denom
             y_var = (y_mean * (1.0 - y_mean))**2 * var_star
             y_var = np.clip(y_var, 0.0, y_mean * (1.0 - y_mean))
-            y_mean, y_var = np.atleast_2d(y_mean), np.atleast_2d(y_var)
+            y_mean, y_var = y_mean.reshape(-1,1), y_var.reshape(-1,1)
         else:
             denom = 1.0 + (np.pi/8.0) * v
             logits = m / np.sqrt(denom)
