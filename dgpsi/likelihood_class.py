@@ -1,8 +1,8 @@
 import numpy as np
-from scipy.special import loggamma
-from scipy.linalg import cholesky, solve_triangular, cho_solve
+from scipy.special import loggamma, expit
+from scipy.linalg import cholesky, cho_solve
 #from scipy.sparse.linalg import spsolve_triangular
-from .functions import categorical_sampler #fmvn_mu
+#from .functions import categorical_sampler #fmvn_mu
 from .vecchia import forward_substitute, add_to_diag_square
 
 class Poisson:
@@ -326,7 +326,7 @@ class Categorical:
             ndarray: a numpy 1d-array of log-likelihood.
         """
         if self.num_classes==2:
-            llik = np.sum(self.output * self.input - np.log(1 + np.exp(self.input)))
+            llik = np.sum(self.output * self.input - np.logaddexp(0, self.input))
         else: 
             max_logits = np.max(self.input, axis=1, keepdims=True)
             stable_exp = np.exp(self.input - max_logits)
@@ -344,23 +344,33 @@ class Categorical:
             pllik = (f[np.arange(len(y)), :, y.flatten()] - log_sum_exp)[:, :, None]
         return pllik
     
-    def sampling(self, f_sample, mode='prob'):
+    def prediction(self, m, v):
         if self.num_classes==2:
-            if mode == 'prob':
-                prob_sample = 1 / (1 + np.exp(-f_sample))
-                y_sample = np.concatenate((1-prob_sample, prob_sample), axis=1)
-            elif mode == 'label':
-                prob_sample = 1 / (1 + np.exp(-f_sample))
-                y_sample = np.random.binomial(1, prob_sample.flatten())
-                y_sample = self.class_encoder.inverse_transform(y_sample).reshape(-1,1)
+            m, v = m.flatten(), v.flatten()
+            denom = 1.0 + (np.pi/8.0) * v
+            mu_star = m / np.sqrt(denom)
+            y_mean = expit(mu_star)
+            var_star = v / denom
+            y_var = (y_mean * (1.0 - y_mean))**2 * var_star
+            y_var = np.clip(y_var, 0.0, y_mean * (1.0 - y_mean))
         else:
-            if mode == 'prob':
-                exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
-                y_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
-            elif mode == 'label':
-                exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
-                prob_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
-                y_sample = categorical_sampler(prob_sample)
-                y_sample = self.class_encoder.inverse_transform(y_sample).reshape(-1,1)
+            denom = 1.0 + (np.pi/8.0) * v
+            logits = m / np.sqrt(denom)
+            logits -= np.max(logits, axis=1, keepdims=True)
+            exp_logits = np.exp(logits)
+            y_mean = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+            var_eff = v / denom
+            sum_j = (var_eff * y_mean**2).sum(axis=1, keepdims=True)
+            y_var = (y_mean**2) * (var_eff * (1.0 - y_mean)**2 + (sum_j - var_eff * y_mean**2))
+            y_var = np.clip(y_var, 0.0, y_mean * (1.0 - y_mean))
+        return y_mean,y_var
+    
+    def sampling(self, f_sample):
+        if self.num_classes==2:
+            y_sample = expit(f_sample)
+            #y_sample = np.concatenate((1-prob_sample, prob_sample), axis=1)
+        else:
+            exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
+            y_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
         return y_sample
         

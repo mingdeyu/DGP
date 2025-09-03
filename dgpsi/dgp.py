@@ -8,10 +8,12 @@ from .kernel_class import combine
 from .functions import cond_mean
 from .utils import NystromKPCA
 from .vecchia import cond_mean_vecch
+from .gp import gp
 from sklearn.decomposition import KernelPCA
-import warnings
-from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import LogisticRegression
+from contextlib import contextmanager
+# import warnings
+# from sklearn.exceptions import ConvergenceWarning
+# from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder
 from scipy.linalg import cho_solve
 import multiprocess.context as ctx
@@ -113,9 +115,10 @@ class dgp:
                 self.all_layer[-1][0].num_classes = len(self.all_layer[-1][0].class_encoder.classes_)
         self.initialize()
         self.block=block
-        self.imp=imputer(self.all_layer, self.block)
-        (self.imp).sample(burnin=10)
-        self.compute_r2()
+        with self.change_init_scale():
+            self.imp=imputer(self.all_layer, self.block)
+            (self.imp).sample(burnin=10)
+            self.compute_r2()
         self.N=0
         self.burnin=None
 
@@ -154,8 +157,17 @@ class dgp:
                 if l==self.n_layer-2 and num_kernel==2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='Hetero':
                     Out = np.empty((np.shape(In)[0], num_kernel))
                     if self.indices is None:
-                        Out[:,0] = self.Y.flatten()
-                        Out[:,1] = np.log(np.var(self.Y.flatten()))
+                        #Out[:,0] = self.Y.flatten()
+                        #Out[:,1] = np.log(np.var(self.Y.flatten()))
+                        m_init_mu=gp(self.X, self.Y, ker(length=np.array([1.]*self.X.shape[1]), name=self.all_layer[-2][0].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-2), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
+                        m_init_mu.train()
+                        mean_init_mu,_=m_init_mu.predict(self.X)
+                        Out[:,0] = mean_init_mu.flatten()
+                        logvar = np.log((mean_init_mu-self.Y)**2+1e-12)
+                        m_init_logvar=gp(self.X, logvar, ker(length=np.array([1.]*self.X.shape[1]), name=self.all_layer[-2][1].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-2), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
+                        m_init_logvar.train()
+                        mean_init_logvar,_=m_init_logvar.predict(self.X)
+                        Out[:,1] = mean_init_logvar.flatten()
                     else:
                         sum_Y = np.zeros((np.shape(In)[0], 1))
                         sum_Y2 = np.zeros((np.shape(In)[0], 1))
@@ -179,17 +191,45 @@ class dgp:
                         if num_kernel != self.all_layer[l+1][0].num_classes:
                             raise Exception('You need ' + str(self.all_layer[l+1][0].num_classes) + ' GP nodes to feed the ' + kernel.name + ' likelihood node.')
                     if self.indices is None:
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore", category=ConvergenceWarning)
-                            lgm = LogisticRegression().fit(self.X, self.Y.flatten())
-                        w, b = lgm.coef_, lgm.intercept_
-                        Out = np.dot(self.X, w.T) + b
+                        # with warnings.catch_warnings():
+                        #     warnings.simplefilter("ignore", category=ConvergenceWarning)
+                        #     lgm = LogisticRegression().fit(self.X, self.Y.flatten())
+                        # w, b = lgm.coef_, lgm.intercept_
+                        # Out = np.dot(self.X, w.T) + b
+                        threshold = 40
+                        if self.all_layer[l+1][0].num_classes==2:
+                            Out = np.where(self.Y==1, 2*np.sqrt(threshold), -2*np.sqrt(threshold))
+                        else:
+                            n_classes = self.all_layer[l+1][0].num_classes
+                            Out =  -2*np.sqrt(threshold) * np.ones((self.n_data, n_classes))
+                            Out[np.arange(self.n_data), self.Y.ravel()] = 2*np.sqrt(threshold)
                     else:
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore", category=ConvergenceWarning)
-                            lgm = LogisticRegression().fit(self.X[self.indices,:], self.Y.flatten())
-                        w, b = lgm.coef_, lgm.intercept_
-                        Out = np.dot(self.X, w.T) + b
+                        if self.all_layer[l+1][0].num_classes==2:
+                            m = self.indices.max() + 1 
+                            n_g = np.bincount(self.indices, minlength=m)       
+                            k_g = np.bincount(self.indices, weights=self.Y.ravel(), minlength=m)
+                            alpha = 0.5
+                            p = (k_g + alpha) / (n_g + 2*alpha) 
+                            eps = np.finfo(float).eps
+                            Out = np.log(np.clip(p, eps, 1-eps) / np.clip(1-p, eps, 1))
+                            Out = Out.reshape(-1, 1)  
+                        else:
+                            n_classes = self.all_layer[l+1][0].num_classes
+                            m = int(self.indices.max()) + 1
+                            counts = np.zeros((m, n_classes), dtype=float)
+                            np.add.at(counts, (self.indices, self.Y.ravel()), 1.0)
+                            n_g = counts.sum(axis=1, keepdims=True)
+                            temperature, alpha = 0.8, 0.5
+                            probs = (counts + alpha) / (n_g + n_classes * alpha)
+                            eps  = np.finfo(float).eps
+                            logp = np.log(probs.clip(eps, 1.0))
+                            logp -= logp.mean(axis=1, keepdims=True)
+                            Out  = logp / max(temperature, eps)   
+                        # with warnings.catch_warnings():
+                        #     warnings.simplefilter("ignore", category=ConvergenceWarning)
+                        #     lgm = LogisticRegression().fit(self.X[self.indices,:], self.Y.flatten())
+                        # w, b = lgm.coef_, lgm.intercept_
+                        # Out = np.dot(self.X, w.T) + b
                 else:
                     if np.shape(In)[1]==num_kernel:
                         Out=copy.copy(In)
@@ -796,8 +836,12 @@ class dgp:
         """
         pgb=trange(1,N+1,disable=disable)
         for i in pgb:
-            #I-step           
-            (self.imp).sample(burnin=ess_burn)
+            #I-step
+            if i == 0:        
+                with self.change_init_scale():
+                    self.imp.sample(burnin=ess_burn)
+            else:
+                (self.imp).sample(burnin=ess_burn)
             if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
                 (self.imp).update_ord_nn()
             #M-step
@@ -972,4 +1016,16 @@ class dgp:
         else:
             print('There is nothing to plot for a likelihood node, please choose a GP node instead.')
 
-    
+    @contextmanager
+    def change_init_scale(self):
+        old_scale = []
+        if self.all_layer[-1][0].name == 'Categorical':
+            for kernel in self.all_layer[-2]:
+                old_scale.append(kernel.scale)
+                if kernel.scale_est:
+                    kernel.scale = np.array([80.0])
+        yield
+        # Restore original state
+        if self.all_layer[-1][0].name == 'Categorical':
+            for old, kernel in zip(old_scale, self.all_layer[-2]):
+                kernel.scale = old

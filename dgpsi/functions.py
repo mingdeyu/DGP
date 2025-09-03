@@ -121,64 +121,64 @@ def fmvn(cov):
     return samp
 
 ######functions for classification########
-@njit(cache=True)
-def categorical_sampler(pvals):
-    """
-    Perform categorical sampling using numpy.random.multinomial inside Numba for efficiency.
+# @njit(cache=True)
+# def categorical_sampler(pvals):
+#     """
+#     Perform categorical sampling using numpy.random.multinomial inside Numba for efficiency.
     
-    Parameters:
-    pvals (numpy.ndarray): A 2D array of shape (num_samples, num_classes) representing the probability vectors for each sample.
+#     Parameters:
+#     pvals (numpy.ndarray): A 2D array of shape (num_samples, num_classes) representing the probability vectors for each sample.
     
-    Returns:
-    numpy.ndarray: A 1D array of sampled categorical outcomes (class indices).
-    """
-    num_samples = pvals.shape[0]
-    samples = np.zeros(num_samples, dtype=np.int32)
+#     Returns:
+#     numpy.ndarray: A 1D array of sampled categorical outcomes (class indices).
+#     """
+#     num_samples = pvals.shape[0]
+#     samples = np.zeros(num_samples, dtype=np.int32)
     
-    for i in range(num_samples):
-        # Perform a multinomial sample with n=1 for each set of probabilities
-        sample = np.random.multinomial(1, pvals[i])
-        # Get the index of the selected category (one-hot encoded result)
-        samples[i] = np.argmax(sample)
+#     for i in range(num_samples):
+#         # Perform a multinomial sample with n=1 for each set of probabilities
+#         sample = np.random.multinomial(1, pvals[i])
+#         # Get the index of the selected category (one-hot encoded result)
+#         samples[i] = np.argmax(sample)
     
-    return samples
+#     return samples
 
-@njit(cache=True)
-def categorical_sampler_3d(pvals):
-    """
-    Perform categorical sampling on a 3D array of probability vectors where each 2D slice
-    along the first dimension represents a sample.
+# @njit(cache=True)
+# def categorical_sampler_3d(pvals):
+#     """
+#     Perform categorical sampling on a 3D array of probability vectors where each 2D slice
+#     along the first dimension represents a sample.
 
-    Parameters:
-    pvals (numpy.ndarray): A 3D array of shape (num_samples, num_points, num_classes),
-                           where each 2D slice represents the probability vectors for 
-                           a sample, and each row in the 2D slice represents a point.
+#     Parameters:
+#     pvals (numpy.ndarray): A 3D array of shape (num_samples, num_points, num_classes),
+#                            where each 2D slice represents the probability vectors for 
+#                            a sample, and each row in the 2D slice represents a point.
 
-    Returns:
-    numpy.ndarray: A 2D array of sampled categorical outcomes (class indices) with shape (num_points, num_samples),
-                   where each row represents the sampled outcomes for each point across samples.
-    """
-    num_samples = pvals.shape[0]
-    num_points = pvals.shape[1]
-    samples = np.zeros((num_points, num_samples), dtype=np.int32)
+#     Returns:
+#     numpy.ndarray: A 2D array of sampled categorical outcomes (class indices) with shape (num_points, num_samples),
+#                    where each row represents the sampled outcomes for each point across samples.
+#     """
+#     num_samples = pvals.shape[0]
+#     num_points = pvals.shape[1]
+#     samples = np.zeros((num_points, num_samples), dtype=np.int32)
     
-    for i in range(num_samples):
-        for j in range(num_points):
-            # Perform a multinomial sample with n=1 for each set of probabilities
-            sample = np.random.multinomial(1, pvals[i, j])
-            # Get the index of the selected category (one-hot encoded result)
-            samples[j, i] = np.argmax(sample)
+#     for i in range(num_samples):
+#         for j in range(num_points):
+#             # Perform a multinomial sample with n=1 for each set of probabilities
+#             sample = np.random.multinomial(1, pvals[i, j])
+#             # Get the index of the selected category (one-hot encoded result)
+#             samples[j, i] = np.argmax(sample)
     
-    return samples
+#     return samples
 
-def logloss(probs, truth, ord = None):
-    if ord is not None:
-        probs = probs[:, ord, :]
-    num_samples, num_points, _ = probs.shape
-    true_class_probs = probs[np.arange(num_samples)[:, None], np.arange(num_points), truth]
-    log_loss_values = -np.log(true_class_probs)
-    average_log_loss = log_loss_values.mean()
-    return average_log_loss
+# def logloss(probs, truth, ord = None):
+#     if ord is not None:
+#         probs = probs[:, ord, :]
+#     num_samples, num_points, _ = probs.shape
+#     true_class_probs = probs[np.arange(num_samples)[:, None], np.arange(num_points), truth]
+#     log_loss_values = -np.log(true_class_probs)
+#     average_log_loss = log_loss_values.mean()
+#     return average_log_loss
 
 #@jit(nopython=True,cache=True)
 #def fmvn_mu(mu,cov):
