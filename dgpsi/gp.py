@@ -23,11 +23,29 @@ class gp:
         ord_fun (function, optional): a function that decides the ordering of the input of the GP for the Vecchia approximation. If set to `None`, then the default random ordering is used. Defaults to `None`.
     """
 
-    def __init__(self, X, Y, kernel, vecchia=False, m=25, ord_fun=None):
-        self.X=X
-        self.Y=Y
-        if (self.Y).ndim==1 or X.ndim==1:
+    def __init__(self, X, Y, kernel, check_rep=True, vecchia=False, m=25, ord_fun=None):
+        if Y.ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
+        self.check_rep=check_rep
+        self.indices=None
+        if self.check_rep:
+            X0, indices = np.unique(X, return_inverse=True, axis=0)
+            if len(X0) != len(X):
+                self.X = X0
+                self.indices=indices
+                N = self.indices.max() + 1
+                counts = np.bincount(self.indices, minlength=N)
+                sum_y = np.bincount(self.indices, weights=Y.flatten(), minlength=N)
+                self.W_diag = 1.0 / counts
+                self.Y = (sum_y * self.W_diag).reshape(-1,1)
+                residual = Y - self.Y[self.indices,:]
+                self.sum_residual = (residual.T @ residual).flatten()
+            else:  
+                self.X=X
+                self.Y=Y
+        else:
+            self.X=X
+            self.Y=Y
         self.kernel=kernel
         self.vecch=vecchia
         self.n_data=self.X.shape[0]
@@ -63,6 +81,10 @@ class gp:
         else:
             self.kernel.input=(self.X).copy()
             self.kernel.input_dim=np.arange(np.shape(self.X)[1])
+        if self.indices is not None:
+            self.kernel.rep=self.indices
+            self.kernel.W_diag=self.W_diag
+            self.kernel.sum_residual=self.sum_residual
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
@@ -123,10 +145,27 @@ class gp:
             Y (ndarray): a numpy 2d-array with only one column and each row being an input data point.
             reset (bool, optional): whether to reset hyperparameter values of the GP emulator. Defaults to `False`. 
         """
-        self.X=X
-        self.Y=Y
-        if (self.Y).ndim==1 or X.ndim==1:
+        if Y.ndim==1 or X.ndim==1:
             raise Exception('The input and output data have to be numpy 2d-arrays.')
+        self.indices = None
+        if self.check_rep:
+            X0, indices = np.unique(X, return_inverse=True, axis=0)
+            if len(X0) != len(X):
+                self.X = X0
+                self.indices=indices
+                N = self.indices.max() + 1
+                counts = np.bincount(self.indices, minlength=N)
+                sum_y = np.bincount(self.indices, weights=Y.flatten(), minlength=N)
+                self.W_diag = 1.0 / counts
+                self.Y = (sum_y * self.W_diag).reshape(-1,1)
+                residual = Y - self.Y[self.indices,:]
+                self.sum_residual = residual.T @ residual
+            else:  
+                self.X=X
+                self.Y=Y
+        else:
+            self.X=X
+            self.Y=Y
         self.n_data=self.X.shape[0]
         #if self.n_data>=1e5:
         #    self.kernel.nn_method = 'approx'
@@ -142,6 +181,14 @@ class gp:
         Args: 
             reset_lengthscale (bool): whether to reset hyperparameter of the GP emulator to the initial values.
         """
+        if self.indices is not None:
+            self.kernel.rep=self.indices
+            self.kernel.W_diag=self.W_diag
+            self.kernel.sum_residual=self.sum_residual
+        else: 
+            self.kernel.rep=None
+            self.kernel.W_diag=None
+            self.kernel.sum_residual=None
         self.kernel.input=self.X[:,self.kernel.input_dim]
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
@@ -311,7 +358,11 @@ class gp:
         if self.vecch:
             X_scale = self.X/self.kernel.length
             NNarray = get_pred_nn(X_scale, X_scale, m+1, method=self.kernel.nn_method)
-            mu,sigma2 = loo_gp_vecch(self.X, NNarray, self.Y, self.kernel.scale[0], self.kernel.length, self.kernel.nugget[0], self.kernel.name)
+            if self.indices is None:
+                nugget_diag = np.ones(len(self.Y))
+            else:
+                nugget_diag = self.W_diag
+            mu,sigma2 = loo_gp_vecch(self.X, NNarray, self.Y, self.kernel.scale[0], self.kernel.length, self.kernel.nugget[0],nugget_diag, self.kernel.name)
             mu,sigma2 = mu.reshape(-1,1), sigma2.reshape(-1,1)
         else:
             scale = self.kernel.scale

@@ -257,7 +257,10 @@ class dgp:
                         if kernel.rep is None:
                             kernel.input=In[:,kernel.input_dim]
                         else:
-                            kernel.input=In[kernel.rep,:][:,kernel.input_dim]
+                            if kernel.type=='likelihood':
+                                kernel.input=In[kernel.rep,:][:,kernel.input_dim]
+                            else:
+                                kernel.input=In[:,kernel.input_dim]
                     else:
                         kernel.input=In[:,kernel.input_dim]
                 else:
@@ -271,21 +274,18 @@ class dgp:
                         if kernel.rep is None:
                             kernel.input=copy.copy(In)
                         else:
-                            kernel.input=In[kernel.rep,:]
+                            if kernel.type=='likelihood':
+                                kernel.input=In[kernel.rep,:]
+                            else:
+                                kernel.input=copy.copy(In)
                     else:
                         kernel.input=copy.copy(In)
                         kernel.input_dim=np.arange(np.shape(In)[1])
                 if kernel.type=='gp':
                     if kernel.connect is not None:
-                        if l==self.n_layer-1:
-                            if kernel.rep is None:
-                                kernel.global_input=global_in[:,kernel.connect]
-                            else:
-                                kernel.global_input=global_in[kernel.rep,:][:,kernel.connect]
-                        else:
-                            if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
-                                raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-                            kernel.global_input=global_in[:,kernel.connect]
+                        if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
+                            raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
+                        kernel.global_input=global_in[:,kernel.connect]
                     kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                     if self.ord_fun is not None:
                         kernel.ord_fun = self.ord_fun
@@ -326,7 +326,18 @@ class dgp:
                                 if not found_match:
                                     kernel.ord_nn(pointer=compute_pointer)
                 if l==self.n_layer-1:
-                    kernel.output=self.Y[:,[k]]
+                    if kernel.type=='likelihood':
+                        kernel.output=self.Y[:,[k]]
+                    else:
+                        if kernel.rep is None:
+                            kernel.output=self.Y[:,[k]]
+                        else:
+                            NN = kernel.rep.max() + 1
+                            sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
+                            kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
+                            kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
+                            residual = self.Y - kernel.output[kernel.rep,:]
+                            kernel.sum_residual = (residual.T @ residual).flatten()
                 else:
                     kernel.output=Out[:,[k]]
                 if kernel.type=='gp':
@@ -615,13 +626,13 @@ class dgp:
                     if kernel.rep is None:
                         kernel.input=(In[:,kernel.input_dim]).copy()
                     else:
-                        kernel.input=(In[kernel.rep,:][:,kernel.input_dim]).copy()
+                        if kernel.type=='gp':
+                            kernel.input=(In[:,kernel.input_dim]).copy()
+                        else:
+                            kernel.input=(In[kernel.rep,:][:,kernel.input_dim]).copy()
                     if kernel.type=='gp':
                         if kernel.connect is not None:
-                            if kernel.rep is None:
-                                kernel.global_input=(global_in[:,kernel.connect]).copy()
-                            else:
-                                kernel.global_input=(global_in[kernel.rep,:][:,kernel.connect]).copy()
+                            kernel.global_input=(global_in[:,kernel.connect]).copy()
                         #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                         kernel.m = self.m
                         if kernel.vecch:
@@ -646,7 +657,18 @@ class dgp:
                                             break
                                     if not found_match:
                                         kernel.ord_nn(pointer=False)
-                    kernel.output=(self.Y[:,[k]]).copy()
+                    if kernel.type=='likelihood':
+                        kernel.output=(self.Y[:,[k]]).copy()
+                    else:
+                        if kernel.rep is None:
+                            kernel.output=(self.Y[:,[k]]).copy()
+                        else:
+                            NN = kernel.rep.max() + 1
+                            sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
+                            kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
+                            kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
+                            residual = self.Y - kernel.output[kernel.rep,:]
+                            kernel.sum_residual = (residual.T @ residual).flatten()
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
@@ -662,29 +684,26 @@ class dgp:
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1:
-                    if kernel.rep is None:
+                    if kernel.type=='gp':
                         kernel.input=kernel.input[sub_idx,:]
-                        if self.indices is not None:
-                            kernel.input=kernel.input[self.indices,:]
                     else:
-                        kernel.input=np.concatenate([np.unique(kernel.input[kernel.rep==i,:],axis=0) for i in range(np.max(kernel.rep)+1)], axis=0)[sub_idx,:]
-                        if self.indices is not None:
-                            kernel.input=kernel.input[self.indices,:]
+                        if kernel.rep is None:
+                            kernel.input=kernel.input[sub_idx,:]
+                            if self.indices is not None:
+                                kernel.input=kernel.input[self.indices,:]
+                        else:
+                            kernel.input=np.concatenate([np.unique(kernel.input[kernel.rep==i,:],axis=0) for i in range(np.max(kernel.rep)+1)], axis=0)[sub_idx,:]
+                            if self.indices is not None:
+                                kernel.input=kernel.input[self.indices,:]
                     kernel.rep=self.indices
                     #kernel.rep_sp=rep_sp(kernel.rep)
                 else:
                     kernel.input=kernel.input[sub_idx,:]
                 if kernel.type=='gp':
                     if kernel.connect is not None:
-                        if l==self.n_layer-1:
-                            if kernel.rep is None:
-                                kernel.global_input=(self.X[:,kernel.connect]).copy()
-                            else:
-                                kernel.global_input=(self.X[kernel.rep,:][:,kernel.connect]).copy()
-                        else:
-                            if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
-                                raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-                            kernel.global_input=(self.X[:,kernel.connect]).copy()
+                        if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
+                            raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
+                        kernel.global_input=(self.X[:,kernel.connect]).copy()
                     #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                     kernel.m = self.m
                     if kernel.vecch:
@@ -721,7 +740,18 @@ class dgp:
                                 if not found_match:
                                     kernel.ord_nn(pointer=compute_pointer)
                 if l==self.n_layer-1:
-                    kernel.output=(self.Y[:,[k]]).copy()
+                    if kernel.type=='likelihood':
+                        kernel.output=(self.Y[:,[k]]).copy()
+                    else:
+                        if kernel.rep is None:
+                            kernel.output=(self.Y[:,[k]]).copy()
+                        else:
+                            NN = kernel.rep.max() + 1
+                            sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
+                            kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
+                            kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
+                            residual = self.Y - kernel.output[kernel.rep,:]
+                            kernel.sum_residual = (residual.T @ residual).flatten()
                 else:
                     kernel.output=(kernel.output[sub_idx,:]).copy()
                 if kernel.type=='gp':
@@ -739,18 +769,94 @@ class dgp:
             layer=self.all_layer[l]
             num_kernel=len(layer)
             if l!=self.n_layer-1:
-                if np.shape(In)[1]==num_kernel:
-                    Out=In
-                elif np.shape(In)[1]>num_kernel:
-                    if self.vecch or self.n_data>=500:
-                        pca=NystromKPCA(n_components=num_kernel)
-                        Out=pca.fit_transform(In)
+                if l==self.n_layer-2 and num_kernel==2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='Hetero':
+                    Out = np.empty((np.shape(In)[0], num_kernel))
+                    if self.indices is None:
+                        #Out[:,0] = self.Y.flatten()
+                        #Out[:,1] = np.log(np.var(self.Y.flatten()))
+                        m_init_mu=gp(self.X, self.Y, ker(length=np.array([1.]*self.X.shape[1]), name=self.all_layer[-2][0].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-2), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
+                        m_init_mu.train()
+                        mean_init_mu,_=m_init_mu.predict(self.X)
+                        Out[:,0] = mean_init_mu.flatten()
+                        logvar = np.log((mean_init_mu-self.Y)**2+1e-12)
+                        m_init_logvar=gp(self.X, logvar, ker(length=np.array([1.]*self.X.shape[1]), name=self.all_layer[-2][1].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-2), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
+                        m_init_logvar.train()
+                        mean_init_logvar,_=m_init_logvar.predict(self.X)
+                        Out[:,1] = mean_init_logvar.flatten()
                     else:
-                        pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
-                        Out=pca.fit_transform(In)
+                        sum_Y = np.zeros((np.shape(In)[0], 1))
+                        sum_Y2 = np.zeros((np.shape(In)[0], 1))
+                        # Accumulate the sum and sum of squares for each group
+                        np.add.at(sum_Y, self.indices, self.Y)
+                        np.add.at(sum_Y2, self.indices, self.Y**2)
+                        # Compute the mean and variance for each group
+                        mean_Y = sum_Y / self.counts[:, None]
+                        mean_Y2 = sum_Y2 / self.counts[:, None]
+                        variance_Y = mean_Y2 - mean_Y**2
+                        variance_Y[variance_Y == 0] = np.var(self.Y)
+                        Out[:,0] = mean_Y.flatten()
+                        Out[:,1] = np.log(variance_Y.flatten())
+                    if self.all_layer[l+1][0].input_dim is not None:
+                        Out = Out[:,self.all_layer[l+1][0].input_dim]
+                elif l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='Categorical':
+                    if self.all_layer[l+1][0].num_classes==2:
+                        if num_kernel != 1:
+                            raise Exception('You need one GP node to feed the categorical likelihood node.')
+                    else:
+                        if num_kernel != self.all_layer[l+1][0].num_classes:
+                            raise Exception('You need ' + str(self.all_layer[l+1][0].num_classes) + ' GP nodes to feed the ' + kernel.name + ' likelihood node.')
+                    if self.indices is None:
+                        # with warnings.catch_warnings():
+                        #     warnings.simplefilter("ignore", category=ConvergenceWarning)
+                        #     lgm = LogisticRegression().fit(self.X, self.Y.flatten())
+                        # w, b = lgm.coef_, lgm.intercept_
+                        # Out = np.dot(self.X, w.T) + b
+                        threshold = 40
+                        if self.all_layer[l+1][0].num_classes==2:
+                            Out = np.where(self.Y==1, 2*np.sqrt(threshold), -2*np.sqrt(threshold))
+                        else:
+                            n_classes = self.all_layer[l+1][0].num_classes
+                            Out =  -2*np.sqrt(threshold) * np.ones((self.n_data, n_classes))
+                            Out[np.arange(self.n_data), self.Y.ravel()] = 2*np.sqrt(threshold)
+                    else:
+                        if self.all_layer[l+1][0].num_classes==2:
+                            m = self.indices.max() + 1 
+                            n_g = np.bincount(self.indices, minlength=m)       
+                            k_g = np.bincount(self.indices, weights=self.Y.ravel(), minlength=m)
+                            alpha = 0.5
+                            p = (k_g + alpha) / (n_g + 2*alpha) 
+                            eps = np.finfo(float).eps
+                            Out = np.log(np.clip(p, eps, 1-eps) / np.clip(1-p, eps, 1))
+                            Out = Out.reshape(-1, 1)  
+                        else:
+                            n_classes = self.all_layer[l+1][0].num_classes
+                            m = int(self.indices.max()) + 1
+                            counts = np.zeros((m, n_classes), dtype=float)
+                            np.add.at(counts, (self.indices, self.Y.ravel()), 1.0)
+                            n_g = counts.sum(axis=1, keepdims=True)
+                            temperature, alpha = 0.8, 0.5
+                            probs = (counts + alpha) / (n_g + n_classes * alpha)
+                            eps  = np.finfo(float).eps
+                            logp = np.log(probs.clip(eps, 1.0))
+                            logp -= logp.mean(axis=1, keepdims=True)
+                            Out  = logp / max(temperature, eps)   
+                        # with warnings.catch_warnings():
+                        #     warnings.simplefilter("ignore", category=ConvergenceWarning)
+                        #     lgm = LogisticRegression().fit(self.X[self.indices,:], self.Y.flatten())
+                        # w, b = lgm.coef_, lgm.intercept_
+                        # Out = np.dot(self.X, w.T) + b
                 else:
-                    Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
-                Out=copy.copy(Out)
+                    if np.shape(In)[1]==num_kernel:
+                        Out=copy.copy(In)
+                    elif np.shape(In)[1]>num_kernel:
+                        if self.vecch or self.n_data>=500:
+                            pca=NystromKPCA(n_components=num_kernel)
+                            Out=pca.fit_transform(In)
+                        else:
+                            pca=KernelPCA(n_components=num_kernel, kernel='sigmoid')
+                            Out=pca.fit_transform(In)
+                    else:
+                        Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
@@ -760,20 +866,17 @@ class dgp:
                     if kernel.rep is None:
                         kernel.input=In[:,kernel.input_dim]
                     else:
-                        kernel.input=In[kernel.rep,:][:,kernel.input_dim]
+                        if kernel.type=='gp':
+                            kernel.input=In[:,kernel.input_dim]
+                        else:
+                            kernel.input=In[kernel.rep,:][:,kernel.input_dim]
                 else:
                     kernel.input=In[:,kernel.input_dim]
                 if kernel.type=='gp':
                     if kernel.connect is not None:
-                        if l==self.n_layer-1:
-                            if kernel.rep is None:
-                                kernel.global_input=global_in[:,kernel.connect]
-                            else:
-                                kernel.global_input=global_in[kernel.rep,:][:,kernel.connect]
-                        else:
-                            if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
-                                raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
-                            kernel.global_input=global_in[:,kernel.connect]
+                        if l==0 and len(np.intersect1d(kernel.connect,kernel.input_dim))!=0:
+                            raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
+                        kernel.global_input=global_in[:,kernel.connect]
                     #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                     kernel.m = self.m
                     if reset_lengthscale:
@@ -815,7 +918,18 @@ class dgp:
                                 if not found_match:
                                     kernel.ord_nn(pointer=compute_pointer)
                 if l==self.n_layer-1:
-                    kernel.output=self.Y[:,[k]]
+                    if kernel.type=='likelihood':
+                        kernel.output=self.Y[:,[k]]
+                    else:
+                        if kernel.rep is None:
+                            kernel.output=self.Y[:,[k]]
+                        else:
+                            NN = kernel.rep.max() + 1
+                            sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
+                            kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
+                            kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
+                            residual = self.Y - kernel.output[kernel.rep,:]
+                            kernel.sum_residual = (residual.T @ residual).flatten()
                 else:
                     kernel.output=Out[:,k].reshape((-1,1))
                 if kernel.type=='gp':

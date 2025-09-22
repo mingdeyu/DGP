@@ -196,7 +196,7 @@ class emulator:
             final_res = type(final_res)(modified_items)
         return final_res
     
-    def ploo(self, X, method=None, mode = 'prob', sample_size=50, m=30, core_num=None):
+    def ploo(self, X, method=None, sample_size=50, m=30, core_num=None):
         """Implement the parallel Leave-One-Out cross-validation from a DGP emulator.
 
         Args:
@@ -208,22 +208,13 @@ class emulator:
             Same as the method :meth:`.emulator.loo`.
         """
         if method is None:
-            if self.all_layer[-1][0].name == 'Categorical':
-                method = 'sampling'
-            else:
-                method = 'mean_var'
-        else:
-            if self.all_layer[-1][0].name == 'Categorical' and method == 'mean_var':
-                raise Exception("The method argument must be 'sampling' when the DGP emulator has a categorical likelihood layer.")
+            method = 'mean_var'
         isrep = len(X) != len(self.all_layer[0][0].input)
         if isrep:
             X, indices = np.unique(X, return_inverse=True, axis=0)
         m_pred = m+1 if self.vecch else X.shape[0]
         with self.change_vecch_state():
-            if self.all_layer[-1][0].name == 'Categorical':
-                final_res = self.pclassify(X, mode = mode, sample_size=sample_size, m=m_pred, core_num=core_num)
-            else:
-                final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
+            final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
         if isrep:
             modified_items = [item[indices, :] for item in final_res]
             final_res = type(final_res)(modified_items)
@@ -249,12 +240,8 @@ class emulator:
         #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
         if method == 'ALM':
             if islikelihood:
-                if self.all_layer[-1][0].name=='Categorical':
-                    _, sigma2, _ = self.pclassify(x=x_cand,method='mean_var',full_layer=True, m=m, chunk_num=chunk_num,core_num=core_num)
-                    sigma2 = sigma2[-1]
-                else:
-                    _, sigma2 = self.ppredict(x=x_cand,full_layer=True,m=m,chunk_num=chunk_num,core_num=core_num)
-                    sigma2 = sigma2[-2]
+                _, sigma2 = self.ppredict(x=x_cand,full_layer=True,m=m,chunk_num=chunk_num,core_num=core_num)
+                sigma2 = sigma2[-2]
             else:
                 _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
             if score_only:
