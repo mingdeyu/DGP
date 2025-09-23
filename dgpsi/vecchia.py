@@ -664,7 +664,8 @@ def loo_gp_vecch(x,NNarray,y,scale,length,nugget,nugget_diag,name):
         idx = idx[idx>=0][::-1]
         Xi = x[idx,:]
         nuggeti = nugget * nugget_diag[idx]
-        Ki = K_matrix_nb(Xi, length, nuggeti, name)
+        Ki = K_matrix_nb(Xi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         Li = np.linalg.cholesky(Ki)
         yi = y[idx,0]
         m[i] = np.dot(Li[-1,:-1], forward_solve(Li[:-1, :-1], yi[:-1]).flatten())
