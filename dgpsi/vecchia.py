@@ -162,14 +162,16 @@ def backward_solve(U, b):
     return x
 
 @njit(cache=True, parallel=True, fastmath=True)
-def vecchia_llik(X, y, NNarray, scale, length, nugget, name):
+def vecchia_llik(X, y, NNarray, scale, length, nugget, nugget_diag, name):
     n = X.shape[0]
     quad, logdet = np.array([0.]), np.array([0.])
     for i in prange(n):
         idx = NNarray[i]
         idx = idx[idx>=0][::-1]
         xi, yi= X[idx,:], y[idx,:]
-        Ki = K_matrix_nb(xi, length, nugget, name)
+        nuggeti = nugget * nugget_diag[idx]
+        Ki = K_matrix_nb(xi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         Li = np.linalg.cholesky(Ki)  
         Liyi = forward_solve(Li, yi)
         quad += Liyi[-1]**2
@@ -178,7 +180,7 @@ def vecchia_llik(X, y, NNarray, scale, length, nugget, name):
     return llik
 
 @njit(cache=True, parallel=True, fastmath=True)
-def vecchia_nllik(X, y, NNarray, scale, length, nugget, name, scale_est, nugget_est):
+def vecchia_nllik(X, y, NNarray, scale, length, nugget, nugget_diag, name, scale_est, nugget_est, origin_n, rr):
     n = X.shape[0]
     p = len(length)
     if nugget_est:
@@ -189,7 +191,8 @@ def vecchia_nllik(X, y, NNarray, scale, length, nugget, name, scale_est, nugget_
     idx = NNarray[0]
     idx = idx[idx>=0][::-1]
     xi, yi = X[idx,:], y[idx,:]
-    Ki, dKi = dK_matrix_nb(xi, length, nugget, name, nugget_est)
+    nuggeti = nugget * nugget_diag[idx]
+    Ki, dKi = dK_matrix_nb(xi, length, nuggeti, name, nugget_est)
     #dquadi, dlogdeti = np.zeros(p), np.zeros(p)
     for k in range(p):
         dquad[k], dlogdet[k] = ((yi/Ki)**2*dKi[k])[0,0], (dKi[k]/Ki)[0,0]
@@ -202,8 +205,8 @@ def vecchia_nllik(X, y, NNarray, scale, length, nugget, name, scale_est, nugget_
         idx = NNarray[i]
         idx = idx[idx>=0][::-1]
         bsize = len(idx)
-        xi, yi = X[idx,:], y[idx,:]
-        Ki, dKi = dK_matrix_nb(xi, length, nugget, name, nugget_est)
+        xi, yi, nuggeti = X[idx,:], y[idx,:], nugget * nugget_diag[idx]
+        Ki, dKi = dK_matrix_nb(xi, length, nuggeti, name, nugget_est)
         dquadi, dlogdeti = np.zeros(p), np.zeros(p)
         Li = np.linalg.cholesky(Ki)  # Perform Cholesky decomposition
         Liyi = forward_solve(Li, yi)
@@ -219,12 +222,23 @@ def vecchia_nllik(X, y, NNarray, scale, length, nugget, name, scale_est, nugget_
         dquad += dquadi
         dlogdet += dlogdeti
     if scale_est:
-        scale = quad[0]/n
-        nllik = 0.5*(logdet + n*np.log(scale))
-        ndllik = 0.5*(dlogdet - dquad/scale)
+        if n == origin_n:
+            scale = quad[0]/n
+            nllik = 0.5*(logdet + n*np.log(scale))
+            ndllik = 0.5*(dlogdet - dquad/scale)
+        else:
+            scale = (quad[0] + rr/nugget)/origin_n
+            nllik = 0.5*(logdet + origin_n * np.log(scale))
+            ndllik = 0.5*(dlogdet - dquad/scale)
+            if nugget_est:
+                nllik += 0.5*(origin_n - n) * np.log(nugget)
+                ndllik[-1] += 0.5*(-rr / (scale * nugget) + (origin_n - n))
     else:
-        nllik = 0.5*(logdet + quad/scale) 
+        nllik = 0.5*(logdet + quad/scale)
         ndllik = 0.5*(dlogdet - dquad/scale)
+        if n != origin_n and nugget_est:
+            nllik += 0.5 * (rr / (nugget * scale) + (origin_n - n) * np.log(nugget))
+            ndllik[-1] +=  0.5 * (-rr / (scale * nugget) + (origin_n - n))
     return nllik, ndllik, np.array([scale])
 
 @njit(cache=True,fastmath=True)
@@ -315,14 +329,14 @@ def dK_matrix_nb(xi, length, nugget, name, nugget_est):
         if nugget_est:
             dK = np.zeros((2,n,n))
             for i in range(n):
-                dK[1,i,i] = nugget
+                dK[1,i,i] = nugget[i]
         else:
             dK = np.zeros((1,n,n))
         if name == 'sexp':
             for i in range(n):
                 for j in range(i + 1):
                     if i==j:
-                        K[i,j] = 1 + nugget
+                        K[i,j] = 1 + nugget[i]
                     else:
                         dist = 0
                         for k in range(d):
@@ -334,7 +348,7 @@ def dK_matrix_nb(xi, length, nugget, name, nugget_est):
             for i in range(n):
                 for j in range(i + 1):
                     if i==j:
-                        K[i,j] = 1 + nugget
+                        K[i,j] = 1 + nugget[i]
                     else:
                         coef1, coef2, coef3 = 1, 0, 0
                         for k in range(d):
@@ -351,14 +365,14 @@ def dK_matrix_nb(xi, length, nugget, name, nugget_est):
         if nugget_est:
             dK = np.zeros((d+1,n,n))
             for i in range(n):
-                dK[d,i,i] = nugget
+                dK[d,i,i] = nugget[i]
         else:
             dK = np.zeros((d,n,n))
         if name == 'sexp':
             for i in range(n):
                 for j in range(i + 1):
                     if i==j:
-                        K[i,j] = 1 + nugget
+                        K[i,j] = 1 + nugget[i]
                     else:
                         dist = 0
                         coef = np.zeros(d)
@@ -375,7 +389,7 @@ def dK_matrix_nb(xi, length, nugget, name, nugget_est):
             for i in range(n):
                 for j in range(i + 1):
                     if i==j:
-                        K[i,j] = 1 + nugget
+                        K[i,j] = 1 + nugget[i]
                     else:
                         coef1, coef2, coef3 = 1, 0, np.zeros(d)
                         for k in range(d):
@@ -614,11 +628,12 @@ def cond_mean_vecch(x, z, w1, global_w1, y, scale, length, nugget, name, m, nn_m
         x=np.concatenate((x, z),1)
         w1=np.concatenate((w1, global_w1),1)
     NNarray = get_pred_nn(x/length, w1/length, m, method = nn_method)
-    m,_ = gp_vecch(x, w1, NNarray, y, scale[0], length, nugget[0], name)
+    nugget_diag = np.ones(len(y))
+    m,_ = gp_vecch(x, w1, NNarray, y, scale[0], length, nugget[0], nugget_diag, name)
     return m
 
 @njit(cache=True, parallel=True)
-def gp_vecch(x,w,NNarray,y,scale,length,nugget,name):
+def gp_vecch(x,w,NNarray,y,scale,length,nugget,nugget_diag,name):
     """Make GP predictions with Vecchia approximation.
     """
     n_pred = x.shape[0]
@@ -627,7 +642,11 @@ def gp_vecch(x,w,NNarray,y,scale,length,nugget,name):
         idx = NNarray[i]
         idx = idx[idx>=0]
         Xi = np.vstack((w[idx,:], x[i:i+1,:]))
-        Ki = K_matrix_nb(Xi, length, nugget, name)
+        nuggeti = np.empty(len(idx)+1)
+        nuggeti[:len(idx)] = nugget * nugget_diag[idx]
+        nuggeti[-1] = nugget
+        Ki = K_matrix_nb(Xi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         Li = np.linalg.cholesky(Ki)
         yi = y[idx,0]
         m[i] = np.dot(Li[-1,:-1], forward_solve(Li[:-1, :-1], yi).flatten())
@@ -635,7 +654,7 @@ def gp_vecch(x,w,NNarray,y,scale,length,nugget,name):
     return m, v
 
 @njit(cache=True, parallel=True)
-def loo_gp_vecch(x,NNarray,y,scale,length,nugget,name):
+def loo_gp_vecch(x,NNarray,y,scale,length,nugget,nugget_diag,name):
     """Compute LOO for GP with Vecchia approximation.
     """
     n_pred = x.shape[0]
@@ -644,7 +663,9 @@ def loo_gp_vecch(x,NNarray,y,scale,length,nugget,name):
         idx = NNarray[i]
         idx = idx[idx>=0][::-1]
         Xi = x[idx,:]
-        Ki = K_matrix_nb(Xi, length, nugget, name)
+        nuggeti = nugget * nugget_diag[idx]
+        Ki = K_matrix_nb(Xi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         Li = np.linalg.cholesky(Ki)
         yi = y[idx,0]
         m[i] = np.dot(Li[-1,:-1], forward_solve(Li[:-1, :-1], yi[:-1]).flatten())
@@ -652,7 +673,7 @@ def loo_gp_vecch(x,NNarray,y,scale,length,nugget,name):
     return m, v
 
 @njit(cache=True)
-def gp_vecch_non_parallel(x,w,NNarray,y,scale,length,nugget,name):
+def gp_vecch_non_parallel(x,w,NNarray,y,scale,length,nugget,nugget_diag,name):
     """Make GP predictions with Vecchia approximation.
     """
     n_pred = x.shape[0]
@@ -661,7 +682,11 @@ def gp_vecch_non_parallel(x,w,NNarray,y,scale,length,nugget,name):
         idx = NNarray[i]
         idx = idx[idx>=0]
         Xi = np.vstack((w[idx,:], x[i:i+1,:]))
-        Ki = K_matrix_nb(Xi, length, nugget, name)
+        nuggeti = np.empty(len(idx)+1)
+        nuggeti[:len(idx)] = nugget * nugget_diag[idx]
+        nuggeti[-1] = nugget
+        Ki = K_matrix_nb(Xi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         Li = np.linalg.cholesky(Ki)
         yi = y[idx,0]
         m[i] = np.dot(Li[-1,:-1], forward_solve(Li[:-1, :-1], yi).flatten())
@@ -731,7 +756,7 @@ def backward_substitute(U_data, U_indices, U_indptr, b):
 #    return M_csc
     
 @njit(cache=True, parallel=True)
-def link_gp_vecch(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, name):
+def link_gp_vecch(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, nugget_diag, name):
     """Make linked GP predictions.
     """
     n_pred = m.shape[0]
@@ -749,17 +774,19 @@ def link_gp_vecch(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, nam
         idx = NNarray[i]
         idx = idx[idx>=0]
         yi = y[idx,0]
+        nuggeti = nugget * nugget_diag[idx]
         if z is not None:
             wi, global_wi = w1[idx,:], global_w1[idx,:]
             Izi = K_vec_nb(global_wi, z[i], length[-Dz::], name)
             Jzi = np.outer(Izi,Izi)
             Ii,Ji = IJ_nb(wi, m[i], v[i], length[:-Dz], name)
             Ii,Ji = Ii*Izi, Ji*Jzi
-            Ki = K_matrix_nb(np.concatenate((wi, global_wi),1), length, nugget, name)
+            Ki = K_matrix_nb(np.concatenate((wi, global_wi),1), length, 0., name)
         else:
             wi = w1[idx,:]
             Ii,Ji = IJ_nb(wi, m[i], v[i], length, name)
-            Ki = K_matrix_nb(wi, length, nugget, name)
+            Ki = K_matrix_nb(wi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         tr_RinvJ=np.trace(np.linalg.solve(Ki,Ji))
         Li = np.linalg.cholesky(Ki)
         Rinv_y = backward_solve(Li.T, forward_solve(Li, yi).flatten()).flatten()
@@ -769,7 +796,7 @@ def link_gp_vecch(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, nam
     return m_new,v_new
 
 @njit(cache=True)
-def link_gp_vecch_non_parallel(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, name):
+def link_gp_vecch_non_parallel(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, nugget_diag, name):
     """Make linked GP predictions.
     """
     n_pred = m.shape[0]
@@ -787,17 +814,19 @@ def link_gp_vecch_non_parallel(m, v, z, w1, global_w1, NNarray, y, scale, length
         idx = NNarray[i]
         idx = idx[idx>=0]
         yi = y[idx,0]
+        nuggeti = nugget * nugget_diag[idx]
         if z is not None:
             wi, global_wi = w1[idx,:], global_w1[idx,:]
             Izi = K_vec_nb(global_wi, z[i], length[-Dz::], name)
             Jzi = np.outer(Izi,Izi)
             Ii,Ji = IJ_nb(wi, m[i], v[i], length[:-Dz], name)
             Ii,Ji = Ii*Izi, Ji*Jzi
-            Ki = K_matrix_nb(np.concatenate((wi, global_wi),1), length, nugget, name)
+            Ki = K_matrix_nb(np.concatenate((wi, global_wi),1), length, 0., name)
         else:
             wi = w1[idx,:]
             Ii,Ji = IJ_nb(wi, m[i], v[i], length, name)
-            Ki = K_matrix_nb(wi, length, nugget, name)
+            Ki = K_matrix_nb(wi, length, 0., name)
+        add_to_diag_square(Ki, nuggeti)
         tr_RinvJ=np.trace(np.linalg.solve(Ki,Ji))
         Li = np.linalg.cholesky(Ki)
         Rinv_y = backward_solve(Li.T, forward_solve(Li, yi).flatten()).flatten()

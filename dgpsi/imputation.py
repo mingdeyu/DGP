@@ -93,7 +93,10 @@ class imputer:
                 if linked_kernel.rep is None:
                     linked_kernel.input=fp[:,linked_kernel.input_dim]
                 else:
-                    linked_kernel.input=fp[linked_kernel.rep,:][:,linked_kernel.input_dim]
+                    if linked_kernel.type=='gp':
+                        linked_kernel.input=fp[:,linked_kernel.input_dim]
+                    else:
+                        linked_kernel.input=fp[linked_kernel.rep,:][:,linked_kernel.input_dim]
                 if linked_kernel.type=='gp':
                     if linked_kernel.vecch:
                         log_yp += linked_kernel.log_likelihood_func_vecch()
@@ -193,7 +196,10 @@ class imputer:
                 if linked_kernel.rep is None:
                     linked_kernel.input[:,linked_kernel.input_dim==k]=fp.reshape(-1,1)
                 else:
-                    linked_kernel.input[:,linked_kernel.input_dim==k]=fp[linked_kernel.rep].reshape(-1,1)
+                    if linked_kernel.type=='gp':
+                        linked_kernel.input[:,linked_kernel.input_dim==k]=fp.reshape(-1,1)
+                    else:
+                        linked_kernel.input[:,linked_kernel.input_dim==k]=fp[linked_kernel.rep].reshape(-1,1)
                 if linked_kernel.type=='gp':
                     if linked_kernel.vecch:
                         log_yp += linked_kernel.log_likelihood_func_vecch()

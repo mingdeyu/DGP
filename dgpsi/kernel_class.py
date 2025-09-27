@@ -140,6 +140,8 @@ class kernel:
         self.bds=bds
         self.R2=None
         self.loo_state=False
+        self.sum_residual=None
+        self.W_diag=None
 
     def __setstate__(self, state):
         if 'g' in state:
@@ -194,6 +196,10 @@ class kernel:
             new_R2_added = True
         if 'loo_state' not in state:
             state['loo_state'] = False
+        if 'sum_residual' not in state:
+            state['sum_residual'] = None
+        if 'W_diag' not in state:
+            state['W_diag'] = None
         self.__dict__.update(state)
         if new_R2_added:
             self.r2(overwritten=True)
@@ -334,9 +340,15 @@ class kernel:
                 K*=pdist_matern_coef(X_l)
                 K=squareform(K)
         if fod_eval and self.nugget_est:
-            nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)
+            if self.rep is None:
+                nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)
+            else:
+                nugget_fod=np.expand_dims(np.diag(self.nugget*self.W_diag),0)
             fod=np.concatenate((fod,nugget_fod),axis=0)
-        np.fill_diagonal(K, 1+self.nugget)
+        if self.rep is None:
+            np.fill_diagonal(K, 1+self.nugget)
+        else:
+            np.fill_diagonal(K, 1+self.nugget*self.W_diag)
         if fod_eval:
             return K, fod
         else:
@@ -410,12 +422,22 @@ class kernel:
         P1=-0.5*tr_KinvKt
         P2=0.5*YKinvKtKinvY
         if self.scale_est:
-            self.scale=(YKinvY/n).flatten()
-            neg_llik=0.5*(logdet+n*np.log(self.scale))
+            if self.rep is None:
+                self.scale=(YKinvY/n).flatten()
+                neg_llik=0.5*(logdet+n*np.log(self.scale))
+            else:
+                self.scale = ((YKinvY + self.sum_residual/self.nugget)/len(self.rep)).flatten()
+                neg_llik=0.5*(logdet+len(self.rep)*np.log(self.scale))
             neg_St=-P1-P2/self.scale
+            if self.rep is not None and self.nugget_est:
+                neg_llik += 0.5*(len(self.rep)-n)*np.log(self.nugget)
+                neg_St[-1] += 0.5*(-self.sum_residual/(self.scale*self.nugget) + (len(self.rep)-n))
         else:
             neg_llik=0.5*(logdet+YKinvY/self.scale) 
             neg_St=-P1-P2/self.scale
+            if self.rep is not None and self.nugget_est:
+                neg_llik += 0.5*(self.sum_residual/(self.scale*self.nugget) + (len(self.rep)-n)*np.log(self.nugget))
+                neg_St[-1] += 0.5*(-self.sum_residual/(self.scale*self.nugget) + (len(self.rep)-n))
         neg_llik=neg_llik.flatten()
         if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
@@ -438,7 +460,15 @@ class kernel:
             X = np.concatenate((self.input,self.global_input),1)
         else:
             X = self.input
-        neg_llik, neg_St, self.scale = vecchia_nllik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], self.name, self.scale_est, self.nugget_est)
+        if self.rep is None:
+            origin_n = len(self.output)
+            nugget_diag = np.ones(origin_n)
+            rr = np.array([-1.])
+        else:
+            origin_n = len(self.rep)
+            nugget_diag = self.W_diag
+            rr = self.sum_residual
+        neg_llik, neg_St, self.scale = vecchia_nllik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], nugget_diag[self.ord], self.name, self.scale_est, self.nugget_est, origin_n, rr[0])
         if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
             neg_St=neg_St-self.log_prior_fod()
@@ -464,7 +494,11 @@ class kernel:
             X=np.concatenate((self.input,self.global_input),1)
         else:
             X=self.input
-        llik = vecchia_llik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], self.name)
+        if self.rep is None:
+            nugget_diag = np.ones(len(self.output))
+        else:
+            nugget_diag = self.W_diag
+        llik = vecchia_llik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
         if self.prior_name=='ref':
             self.compute_cl()
             llik+=self.log_prior()
@@ -571,10 +605,14 @@ class kernel:
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             if self.loo_state:
                 NNarray = NNarray[:,1:]
-            if parallel:
-                m,v = gp_vecch(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],self.name)
+            if self.rep is None:
+                nugget_diag = np.ones(len(self.output))
             else:
-                m,v = gp_vecch_non_parallel(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],self.name)
+                nugget_diag = self.W_diag
+            if parallel:
+                m,v = gp_vecch(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],nugget_diag,self.name)
+            else:
+                m,v = gp_vecch_non_parallel(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],nugget_diag,self.name)
         else:
             if parallel:
                 m,v=gp(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
@@ -612,10 +650,14 @@ class kernel:
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             if self.loo_state:
                 NNarray = NNarray[:,1:]
-            if parallel:
-                m,v = link_gp_vecch(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], self.name)
+            if self.rep is None:
+                nugget_diag = np.ones(len(self.output))
             else:
-                m,v = link_gp_vecch_non_parallel(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], self.name)
+                nugget_diag = self.W_diag
+            if parallel:
+                m,v = link_gp_vecch(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+            else:
+                m,v = link_gp_vecch_non_parallel(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
         else:
             if parallel:
                 m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.R2sexp,self.Psexp,self.scale[0],self.length,self.nugget[0],self.name)
@@ -657,10 +699,14 @@ class kernel:
                 x = m
                 w = overall_input
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
-            if parallel:     
-                m,v = link_gp_vecch(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], self.name)
+            if self.rep is None:
+                nugget_diag = np.ones(len(self.output))
             else:
-                m,v = link_gp_vecch_non_parallel(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], self.name)
+                nugget_diag = self.W_diag
+            if parallel:     
+                m,v = link_gp_vecch(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+            else:
+                m,v = link_gp_vecch_non_parallel(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
         else:
             if self.name=='sexp':
                 if len(self.length)==1:
