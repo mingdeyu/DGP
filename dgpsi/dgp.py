@@ -864,6 +864,8 @@ class dgp:
                         G, D = self.X.shape
                         y = self.Y.flatten()
 
+                        Out[:, 0] = y
+
                         m_init_mu = gp(
                             self.X, y.reshape(-1,1),
                             ker(length=np.ones(D),
@@ -872,11 +874,8 @@ class dgp:
                             vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun
                         )
                         m_init_mu.train()
-                        mean_init_mu, var_init_mu = m_init_mu.loo()                         # (G,), (G,)
+                        mean_init_mu, _ = m_init_mu.loo()                         # (G,), (G,)
                         mean_init_mu = mean_init_mu.flatten()
-                        # approximate latent LOO variance by removing obs noise; floor for safety
-                        var_init_mu = (var_init_mu - m_init_mu.kernel.nugget * m_init_mu.kernel.scale).flatten()
-                        var_init_mu = np.maximum(var_init_mu, 1e-12)
 
                         eps = 1e-12
                         resid2_raw = (y - mean_init_mu)**2 #- var_init_mu                   # function-var adjusted
@@ -903,19 +902,6 @@ class dgp:
                         z_init = np.clip(z_init, mean_init_logvar - k*sd_init_logvar, mean_init_logvar + k*sd_init_logvar)
                         Out[:, 1] = z_init
 
-                        v_y = np.exp(z_init)                                               # observation variance per site
-                        v_y = np.maximum(v_y, 1e-12)
-
-                        prec_data = 1.0 / v_y
-                        prec_gp   = 1.0 / var_init_mu
-                        denom     = prec_data + prec_gp
-                        mu_star   = (prec_data * y + prec_gp * mean_init_mu) / denom
-                        v_star    = 1.0 / denom
-
-                        mu_sigma = np.sqrt(v_star)
-                        mu_init  = np.random.normal(loc=mu_star, scale=mu_sigma)
-                        mu_init  = np.clip(mu_init, mu_star - k*mu_sigma, mu_star + k*mu_sigma)
-                        Out[:, 0] = mu_init
                         #m_init_mu=gp(self.X, self.Y, ker(length=np.array([1.]*self.X.shape[1]), name=self.all_layer[-2][0].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-2), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
                         #m_init_mu.train()
                         #mean_init_mu,_=m_init_mu.predict(self.X)
@@ -935,95 +921,43 @@ class dgp:
                         sumY2  = np.bincount(self.indices, weights=y*y,    minlength=G)   # (G,)
 
                         # Unbiased within-site variance s^2 (NaN for singletons)
-                        ybar = sumY / counts           
+                        ybar = sumY / counts       
+                        Out[:, 0] = ybar    
 
                         valid = counts > 1.0
                         num   = sumY2 - (sumY**2) / np.maximum(counts, 1.0)
                         s2    = np.full(G, np.nan, dtype=float)
                         s2[valid] = num[valid] / (counts[valid] - 1.0)
                         s2[valid] = np.maximum(s2[valid], 0.0)                   # guard tiny negatives
-
-                        m_init_mu = gp(self.X, ybar.reshape(-1,1), ker(length=np.ones(D), name=self.all_layer[-2][0].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-2), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
-                        m_init_mu.train()
-                        mean_init_mu,var_init_mu=m_init_mu.loo()
-                        mean_init_mu = mean_init_mu.flatten()
-                        var_init_mu = (var_init_mu - m_init_mu.kernel.nugget * m_init_mu.kernel.scale).flatten()
-                        var_init_mu = np.maximum(var_init_mu, 1e-10)
-
-
-                        # Log-variance targets via IG shrinkage (no per-site noise needed)
-                        eps = 1e-12
-                        if np.any(valid):
-                            v0 = np.nanmedian(s2[valid])
-                        else:
-                            med = np.median(y)
-                            v0 = np.median(np.abs(y - med))**2 + eps
+          
+                        v0 = np.nanmedian(s2[valid])
 
                         s2_fill = np.where(valid, s2, v0)
-
-
-                        v_ybar = s2_fill / np.maximum(counts, 1.0)        # (G,)
-                        v_ybar = np.maximum(v_ybar, 1e-12)                # numeric floor
-
-                        alpha = 0.8              # max fraction of nugget you'll retain
-                        kappa = 3.0              # how fast rho_i grows with replicates
-                        rep   = np.maximum(counts - 1.0, 0.0)
-                        rho_i = alpha * (rep / (rep + kappa)) 
-                        var_init_mu = var_init_mu + rho_i*m_init_mu.kernel.nugget * m_init_mu.kernel.scale
-
-                        # Precision-weighted fusion: data (ybar, v_ybar) with prior (mu_loo, v_loo_f_mu)
-                        prec_data = 1.0 / v_ybar
-                        prec_gp   = 1.0 / var_init_mu
-                        denom     = prec_data + prec_gp
-                        mu_star   = (prec_data * ybar + prec_gp * mean_init_mu) / denom
-                        v_star    = 1.0 / denom
-
-                        # Sample mean latents (or set deterministically to mu_star if you prefer)
-                        mu_sigma = np.sqrt(v_star)
-                        mu_init  = np.random.normal(loc=mu_star, scale=mu_sigma)
-
-                        # heteroskedastic clipping to keep extremes sane
-                        k = 2.576
-                        mu_init = np.clip(mu_init, mu_star - k*mu_sigma, mu_star + k*mu_sigma)
-
-                        Out[:, 0] = mu_init
 
                         # bias-corrected log targets where possible (set 0 correction for singletons)
                         
                         nu = (counts - 1.0) / 2.0
                         bias = np.where(valid, psi(nu) - np.log(np.maximum(nu, 1e-12)), 0.0)
-
+                        eps = 1e-12
                         z = np.log(s2_fill + eps) - bias  # (G,)
-
-                        r2 = np.where(valid, psi1(1, np.maximum(nu, 1e-6)), 0.7)  # shape (G,)
-                        r2 = np.maximum(r2, 1e-8) 
+                        z_init = z.copy()
 
                         # Log-variance GP (slightly relaxed)
                         m_init_logvar=gp(self.X, z.reshape(-1,1), ker(length=np.ones(D)*2., name=self.all_layer[-2][1].name, scale_est=True, nugget_est=True, prior_name='ref',nugget=1e-1), vecchia=self.vecch, m=self.m, ord_fun=self.ord_fun)
                         m_init_logvar.train()
                         mean_init_logvar, var_init_logvar = m_init_logvar.loo()
-                        mean_init_logvar = mean_init_logvar.flatten()
-                        var_init_logvar = (var_init_logvar - m_init_logvar.kernel.nugget * m_init_logvar.kernel.scale).flatten()
-                        var_init_logvar = np.maximum(var_init_logvar, 1e-10)
+                        sing = ~valid
+                        if np.any(sing):
+                            mean_init_logvar_sing = mean_init_logvar[sing].flatten()
+                            var_init_logvar_sing = (var_init_logvar[sing] - m_init_logvar.kernel.nugget * m_init_logvar.kernel.scale).flatten()
+                            var_init_logvar_sing = np.maximum(var_init_logvar_sing, 1e-12)
+                            sd_init_logvar_sing = np.sqrt(var_init_logvar_sing)
+                            z_init_sing = np.random.normal(loc=mean_init_logvar_sing, scale=sd_init_logvar_sing)
+                            k = 2
+                            z_init[sing] = np.clip(z_init_sing, mean_init_logvar_sing - k*sd_init_logvar_sing, mean_init_logvar_sing + k*sd_init_logvar_sing)
+                        #if self.vecch:
+                        #    z_init = np.random.normal(z_init, np.sqrt(var_init_logvar.ravel()))
 
-                        #r2_ref = np.median(r2[counts > 1]) if np.any(counts > 1) else 0.645
-                        #rho_i  = alpha * (r2_ref / (r2 + r2_ref))
-                        var_init_logvar = var_init_logvar + rho_i*m_init_logvar.kernel.nugget * m_init_logvar.kernel.scale
-
-                        prec_data = 1.0 / r2
-                        prec_gp   = 1.0 / var_init_logvar
-                        denom     = prec_data + prec_gp
-
-                        mu_star = (prec_data * z + prec_gp * mean_init_logvar) / denom
-                        v_star  = 1.0 / denom
-                        
-                        sd_init_logvar = np.sqrt(v_star)
-                        z_init = np.random.normal(mu_star, sd_init_logvar)
-
-                        z_lo = mu_star - k * sd_init_logvar
-                        z_hi = mu_star + k * sd_init_logvar
-                        z_init = np.clip(z_init, z_lo, z_hi)
-                        
                         Out[:,1] = z_init
 
                     #    sum_Y = np.zeros((np.shape(In)[0], 1))
