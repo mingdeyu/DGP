@@ -17,7 +17,6 @@ from contextlib import contextmanager
 from sklearn.preprocessing import LabelEncoder
 from scipy.linalg import cho_solve
 from scipy.special import digamma as psi
-from scipy.special import polygamma as psi1 
 import multiprocess.context as ctx
 import platform
 from pathos.multiprocessing import ProcessingPool as Pool

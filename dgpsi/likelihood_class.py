@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.special import loggamma, expit
+from scipy.special import loggamma, expit, log_ndtr, ndtr, owens_t
 from scipy.linalg import cholesky, cho_solve
 #from scipy.sparse.linalg import spsolve_triangular
 #from .functions import categorical_sampler #fmvn_mu
@@ -294,6 +294,7 @@ class Categorical:
             (if the output has K > 2 classes) in the feeding layer whose outputs feed into the likelihood node. When set to `None`, 
             all outputs from GPs of the feeding layer feed into the likelihood node, and in this case one needs to ensure there is only one GP
             node (for binary classification) or K GP nodes (for multi-class classification) specified in the feeding layer. Defaults to `None`.
+        link (str, optional): the link function to be used for binary classification. Either 'probit' or 'logit'. Defaults to 'logit'.
 
     Attributes:
         type (str): identifies that the node is a likelihood node;
@@ -308,7 +309,7 @@ class Categorical:
             i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position has multiple outputs. Otherwise, it is
             `None`. Defaults to `None`. 
     """
-    def __init__(self, num_classes=None, input_dim=None):
+    def __init__(self, num_classes=None, input_dim=None, link = 'logit'):
         self.type='likelihood'
         self.name='Categorical'
         self.input=None
@@ -318,6 +319,7 @@ class Categorical:
         self.rep=None
         self.num_classes=num_classes
         self.class_encoder=None
+        self.link=link
 
     def llik(self):
         """The log-likelihood function of Categorical distribution.
@@ -326,7 +328,10 @@ class Categorical:
             ndarray: a numpy 1d-array of log-likelihood.
         """
         if self.num_classes==2:
-            llik = np.sum(self.output * self.input - np.logaddexp(0, self.input))
+            if self.link=='logit':
+                llik = np.sum(self.output * self.input - np.logaddexp(0, self.input))
+            else:
+                llik = np.sum(self.output * log_ndtr(self.input) + (1-self.output) * log_ndtr(-self.input))
         else: 
             max_logits = np.max(self.input, axis=1, keepdims=True)
             stable_exp = np.exp(self.input - max_logits)
@@ -336,7 +341,10 @@ class Categorical:
     
     def pllik(self, y, f):
         if self.num_classes==2:
-            pllik = y * f - np.log(1 + np.exp(f))
+            if self.link=='logit':
+                pllik = y * f - np.logaddexp(0, f)
+            else:
+                pllik = y * log_ndtr(f) + (1-y) * log_ndtr(-f)
         else:
             max_logits = np.max(f, axis=2, keepdims=True)
             stable_exp = np.exp(f - max_logits)
@@ -346,14 +354,25 @@ class Categorical:
     
     def prediction(self, m, v):
         if self.num_classes==2:
-            m, v = m.flatten(), v.flatten()
-            denom = 1.0 + (np.pi/8.0) * v
-            mu_star = m / np.sqrt(denom)
-            y_mean = expit(mu_star)
-            var_star = v / denom
-            y_var = (y_mean * (1.0 - y_mean))**2 * var_star
-            y_var = np.clip(y_var, 0.0, y_mean * (1.0 - y_mean))
-            y_mean, y_var = y_mean.reshape(-1,1), y_var.reshape(-1,1)
+            if self.link=='logit':
+                m, v = m.flatten(), v.flatten()
+                denom = 1.0 + (np.pi/8.0) * v
+                mu_star = m / np.sqrt(denom)
+                y_mean = expit(mu_star)
+                var_star = v / denom
+                y_var = (y_mean * (1.0 - y_mean))**2 * var_star
+                y_var = np.clip(y_var, 0.0, y_mean * (1.0 - y_mean))
+                y_mean, y_var = y_mean.reshape(-1,1), y_var.reshape(-1,1)
+            else:
+                m, v = m.flatten(), v.flatten()
+                t = m / np.sqrt(1.0 + v)        # m / sqrt(1+v)
+                y_mean = ndtr(t)                # Φ(t)
+                a = 1.0 / np.sqrt(1.0 + 2.0*v)  # 1 / sqrt(1+2v)
+                Ep2 = y_mean - 2.0 * owens_t(t, a)  # Φ(t) - 2*T(t,a) = E[p^2]
+                y_var = Ep2 - y_mean*y_mean
+                # Guard tiny negative numerical noise:
+                y_var = np.maximum(y_var, 0.0)
+                y_mean, y_var = y_mean.reshape(-1,1), y_var.reshape(-1,1)
         else:
             denom = 1.0 + (np.pi/8.0) * v
             logits = m / np.sqrt(denom)
@@ -368,7 +387,10 @@ class Categorical:
     
     def sampling(self, f_sample):
         if self.num_classes==2:
-            y_sample = expit(f_sample)
+            if self.link=='logit':
+                y_sample = expit(f_sample)
+            else:
+                y_sample = ndtr(f_sample)
             #y_sample = np.concatenate((1-prob_sample, prob_sample), axis=1)
         else:
             exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
