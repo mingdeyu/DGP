@@ -26,6 +26,7 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * Calculations of ALM, MICE, and VIGF sequential design criterions.
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Large-scale GP, DGP, and Linked (D)GP emulations.](https://github.com/mingdeyu/DGP/blob/master/demo/vecchia_SI.ipynb)
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
+* ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Analytical Approximations to the Distributions of GP/LGP/DGP Predictive Gradients.](https://github.com/yyimingucl/DGP/blob/master/demo/grad_est.ipynb)
 
 ## Installation
 `dgpsi` currently requires Python version 3.9. The package can be installed via `pip`:
@@ -89,6 +90,8 @@ Deyu Ming <[deyu.ming.16@ucl.ac.uk](mailto:deyu.ming.16@ucl.ac.uk)>.
 This package is part of an ongoing research initiative. For detailed information about the research aspects and guidelines for use, please refer to our [Research Notice](./RESEARCH-NOTICE.md).
 
 ## References
+<!-- > [Yang, Y., Ming, D. and Guillas, S. (2025) Distribution of Deep Gaussian process Gradients and Sequential Design for Simulators with Sharp Variations. arXiv:2503.16027.](https://arxiv.org/pdf/2503.16027) -->
+
 > [Ming, D. and Williamson, D. (2023) Linked deep Gaussian process emulation for model networks. arXiv:2306.01212.](https://arxiv.org/abs/2306.01212)
 
 > [Ming, D., Williamson, D., and Guillas, S. (2023) Deep Gaussian process emulation using stochastic imputation. <i>Technometrics</i>. 65(2), 150-161.](https://doi.org/10.1080/00401706.2022.2124311)
