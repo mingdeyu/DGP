@@ -231,7 +231,11 @@ class kernel:
             X = np.concatenate((self.global_input, np.ones((len(self.global_input),1))), axis=1)
             if matrix_rank(self.global_input) == matrix_rank(X):
                 X = self.global_input
-            _, resids = lstsq(X, self.input, rcond = None)[:2]
+            N, D = X.shape
+            if N==D:
+                resids = np.zeros(self.input.shape[1], dtype=float)
+            else:
+                _, resids = lstsq(X, self.input, rcond = None)[:2]
             rsq = 1 - resids / (len(self.input) * np.var(self.input, axis=0))
             if overwritten:
                 self.R2 = np.atleast_2d(rsq)
