@@ -6,7 +6,7 @@ import psutil
 from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
-from .functions import ghdiag, mice_var, esloo_calculation
+from .functions import ghdiag, mice_var
 from .vecchia import get_pred_nn
 from contextlib import contextmanager
 from numba import set_num_threads
@@ -86,59 +86,6 @@ class emulator:
                             kernel.compute_stats()
         else:
             raise Exception('The DGP emulator is already in non-Vecchia mode.')
-        
-    def esloo(self, X, Y, m=30):
-        """Compute the (normalised) expected squared LOO from a DGP emulator.
-
-        Args:
-            X (ndarray): the training input data used to build the DGP emulator via the :class:`.dgp` class.
-            Y (ndarray): the training output data used to build the DGP emulator via the :class:`.dgp` class.
-            m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
-
-        Returns:
-            ndarray: a numpy 2d-array is returned. The array has its rows corresponding to training input
-                positions and columns corresponding to DGP output dimensions (i.e., the number of GP/likelihood nodes in the final layer);
-        """
-        isrep = len(X) != len(self.all_layer[0][0].input)
-        if isrep:
-            X, indices = np.unique(X, return_inverse=True, axis=0)
-            _, counts = np.unique(indices, return_counts=True)
-            start_rows = np.cumsum(np.concatenate(([0], counts[:-1])))
-        else:
-            indices = None
-            start_rows = np.arange(len(X))
-        m_pred = m+1 if self.vecch else X.shape[0]
-        with self.change_vecch_state():
-            mu_i, var_i = self.predict(X, aggregation=False, m=m_pred)
-        mu_i, var_i = np.stack(mu_i), np.stack(var_i)
-        final_res = esloo_calculation(mu_i, var_i, Y, indices, start_rows)
-        return final_res
-
-    def pesloo(self, X, Y, m=30, core_num=None):
-        """Compute in parallel the (normalised) expected squared LOO from a DGP emulator.
-
-        Args:
-            X, Y, m: see descriptions of the method :meth:`.emulator.esloo`.
-            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``max physical cores available // 2``.
-
-        Returns:
-            Same as the method :meth:`.emulator.esloo`.
-        """
-        isrep = len(X) != len(self.all_layer[0][0].input)
-        if isrep:
-            X, indices = np.unique(X, return_inverse=True, axis=0)
-            _, counts = np.unique(indices, return_counts=True)
-            start_rows = np.cumsum(np.concatenate(([0], counts[:-1])))
-        else:
-            indices = None
-            start_rows = np.arange(len(X))
-        m_pred = m+1 if self.vecch else X.shape[0]
-        with self.change_vecch_state():
-            mu_i, var_i = self.ppredict(X, aggregation=False, m=m_pred, core_num=core_num)
-        mu_i, var_i = np.stack(mu_i), np.stack(var_i)
-        final_res = esloo_calculation(mu_i, var_i, Y, indices, start_rows)
-        return final_res
         
     @contextmanager
     def change_vecch_state(self):

@@ -303,8 +303,7 @@ class gp:
                 idx = np.argmax(mice_val, axis=0)
                 return idx, mice_val[idx,0]
         elif method == 'VIGF':
-            X0 = np.unique(self.X, axis=0)
-            if len(X0) != self.n_data:
+            if self.indices is not None:
                 raise Exception('VIGF criterion is currently not applicable to GP emulators whose training data contain replicates.')
             if self.vecch or self.n_data>500:
                 index = get_pred_nn(x_cand, self.X, 1, method = self.kernel.nn_method).flatten()
@@ -319,22 +318,6 @@ class gp:
             else:
                 idx = np.argmax(vigf, axis=0)
                 return idx, vigf[idx,0]
-
-    def esloo(self, m=30):
-        """Compute the (normalised) expected squared LOO of a GP model.
-
-        Args:
-            m (int, optional): the size of the conditioning set for loo calculations involved under the Vecchia approximation. Defaults to `30`.
-
-        Returns:
-            ndarray: a numpy 2d-array is returned. The array has only one column with its rows corresponding to training data positions.
-        """
-        mu, sigma2 = self.loo(m=m)
-        error=(mu-self.Y)**2
-        esloo=sigma2+error
-        normaliser=2*sigma2**2+4*sigma2*error
-        nesloo=esloo/np.sqrt(normaliser)
-        return nesloo
 
     def loo(self, method='mean_var', sample_size=50, m=30):
         """Implement the Leave-One-Out cross-validation of a GP model.
@@ -372,10 +355,16 @@ class gp:
             mu = self.Y - Rinv_y*sigma2
             sigma2 = scale*sigma2
         if method=='mean_var':
-            return mu, sigma2
+            if self.indices is None:
+                return mu, sigma2
+            else:
+                return mu[self.indices,:], sigma2[self.indices,:]
         elif method=='sampling':
             samples=np.random.normal(mu.flatten(),np.sqrt(sigma2.flatten()),size=(sample_size,len(mu))).T
-            return samples
+            if self.indices is None:
+                return samples
+            else:
+                return samples[self.indices,:]
 
     def ppredict(self,x,method='mean_var',sample_size=50,m=50,chunk_num=None,core_num=None):
         """Implement parallel predictions from the trained GP model.

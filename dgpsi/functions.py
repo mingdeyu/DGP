@@ -505,43 +505,43 @@ def trace_sum(A,B):
                 a += 2*A[k,l]*B[k,l]
     return a
 
-@njit(cache=True, parallel=True)
-def esloo_calculation(mu_i, var_i, Y, indices, start_rows):
-    B = len(mu_i)
-    mu = np.sum(mu_i,axis=0)/B
-    sigma2 = np.sum((np.square(mu_i)+var_i),axis=0)/B-mu**2
-    n, d = mu.shape
-    L = Y.shape[0]
-    if indices is not None:
-        nesloo = np.zeros((L, d))
-    else:
-        nesloo = np.zeros((n, d))
-    final_nesloo = np.empty_like(nesloo)
-    seq = np.arange(L)
-    reorder_idx = np.arange(L)
-    for i in prange(n):
-        if indices is not None:
-            idx = indices==i
-            f = Y[idx,:]
-            reorder_idx_i = seq[idx]
-        else:
-            f = Y[i:i+1,:]
-        mu_ii, var_ii = mu_i[:,i:i+1,:], var_i[:,i:i+1,:]
-        esloo = sigma2[i] + (mu[i] - f)**2 #2d array
-        normaliser = np.zeros((B, f.shape[0], f.shape[1])) #3d array
-        for j in range(B):
-            for k in range(f.shape[0]):
-                error_jk = (mu_ii[j] - f[k])**2
-                normaliser[j,k] = error_jk**2 + 6 * error_jk * var_ii[j] + 3 * var_ii[j]**2
-        normaliser = np.sum(normaliser, axis=0)/B - esloo**2
-        nesloo_ii = esloo / np.sqrt(normaliser)
-        count = nesloo_ii.shape[0]
-        starting_row =  start_rows[i]
-        nesloo[starting_row:starting_row+count, :] = nesloo_ii
-        if indices is not None:
-            reorder_idx[starting_row:starting_row+count] = reorder_idx_i
-    final_nesloo[reorder_idx,:] = nesloo
-    return final_nesloo
+# @njit(cache=True, parallel=True)
+# def esloo_calculation(mu_i, var_i, Y, indices, start_rows):
+#     B = len(mu_i)
+#     mu = np.sum(mu_i,axis=0)/B
+#     sigma2 = np.sum((np.square(mu_i)+var_i),axis=0)/B-mu**2
+#     n, d = mu.shape
+#     L = Y.shape[0]
+#     if indices is not None:
+#         nesloo = np.zeros((L, d))
+#     else:
+#         nesloo = np.zeros((n, d))
+#     final_nesloo = np.empty_like(nesloo)
+#     seq = np.arange(L)
+#     reorder_idx = np.arange(L)
+#     for i in prange(n):
+#         if indices is not None:
+#             idx = indices==i
+#             f = Y[idx,:]
+#             reorder_idx_i = seq[idx]
+#         else:
+#             f = Y[i:i+1,:]
+#         mu_ii, var_ii = mu_i[:,i:i+1,:], var_i[:,i:i+1,:]
+#         esloo = sigma2[i] + (mu[i] - f)**2 #2d array
+#         normaliser = np.zeros((B, f.shape[0], f.shape[1])) #3d array
+#         for j in range(B):
+#             for k in range(f.shape[0]):
+#                 error_jk = (mu_ii[j] - f[k])**2
+#                 normaliser[j,k] = error_jk**2 + 6 * error_jk * var_ii[j] + 3 * var_ii[j]**2
+#         normaliser = np.sum(normaliser, axis=0)/B - esloo**2
+#         nesloo_ii = esloo / np.sqrt(normaliser)
+#         count = nesloo_ii.shape[0]
+#         starting_row =  start_rows[i]
+#         nesloo[starting_row:starting_row+count, :] = nesloo_ii
+#         if indices is not None:
+#             reorder_idx[starting_row:starting_row+count] = reorder_idx_i
+#     final_nesloo[reorder_idx,:] = nesloo
+#     return final_nesloo
 
 #@jit(nopython=True,cache=True)
 #def I_sexp_parallel(z_v,length,X_zi):
