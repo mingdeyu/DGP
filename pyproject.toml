@@ -1,0 +1,45 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dgpsi"
+version = "2.5.0"
+description = "Deep and Linked Gaussian Process Emulations using Stochastic Imputation"
+readme = "README.md"
+requires-python = ">=3.7,<4"
+authors = [{ name = "Deyu Ming", email = "deyu.ming.16@ucl.ac.uk" }]
+license = { text = "MIT" }
+keywords = [
+  "surrogate modelling",
+  "deep learning",
+  "stochastic EM",
+  "elliptical slice sampling"
+]
+dependencies = [
+  "numpy>=1.18.2",
+  "numba>=0.51.2",
+  "matplotlib>=3.2.1",
+  "tqdm>=4.50.2",
+  "scipy>=1.4.1",
+  "scikit-learn>=0.22.0",
+  "jupyter>=1.0.0",
+  "dill>=0.3.2,<=0.3.5.1",
+  "pathos==0.2.9",
+  "multiprocess==0.70.13",
+  "psutil>=5.8.0",
+  "cython>=0.29.30",
+  "pybind11>=2.10.0",
+  "pythran>=0.11.0",
+  "tabulate>=0.8.7"
+]
+
+[project.optional-dependencies]
+interactive = ["jupyter"]
+
+[project.urls]
+Homepage = "https://github.com/mingdeyu/DGP"
+
+[tool.setuptools.packages.find]
+include = ["dgpsi*"]

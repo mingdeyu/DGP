@@ -28,7 +28,8 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
 
 ## Installation
-`dgpsi` currently requires Python version 3.9. The package can be installed via `pip`:
+### Release version
+The current stable release of `dgpsi` requires Python version 3.9. The release versionco can be installed via `pip`:
 
 ```bash
 pip install dgpsi
@@ -40,36 +41,75 @@ or `conda`:
 conda install -c conda-forge dgpsi
 ```
 
-However, to gain the best performance of the package or you are using an Apple Silicon computer, we recommend the following steps for the installation:
+However, to achieve the best computational performance of the package (e.g., on Apple Silicon), we recommend the following steps for the installation:
 * Download and install `Miniforge3` that is compatible to your system from [here](https://github.com/conda-forge/miniforge).
 * Run the following command in your terminal app to create a virtual environment called `dgp_si`:
 
-```bash
-conda create -n dgp_si python=3.9.13 
-```
+    ```bash
+    conda create -n dgp_si python=3.9.13 
+    ```
 
-* Activate and enter the virtual environment:
+* Activate and enter the Conda environment:
 
-```bash
-conda activate dgp_si
-```
+    ```bash
+    conda activate dgp_si
+    ```
 
 * Install `dgpsi`:
     - for Apple Silicon users, you could gain speed-up by switching to Apple's Accelerate framework:
 
-    ```bash
-    conda install dgpsi "libblas=*=*accelerate"
-    ```
+        ```bash
+        # for macOS <= 13.2
+        conda install dgpsi "libblas=*=*accelerate"
+
+        # for macOS >= 13.3
+        conda install dgpsi "libblas=*=*newaccelerate"
+        ```
 
     - for Intel users, you could gain speed-up by switching to MKL:
 
-    ```bash
-    conda install dgpsi "libblas=*=*mkl"
-    ```
+        ```bash
+        conda install dgpsi "libblas=*=*mkl"
+        ```
 
     - otherwise, simply run:
+
+        ```bash
+        conda install dgpsi
+        ```
+
+### Development version
+If you want to try the newest features and fixes before the next release, you can install the development build using the provided Conda environment YAMLs, which select the optimal BLAS and dependencies for your platform.
+
+* Clone the repository:
+
     ```bash
-    conda install dgpsi
+    git clone https://github.com/mingdeyu/DGP.git
+    cd DGP
+    ```
+
+* Pick the right environment file for your platform:
+
+    | Hardware / Platform                      | BLAS backend   | YAML file                       |
+    | ---------------------------------------- | -------------- | --------------------------------|
+    | Apple Silicon (macOS <= 13.2)            | Accelerate     | `env-arm64-accelerate.yaml`     |
+    | Apple Silicon (macOS >= 13.3)            | New Accelerate | `env-arm64-newaccelerate.yaml`  |
+    | Intel CPU (macOS/Linux/Windows)          | MKL            | `env-intel-mkl.yaml`            |
+    | Other (Linux/Windows)                    | OpenBLAS       | `env-other-openblas.yaml`       |
+
+* Create and activate the Conda environment:
+
+    ```bash
+    # replace the yaml filename with the one for your platform
+    conda env create -f env-arm64-accelerate.yaml
+    conda activate dgp_si_dev
+    ```
+    > **Tip:** You can override the Conda environment name by appending `-n <myenv>` to the create command.
+
+* Install the dev version from your local clone:
+
+    ```bash
+    pip install --no-deps --no-build-isolation .
     ```
 
 ## Demo and documentation

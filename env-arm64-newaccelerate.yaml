@@ -1,0 +1,23 @@
+name: dgp_si_dev
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - "libblas=*=*newaccelerate"
+  - cython>=0.29.30
+  - dill>=0.3.2,<=0.3.5.1
+  - jupyter>=1.0.0
+  - matplotlib>=3.2.1
+  - numba>=0.51.2
+  - numpy>=1.18.2
+  - pathos==0.2.9
+  - multiprocess==0.70.13
+  - psutil>=5.8.0
+  - pybind11>=2.10.0
+  - pythran>=0.11.0
+  - scikit-learn>=0.22.0
+  - scipy>=1.4.1
+  - tqdm>=4.50.2
+  - tabulate>=0.8.7
+  - faiss-cpu>=1.7.4
+  - pip
