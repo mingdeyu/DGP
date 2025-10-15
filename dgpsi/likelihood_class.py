@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.special import loggamma, expit, log_ndtr, ndtr, owens_t
+from scipy.special import gammaln, expit, log_ndtr, ndtr, owens_t
 from scipy.linalg import cholesky, cho_solve
 #from scipy.sparse.linalg import spsolve_triangular
 #from .functions import categorical_sampler #fmvn_mu
@@ -42,7 +42,7 @@ class Poisson:
         Returns:
             ndarray: a numpy 1d-array of log-likelihood.
         """
-        llik=self.output*self.input-np.exp(self.input)-loggamma(self.output+1)
+        llik=self.output*self.input-np.exp(self.input)-gammaln(self.output+1)
         llik=np.sum(llik)
         return llik
     
@@ -58,7 +58,7 @@ class Poisson:
         Returns:
             ndarray: a numpy 3d-array of log-likelihood for given **f**.
         """
-        pllik=y*f-np.exp(f)-loggamma(y+1)
+        pllik=y*f-np.exp(f)-gammaln(y+1)
         return pllik
 
     @staticmethod    
@@ -262,15 +262,21 @@ class NegBin:
         #self.rep_sp=None
     
     def llik(self):
-        y,mu,sigma=(self.output).flatten(),np.exp(self.input[:,0]),np.exp(self.input[:,1])
-        llik=loggamma(y+1/sigma)-loggamma(1/sigma)-loggamma(y+1)+y*np.log(sigma*mu)-(y+1/sigma)*np.log(1+sigma*mu)
+        y,f1,f2=(self.output).flatten(),self.input[:,0],self.input[:,1]
+        n = np.exp(-f2)
+        a = f1 + f2
+        softplus_a = np.logaddexp(0.0, a)
+        llik=gammaln(y+n)-gammaln(n)-gammaln(y+1.0)+y*a-(y+n)*softplus_a
         llik=np.sum(llik)
         return llik
 
     @staticmethod
     def pllik(y,f):
-        mu,sigma=np.exp(f[:,:,[0]]),np.exp(f[:,:,[1]])
-        pllik=loggamma(y+1/sigma)-loggamma(1/sigma)-loggamma(y+1)+y*np.log(sigma*mu)-(y+1/sigma)*np.log(1+sigma*mu)
+        f1, f2 = f[:,:,[0]], f[:,:,[1]]
+        n = np.exp(-f2)
+        a = f1 + f2
+        softplus_a = np.logaddexp(0.0, a)
+        pllik=gammaln(y+n)-gammaln(n)-gammaln(y+1.0)+y*a-(y+n)*softplus_a
         return pllik
     
     @staticmethod

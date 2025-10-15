@@ -318,6 +318,16 @@ class dgp:
                         #     lgm = LogisticRegression().fit(self.X[self.indices,:], self.Y.flatten())
                         # w, b = lgm.coef_, lgm.intercept_
                         # Out = np.dot(self.X, w.T) + b
+                elif l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='Poisson':
+                    if self.indices is None:
+                        Out = np.log(self.Y + .5 + 1e-12)
+                    else:
+                        y = self.Y.flatten()
+                        G, D = self.X.shape
+                        sum_y = np.bincount(self.indices, weights=y, minlength=G)
+                        n_rep = np.bincount(self.indices, minlength=G)
+                        Out = np.log((sum_y + .5) / n_rep + 1e-12)
+                        Out = Out.reshape(-1, 1)
                 else:
                     if np.shape(In)[1]==num_kernel:
                         Out=copy.copy(In)
@@ -330,6 +340,18 @@ class dgp:
                             Out=pca.fit_transform(In)
                     else:
                         Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
+                    if l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='NegBin':
+                        if self.indices is None:
+                            y = self.Y.flatten()
+                            mu = y + .5
+                            Out[:,0] = np.log(mu + 1e-12)
+                        else:
+                            y = self.Y.flatten()
+                            G, _ = self.X.shape
+                            n   = np.bincount(self.indices, minlength=G).astype(float)
+                            s1  = np.bincount(self.indices, weights=y,   minlength=G)
+                            mu   = (s1 + .5) / n
+                            Out[:,0] = np.log(mu + 1e-12)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
