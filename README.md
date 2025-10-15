@@ -1,9 +1,9 @@
 # dgpsi
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mingdeyu/DGP?display_name=release&include_prereleases&style=flat-square)](https://github.com/mingdeyu/DGP/releases)
 [![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/dgpsi?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=BRIGHTGREEN&left_text=PyPI+Downloads)](https://pypi.org/project/dgpsi/)
+[![PyPI Downloads](https://img.shields.io/pepy/dt/dgpsi?label=PyPI%20Downloads&style=flat-square)](https://pypi.org/project/dgpsi/)
 [![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
-[![GitHub R package version](https://img.shields.io/github/r-package/v/mingdeyu/dgpsi-R)](https://github.com/mingdeyu/dgpsi-R)
+[![GitHub R package version](https://img.shields.io/github/r-package/v/mingdeyu/dgpsi-R?style=flat-square)](https://github.com/mingdeyu/dgpsi-R)
 ![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?color=orange&style=flat-square)
 
 ## For R users
