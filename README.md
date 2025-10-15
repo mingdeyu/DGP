@@ -29,7 +29,7 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 
 ## Installation
 ### Release version
-The current stable release of `dgpsi` supports Python versions 3.9, 3.10, 3.11, and 3.12. The stable release can be installed via `pip`:
+The current stable release of `dgpsi` supports Python versions 3.9 (PyPI only), 3.10, 3.11, and 3.12. The stable release can be installed via `pip`:
 
 ```bash
 pip install dgpsi
