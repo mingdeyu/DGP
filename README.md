@@ -1,6 +1,7 @@
 # dgpsi
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/mingdeyu/DGP?display_name=release&include_prereleases&style=flat-square)](https://github.com/mingdeyu/DGP/releases)
 [![Conda](https://img.shields.io/conda/dn/conda-forge/dgpsi?label=Conda%20Downloads&style=flat-square)](https://anaconda.org/conda-forge/dgpsi)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/dgpsi?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=BRIGHTGREEN&left_text=PyPI+Downloads)](https://pypi.org/project/dgpsi/)
 ![Conda](https://img.shields.io/conda/pn/conda-forge/dgpsi?color=orange&style=flat-square)
 [![Read the Docs (version)](https://img.shields.io/readthedocs/dgpsi/latest?style=flat-square)](https://dgpsi.readthedocs.io)
 [![GitHub R package version](https://img.shields.io/github/r-package/v/mingdeyu/dgpsi-R)](https://github.com/mingdeyu/dgpsi-R)
@@ -24,8 +25,8 @@ The `R` interface to the package is available at [`dgpsi-R`](https://github.com/
 * Multi-core predictions from GP, DGP, and Linked (D)GP emulators;
 * Fast Leave-One-Out (LOO) cross validations for GP and DGP emulators.
 * Calculations of ALM, MICE, and VIGF sequential design criterions.
-* ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Large-scale GP, DGP, and Linked (D)GP emulations.](https://github.com/mingdeyu/DGP/blob/master/demo/vecchia_SI.ipynb)
-* ![Feature Badge](https://img.shields.io/badge/Feature-New-orange) [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
+* [Large-scale GP, DGP, and Linked (D)GP emulations.](https://github.com/mingdeyu/DGP/blob/master/demo/vecchia_SI.ipynb)
+* [Scalable DGP classification using Stochastic Imputation.](https://github.com/mingdeyu/DGP/blob/master/demo/DGP_classification.ipynb)
 
 ## Installation
 ### Release version
@@ -46,7 +47,7 @@ However, to achieve the best computational performance of the package (e.g., on 
 * Run the following command in your terminal app to create a virtual environment called `dgp_si`:
 
     ```bash
-    conda create -n dgp_si python=3.9.13 
+    conda create -n dgp_si python=3.10 
     ```
 
 * Activate and enter the Conda environment:
