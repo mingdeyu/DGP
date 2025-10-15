@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dgpsi"
-version = "2.5.0"
+version = "2.6.0"
 description = "Deep and Linked Gaussian Process Emulations using Stochastic Imputation"
 readme = "README.md"
 requires-python = ">=3.9,<3.13"
