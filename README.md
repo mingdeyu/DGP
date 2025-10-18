@@ -61,22 +61,22 @@ However, to achieve the best computational performance of the package (e.g., on 
 
         ```bash
         # for macOS <= 13.2
-        conda install dgpsi "libblas=*=*accelerate"
+        conda install -c conda-forge dgpsi "libblas=*=*accelerate"
 
         # for macOS >= 13.3
-        conda install dgpsi "libblas=*=*newaccelerate"
+        conda install -c conda-forge dgpsi "libblas=*=*newaccelerate"
         ```
 
     - for Intel users, you could gain speed-up by switching to MKL:
 
         ```bash
-        conda install dgpsi "libblas=*=*mkl"
+        conda install -c conda-forge dgpsi "libblas=*=*mkl" "mkl>=2022"
         ```
 
     - otherwise, simply run:
 
         ```bash
-        conda install dgpsi
+        conda install -c conda-forge dgpsi
         ```
 
 ### Development version
@@ -91,18 +91,19 @@ If you want to try the newest features and fixes before the next release, you ca
 
 * Pick the right environment file for your platform:
 
-    | Hardware / Platform                      | BLAS backend   | YAML file                       |
-    | ---------------------------------------- | -------------- | --------------------------------|
-    | Apple Silicon (macOS <= 13.2)            | Accelerate     | `env-arm64-accelerate.yaml`     |
-    | Apple Silicon (macOS >= 13.3)            | New Accelerate | `env-arm64-newaccelerate.yaml`  |
-    | Intel CPU (macOS/Linux/Windows)          | MKL            | `env-intel-mkl.yaml`            |
-    | Other (Linux/Windows)                    | OpenBLAS       | `env-other-openblas.yaml`       |
+    | Hardware / Platform                      | BLAS backend   | YAML file                             |
+    | ---------------------------------------- | -------------- | --------------------------------------|
+    | Apple Silicon (macOS <= 13.2)            | Accelerate     | `env-macos-arm64-accelerate.yaml`     |
+    | Apple Silicon (macOS >= 13.3)            | New Accelerate | `env-macos-arm64-newaccelerate.yaml`  |
+    | Intel CPU (macOS x86_64)                 | MKL            | `env-macos-intel-mkl.yaml`            |
+    | Intel CPU (Linux/Windows x86_64)         | MKL            | `env-intel-mkl.yaml`                  |
+    | Other (Linux/Windows)                    | OpenBLAS       | `env-other-openblas.yaml`             |
 
 * Create and activate the Conda environment:
 
     ```bash
     # replace the yaml filename with the one for your platform
-    conda env create -f env-arm64-accelerate.yaml
+    conda env create -f env-macos-arm64-accelerate.yaml
     conda activate dgp_si_dev
     ```
     > **Tip:** You can override the Conda environment name by appending `-n <myenv>` to the create command.
