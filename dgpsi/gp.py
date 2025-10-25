@@ -70,6 +70,10 @@ class gp:
             state['m'] = 25
         if 'ord_fun' not in state:
             state['ord_fun'] = None
+        if 'indices' not in state:
+            state['indices'] = None
+        if 'check_rep' not in state:
+            state['check_rep'] = False
         self.__dict__.update(state)
         self.kernel.target = 'gp'
 

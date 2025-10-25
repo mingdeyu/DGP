@@ -362,7 +362,7 @@ class kernel:
         if self.prior_name=='ga':
             return self.prior_coef[0]-self.prior_coef[1]*x
         else:
-            -self.prior_coef[0]+self.prior_coef[1]/x
+            return -self.prior_coef[0]+self.prior_coef[1]/x
     
     def log_prior(self):
         """Compute the value of log priors specified to the lengthscales and nugget. 
