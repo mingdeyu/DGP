@@ -17,4 +17,5 @@ dependencies:
   - tqdm>=4.50.2
   - tabulate>=0.8.7
   - "pytorch/label/nightly::faiss-cpu"
+  - tbb
   - pip

@@ -300,7 +300,9 @@ class Categorical:
             (if the output has K > 2 classes) in the feeding layer whose outputs feed into the likelihood node. When set to `None`, 
             all outputs from GPs of the feeding layer feed into the likelihood node, and in this case one needs to ensure there is only one GP
             node (for binary classification) or K GP nodes (for multi-class classification) specified in the feeding layer. Defaults to `None`.
-        link (str, optional): the link function to be used for binary classification. Either 'probit' or 'logit'. Defaults to 'logit'.
+        link (str, optional): the link function to be used for binary classification. Either 'probit' or 'logit' for binary classification, or
+            'robustmax' or 'softmax' for multi-class classification. Defaults to 'None'.
+        robustmax_eps (float, optional): Noise / smoothing parameter for the robustmax link function.
 
     Attributes:
         type (str): identifies that the node is a likelihood node;
@@ -315,7 +317,7 @@ class Categorical:
             i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position has multiple outputs. Otherwise, it is
             `None`. Defaults to `None`. 
     """
-    def __init__(self, num_classes=None, input_dim=None, link = 'logit'):
+    def __init__(self, num_classes=None, input_dim=None, link = None, robustmax_eps=1e-3):
         self.type='likelihood'
         self.name='Categorical'
         self.input=None
@@ -326,6 +328,7 @@ class Categorical:
         self.num_classes=num_classes
         self.class_encoder=None
         self.link=link
+        self.robustmax_eps = robustmax_eps
 
     def llik(self):
         """The log-likelihood function of Categorical distribution.
@@ -339,10 +342,20 @@ class Categorical:
             else:
                 llik = np.sum(self.output * log_ndtr(self.input) + (1-self.output) * log_ndtr(-self.input))
         else: 
-            max_logits = np.max(self.input, axis=1, keepdims=True)
-            stable_exp = np.exp(self.input - max_logits)
-            log_sum_exp = np.log(np.sum(stable_exp, axis=1)) + max_logits.flatten()
-            llik = np.sum(self.input[np.arange(len(self.output)), self.output.flatten()] - log_sum_exp)
+            if self.link == 'robustmax': 
+                K = self.num_classes
+                eps = self.robustmax_eps
+                k_star = np.argmax(self.input, axis=1)
+                y = self.output.flatten().astype(int)
+                correct = (y == k_star)
+                p_correct = 1.0 - eps
+                p_wrong = eps / (K - 1)
+                llik = np.sum(np.where(correct, np.log(p_correct), np.log(p_wrong)))
+            else:
+                max_logits = np.max(self.input, axis=1, keepdims=True)
+                stable_exp = np.exp(self.input - max_logits)
+                log_sum_exp = np.log(np.sum(stable_exp, axis=1)) + max_logits.flatten()
+                llik = np.sum(self.input[np.arange(len(self.output)), self.output.flatten()] - log_sum_exp)
         return llik
     
     def pllik(self, y, f):
@@ -352,10 +365,20 @@ class Categorical:
             else:
                 pllik = y * log_ndtr(f) + (1-y) * log_ndtr(-f)
         else:
-            max_logits = np.max(f, axis=2, keepdims=True)
-            stable_exp = np.exp(f - max_logits)
-            log_sum_exp = np.log(np.sum(stable_exp, axis=2)) + np.squeeze(max_logits, axis=2)
-            pllik = (f[np.arange(len(y)), :, y.flatten()] - log_sum_exp)[:, :, None]
+            if self.link == 'robustmax': 
+                K = self.num_classes
+                eps = self.robustmax_eps
+                k_star = np.argmax(f, axis=2)
+                y_flat = y.flatten().astype(int)
+                correct = (k_star == y_flat[:, None])
+                p_correct = 1.0 - eps
+                p_wrong = eps / (K - 1)
+                pllik = np.where(correct, np.log(p_correct), np.log(p_wrong))[:, :, None]
+            else:
+                max_logits = np.max(f, axis=2, keepdims=True)
+                stable_exp = np.exp(f - max_logits)
+                log_sum_exp = np.log(np.sum(stable_exp, axis=2)) + np.squeeze(max_logits, axis=2)
+                pllik = (f[np.arange(len(y)), :, y.flatten()] - log_sum_exp)[:, :, None]
         return pllik
     
     def prediction(self, m, v):
@@ -380,15 +403,49 @@ class Categorical:
                 y_var = np.maximum(y_var, 0.0)
                 y_mean, y_var = y_mean.reshape(-1,1), y_var.reshape(-1,1)
         else:
-            denom = 1.0 + (np.pi/8.0) * v
-            logits = m / np.sqrt(denom)
-            logits -= np.max(logits, axis=1, keepdims=True)
-            exp_logits = np.exp(logits)
-            y_mean = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-            var_eff = v / denom
-            sum_j = (var_eff * y_mean**2).sum(axis=1, keepdims=True)
-            y_var = (y_mean**2) * (var_eff * (1.0 - y_mean)**2 + (sum_j - var_eff * y_mean**2))
-            y_var = np.clip(y_var, 0.0, y_mean * (1.0 - y_mean))
+            if self.link == 'robustmax':
+                K = self.num_classes
+                eps = self.robustmax_eps
+                S = 1000
+                chunk_size = 200                                   
+                std = np.sqrt(np.maximum(v, 0.0))
+                win_counts = np.zeros((m.shape[0], K), dtype=float)  
+                done = 0                                            
+                while done < S:                                      
+                    this = min(chunk_size, S - done)                 
+                    f_chunk = m[:, None, :] + std[:, None, :] * np.random.randn(m.shape[0], this, K) 
+                    k_star = np.argmax(f_chunk, axis=2)              
+                    np.add.at(win_counts, (np.arange(m.shape[0])[:, None], k_star), 1.0)  
+                    done += this                                    
+                q_hat = win_counts / S                              
+                a = 1.0 - eps                                        
+                b = eps / (K - 1)                                    
+                y_mean = b + (a - b) * q_hat                      
+                y_var  = (a - b)**2 * q_hat * (1.0 - q_hat)
+            else:
+                K = self.num_classes
+                S = 1000
+                if S % 2 == 1:
+                    S += 1                                               
+                chunk_size = 200                                         
+                std = np.sqrt(np.maximum(v, 0.0))
+                sum_p  = np.zeros((m.shape[0], K), dtype=float)          
+                sum_p2 = np.zeros((m.shape[0], K), dtype=float)         
+                done = 0                                              
+                while done < S:                                         
+                    this = min(chunk_size, S - done)                 
+                    half = (this + 1) // 2                             
+                    eps_half = np.random.randn(m.shape[0], half, K)     
+                    eps = np.concatenate([eps_half, -eps_half], axis=1)[:, :this, :] 
+                    f_samp = m[:, None, :] + std[:, None, :] * eps     
+                    f_samp -= np.max(f_samp, axis=2, keepdims=True)    
+                    np.exp(f_samp, out=f_samp)                        
+                    f_samp /= np.sum(f_samp, axis=2, keepdims=True)    
+                    sum_p  += f_samp.sum(axis=1)                        
+                    sum_p2 += (f_samp * f_samp).sum(axis=1)             
+                    done += this                                       
+                y_mean = sum_p / S                                      
+                y_var  = sum_p2 / S - y_mean**2    
         return y_mean,y_var
     
     def sampling(self, f_sample):
@@ -399,7 +456,14 @@ class Categorical:
                 y_sample = ndtr(f_sample)
             #y_sample = np.concatenate((1-prob_sample, prob_sample), axis=1)
         else:
-            exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
-            y_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
+            if self.link == 'robustmax':
+                K = self.num_classes
+                eps = self.robustmax_eps
+                k_star = np.argmax(f_sample, axis=1)
+                y_sample = np.full_like(f_sample, eps/(K-1), dtype=float)
+                y_sample[np.arange(f_sample.shape[0]), k_star] = 1.0 - eps
+            else:
+                exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
+                y_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
         return y_sample
         

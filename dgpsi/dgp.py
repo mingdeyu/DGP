@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import trange
+from tqdm import trange, tqdm
 import copy
 from .imputation import imputer
 from .kernel_class import kernel as ker
@@ -114,6 +114,11 @@ class dgp:
             self.Y = self.all_layer[-1][0].class_encoder.fit_transform(self.Y.flatten()).reshape(-1,1)
             if self.all_layer[-1][0].num_classes is None:
                 self.all_layer[-1][0].num_classes = len(self.all_layer[-1][0].class_encoder.classes_)
+            if self.all_layer[-1][0].link is None:
+                if self.all_layer[-1][0].num_classes == 2:
+                    self.all_layer[-1][0].link = "logit"
+                else:
+                    self.all_layer[-1][0].link = "softmax"
         self.initialize()
         self.block=block
         with self.change_init_scale():
@@ -289,8 +294,9 @@ class dgp:
                             Out = np.where(self.Y==1, 2*np.sqrt(threshold), -2*np.sqrt(threshold))
                         else:
                             n_classes = self.all_layer[l+1][0].num_classes
-                            Out =  -2*np.sqrt(threshold) * np.ones((self.n_data, n_classes))
-                            Out[np.arange(self.n_data), self.Y.ravel()] = 2*np.sqrt(threshold)
+                            c = 2*np.sqrt(threshold)
+                            Out = -c * np.ones((self.n_data, n_classes))
+                            Out[np.arange(self.n_data), self.Y.ravel()] = c
                     else:
                         if self.all_layer[l+1][0].num_classes==2:
                             m = self.indices.max() + 1 
@@ -868,7 +874,7 @@ class dgp:
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
 
-    def reinit_all_layer(self, reset_lengthscale):
+    def reinit_all_layer(self, reset_lengthscale, row=0):
         """Reinitialise **all_layer** attribute with new input and output.
         Args: 
             reset_lengthscale (bool): whether to reset hyperparameter of the DGP emulator to the initial values.
@@ -1077,7 +1083,7 @@ class dgp:
                     #kernel.vecch, kernel.m, kernel.nn_method = self.vecch, self.m, self.nn_method
                     kernel.m = self.m
                     if reset_lengthscale:
-                        initial_hypers=kernel.para_path[0,:]
+                        initial_hypers=kernel.para_path[row,:]
                         kernel.scale=initial_hypers[[0]]
                         kernel.length=initial_hypers[1:-1]
                         kernel.nugget=initial_hypers[[-1]]
@@ -1145,27 +1151,45 @@ class dgp:
             disable (bool, optional): whether to disable the training progress bar. 
                 Defaults to `False`.
         """
-        pgb=trange(1,N+1,disable=disable)
-        for i in pgb:
-            #I-step
-            if i == 0:        
-                with self.change_init_scale():
-                    self.imp.sample(burnin=ess_burn)
-            else:
-                (self.imp).sample(burnin=ess_burn)
-            if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
-                (self.imp).update_ord_nn()
-            #M-step
-            for l in range(self.n_layer):
-                for kernel in self.all_layer[l]:
-                    if kernel.type=='gp':
-                        if kernel.prior_name=='ref':
-                            kernel.compute_cl()
-                        if l!=0:
-                            kernel.r2()
-                        kernel.maximise()
-                pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
-        self.N += N
+        N0 = self.N
+        restarts = 0
+        max_restarts = 3
+        pgb = None
+        while True:
+            try:
+                pgb=trange(1,N+1,disable=disable)
+                for i in pgb:
+                    #I-step
+                    if i == 1:        
+                        with self.change_init_scale():
+                            self.imp.sample(burnin=ess_burn)
+                    else:
+                        (self.imp).sample(burnin=ess_burn)
+                    if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
+                        (self.imp).update_ord_nn()
+                    #M-step
+                    for l in range(self.n_layer):
+                        for kernel in self.all_layer[l]:
+                            if kernel.type=='gp':
+                                if kernel.prior_name=='ref':
+                                    kernel.compute_cl()
+                                if l!=0:
+                                    kernel.r2()
+                                kernel.maximise()
+                        pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
+                self.N += N
+                return
+            except (np.linalg.LinAlgError, SystemError):
+                restarts += 1
+                if pgb is not None:
+                    pgb.close()
+                if restarts > max_restarts:
+                    raise RuntimeError(f"Training failed after {max_restarts} restarts.")
+                if not disable:
+                    tqdm.write(f"Restart {restarts}/{max_restarts}:")
+                self.N = N0
+                self.reinit_all_layer(reset_lengthscale=True, row = self.N)
+                continue
 
     def ptrain(self, N=500, ess_burn=10, disable=False, core_num=None):
         """Train the DGP model with parallel GP optimizations in each layer.
@@ -1334,7 +1358,7 @@ class dgp:
             for kernel in self.all_layer[-2]:
                 old_scale.append(kernel.scale)
                 if kernel.scale_est:
-                    kernel.scale = np.array([80.0])
+                    kernel.scale = np.array([40.0])
         yield
         # Restore original state
         if self.all_layer[-1][0].name == 'Categorical':
