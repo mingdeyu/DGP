@@ -466,4 +466,350 @@ class Categorical:
                 exp_logit = np.exp(f_sample - np.max(f_sample, axis=1, keepdims=True))
                 y_sample = exp_logit/np.sum(exp_logit, axis=1, keepdims=True)
         return y_sample
-        
+    
+class ZIP:
+    """Class to implement Zero-Inflated Poisson (ZIP) likelihood. It can only be added
+    as the final layer of a DGP model.
+
+    This likelihood assumes two latent GP outputs at each input location:
+    one controlling the Poisson mean (on the log scale) and one controlling
+    the zero-inflation probability (on the logit scale).
+
+    Args:
+        input_dim (ndarray, optional): a numpy 1d-array of length two that contains
+            the indices of two GPs in the feeding layer whose outputs feed into the
+            likelihood node. The first index is interpreted as the GP for the log
+            Poisson mean, and the second as the GP for the logit zero-inflation
+            probability. When set to `None`, all outputs from GPs of the feeding
+            layer feed into the likelihood node, and in this case one needs to
+            ensure there are only two GP nodes specified in the feeding layer.
+            Defaults to `None`.
+    """
+    def __init__(self, input_dim=None):
+        self.type = 'likelihood'
+        self.name = 'ZIP'
+        self.input = None    
+        self.output = None 
+        self.input_dim = input_dim
+        self.exact_post_idx = None
+        self.rep = None
+
+    def llik(self):
+        """
+        Log-likelihood of Zero-Inflated Poisson.
+        """
+        y = (self.output).flatten()
+        f_lambda = self.input[:, 0]
+        f_pi = self.input[:, 1]
+
+        lam = np.exp(f_lambda)
+        pi  = expit(f_pi)
+
+        mask0   = (y == 0)
+        maskpos = ~mask0
+
+        ll = np.empty_like(y, dtype=float)
+
+        log_pi      = np.log(pi[mask0])
+        log1m_pi_0  = np.log1p(-pi[mask0])
+        ll[mask0]   = np.logaddexp(log_pi, log1m_pi_0 - lam[mask0])
+
+        log1m_pi_pos = np.log1p(-pi[maskpos])
+        ll[maskpos] = (
+            log1m_pi_pos
+            - lam[maskpos]
+            + y[maskpos] * f_lambda[maskpos]
+            - gammaln(y[maskpos] + 1.0)
+        )
+        return np.sum(ll)
+
+    @staticmethod
+    def pllik(y, f):
+        """
+        Predicted log-likelihood for Zero-Inflated Poisson.
+
+        Args:
+            y (ndarray): shape (N, 1, 1), observed counts.
+            f (ndarray): shape (N, S, 2),
+
+        Returns:
+            ndarray: log-likelihoods with shape (N, S, 1).
+        """
+        eta_lambda = f[..., 0]     # (N, S)
+        eta_pi     = f[..., 1]     # (N, S)
+
+        f_lambda = eta_lambda[..., None]      # (N, S, 1)
+        lam      = np.exp(f_lambda)           # (N, S, 1)
+
+        pi = expit(eta_pi)[..., None]         # (N, S, 1)
+
+        # Broadcast y and log(y!) to match (N, S, 1)
+        y_b   = np.broadcast_to(y, lam.shape)                  # (N, S, 1)
+        log_y = gammaln(y + 1.0)                               # (N, 1, 1)
+        log_y_b = np.broadcast_to(log_y, lam.shape)            # (N, S, 1)
+
+        ll = np.empty_like(lam, dtype=float)   # (N, S, 1)
+
+        # Masks for zeros and positives
+        mask0   = (y_b == 0)
+        maskpos = ~mask0
+
+        pi0   = pi[mask0]
+        lam0  = lam[mask0]
+        log_pi0     = np.log(pi0)
+        log1m_pi0   = np.log1p(-pi0)
+        ll[mask0]   = np.logaddexp(log_pi0, log1m_pi0 - lam0)
+
+        log1m_pi_pos = np.log1p(-pi[maskpos])
+        ll[maskpos] = (
+            log1m_pi_pos
+            - lam[maskpos]
+            + y_b[maskpos] * f_lambda[maskpos]
+            - log_y_b[maskpos]
+        )
+
+        return ll
+    
+    @staticmethod    
+    def prediction(m, v):
+        """Compute mean and variance 
+        """
+        m_lambda = m[:, 0]
+        v_lambda = v[:, 0]
+        m_pi     = m[:, 1]
+        v_pi     = v[:, 1]
+
+        # Moments of lambda
+        lam_mean = np.exp(m_lambda + 0.5 * v_lambda)
+        lam_var  = (np.exp(v_lambda) - 1.0) * np.exp(2.0 * m_lambda + v_lambda)
+
+        # Moments of pi
+        denom   = 1.0 + (np.pi / 8.0) * v_pi
+        denom   = np.maximum(denom, 1e-12)  # numerical safety
+        mu_star = m_pi / np.sqrt(denom)
+
+        pi_mean = expit(mu_star) 
+        var_star = v_pi / denom
+        pi_var   = (pi_mean * (1.0 - pi_mean))**2 * var_star
+        pi_var   = np.clip(pi_var, 0.0, pi_mean * (1.0 - pi_mean))
+
+        # Predictive mean
+        y_mean = (1.0 - pi_mean) * lam_mean
+
+        # Predictive variance
+        cond_var = (1.0 - pi_mean) * lam_mean * (1.0 + pi_mean * lam_mean)
+        var_g = ((1.0 - pi_mean)**2 + pi_var) * lam_var + pi_var * lam_mean**2
+        y_var = cond_var + var_g
+        y_var = np.maximum(y_var, 0.0)  # numerical safety
+
+        return y_mean.flatten(), y_var.flatten()
+    
+    def sampling(self, f_sample):
+        """Generate samples
+        """
+        eta_lambda = f_sample[:, 0]
+        eta_pi     = f_sample[:, 1]
+
+        lam = np.exp(eta_lambda)
+        pi  = expit(eta_pi)
+
+        N = f_sample.shape[0]
+        u = np.random.rand(N)
+
+        # Structural zero with prob pi, otherwise Poisson
+        y = np.where(u < pi, 0, np.random.poisson(lam))
+
+        return y.flatten()
+
+class ZINB:
+    """Class to implement Zero-Inflated Negative Binomial (ZINB) likelihood.
+    It can only be added as the final layer of a DGP model.
+
+    This likelihood assumes three latent GP outputs at each input location:
+    one controlling the Negative Binomial mean on the log scale, one
+    controlling the dispersion / size parameter, and one controlling the
+    zero-inflation probability on the logit scale.
+
+    Args:
+        input_dim (ndarray, optional): a numpy 1d-array of length three that
+            contains the indices of three GPs in the feeding layer whose
+            outputs feed into the likelihood node. The first index is
+            interpreted as the GP for the log-mean (log mu), the second as
+            the GP for the dispersion (-log n), and the third as the GP for
+            the logit zero-inflation probability. When set to `None`, all
+            outputs from GPs of the feeding layer feed into the likelihood
+            node, and in this case one needs to ensure there are exactly
+            three GP nodes specified in the feeding layer. Defaults to `None`.
+    """
+    def __init__(self, input_dim=None):
+        self.type = 'likelihood'
+        self.name = 'ZINB'
+        self.input = None
+        self.output = None
+        self.input_dim = input_dim
+        self.exact_post_idx = None
+        self.rep = None
+
+    def llik(self):
+        """
+        Log-likelihood of Zero-Inflated Negative Binomial.
+        """
+        y = (self.output).flatten()
+        f1 = self.input[:, 0]  
+        f2 = self.input[:, 1] 
+        f_pi = self.input[:, 2] 
+
+        # NB parameters
+        n = np.exp(-f2)
+        a = f1 + f2    
+        softplus_a = np.logaddexp(0.0, a)
+
+        # log NB pmf for all y
+        log_nb = (
+            gammaln(y + n)
+            - gammaln(n)
+            - gammaln(y + 1.0)
+            + y * a
+            - (y + n) * softplus_a
+        )
+
+        pi = expit(f_pi)
+
+        mask0 = (y == 0)
+        maskpos = ~mask0
+
+        ll = np.empty_like(y, dtype=float)
+
+        log_nb0 = log_nb[mask0]
+        log_pi0 = np.log(pi[mask0])
+        log1m_pi0 = np.log1p(-pi[mask0])
+
+        ll[mask0] = np.logaddexp(log_pi0, log1m_pi0 + log_nb0)
+
+        log1m_pi_pos = np.log1p(-pi[maskpos])
+        ll[maskpos] = log1m_pi_pos + log_nb[maskpos]
+
+        return np.sum(ll)
+
+    @staticmethod
+    def pllik(y, f):
+        """
+        Predicted log-likelihood for Zero-Inflated Negative Binomial.
+        """
+        # Ensure arrays
+        y = np.asarray(y)           # (N,1,1)
+        f = np.asarray(f)           # (N,S,3)
+
+        f1 = f[..., 0:1]            # (N,S,1)
+        f2 = f[..., 1:2]            # (N,S,1)
+        f_pi = f[..., 2:3]          # (N,S,1)
+
+        n = np.exp(-f2)             # (N,S,1)
+        a = f1 + f2                 # (N,S,1)
+        softplus_a = np.logaddexp(0.0, a)
+
+        # Broadcast y to (N,S,1)
+        y_b = np.broadcast_to(y, n.shape)
+
+        # log NB pmf for all (N,S,1)
+        log_nb = (
+            gammaln(y_b + n)
+            - gammaln(n)
+            - gammaln(y_b + 1.0)
+            + y_b * a
+            - (y_b + n) * softplus_a
+        )
+
+        pi = expit(f_pi)            # (N,S,1)
+
+        ll = np.empty_like(log_nb, dtype=float)
+
+        mask0 = (y_b == 0)
+        maskpos = ~mask0
+
+        log_nb0 = log_nb[mask0]
+        log_pi0 = np.log(pi[mask0])
+        log1m_pi0 = np.log1p(-pi[mask0])
+        ll[mask0] = np.logaddexp(log_pi0, log1m_pi0 + log_nb0)
+
+        log1m_pi_pos = np.log1p(-pi[maskpos])
+        ll[maskpos] = log1m_pi_pos + log_nb[maskpos]
+
+        return ll
+    
+    @staticmethod
+    def prediction(m, v):
+        """Compute predictive mean and variance of the ZINB model given the
+        predictive mean and variance of the latent GP outputs.
+        """
+        m = np.asarray(m)
+        v = np.asarray(v)
+
+        m1   = m[:, 0]
+        v1   = v[:, 0]
+        m2   = m[:, 1]
+        v2   = v[:, 1]
+        m_pi = m[:, 2]
+        v_pi = v[:, 2]
+
+        # Moments of mu
+        mu_mean = np.exp(m1 + 0.5 * v1)
+        mu_var  = (np.exp(v1) - 1.0) * np.exp(2.0 * m1 + v1)
+        mu2_mean = np.exp(2.0 * m1 + 2.0 * v1)
+
+        E_exp_f2 = np.exp(m2 + 0.5 * v2)
+        mu2_over_n_mean = mu2_mean * E_exp_f2 
+
+        # Moments of pi
+        denom = 1.0 + (np.pi / 8.0) * v_pi
+        denom = np.maximum(denom, 1e-12)
+        mu_star = m_pi / np.sqrt(denom)
+
+        pi_mean = expit(mu_star) 
+        var_star = v_pi / denom
+        pi_var = (pi_mean * (1.0 - pi_mean))**2 * var_star
+        pi_var = np.clip(pi_var, 0.0, pi_mean * (1.0 - pi_mean))
+
+        # Predictive mean
+        y_mean = (1.0 - pi_mean) * mu_mean
+
+        # Predictive variance
+        E_pi1m = pi_mean * (1.0 - pi_mean) - pi_var
+        E_pi1m = np.clip(E_pi1m, 0.0, pi_mean * (1.0 - pi_mean))
+
+        cond_var = (
+            (1.0 - pi_mean) * (mu_mean + mu2_over_n_mean)
+            + E_pi1m * mu2_mean
+        )
+
+        var_g = ((1.0 - pi_mean)**2 + pi_var) * mu_var + pi_var * (mu_mean**2)
+
+        y_var = cond_var + var_g
+        y_var = np.maximum(y_var, 0.0)
+
+        return y_mean.flatten(), y_var.flatten()
+    
+    @staticmethod
+    def sampling(f_sample):
+        """Generate samples from the ZINB model given samples of the latent
+        GP outputs.
+        """
+        f_sample = np.asarray(f_sample)
+        f1 = f_sample[:, 0]
+        f2 = f_sample[:, 1]
+        f_pi = f_sample[:, 2]
+
+        # NB parameters
+        k = np.exp(-f2)
+        p = 1.0 / (1.0 + np.exp(f1 + f2))
+
+        # Zero-inflation
+        pi = expit(f_pi)
+
+        N = f_sample.shape[0]
+        u = np.random.rand(N)
+
+        nb_sample = np.random.negative_binomial(k, p)
+        y = np.where(u < pi, 0, nb_sample)
+
+        return y.flatten()

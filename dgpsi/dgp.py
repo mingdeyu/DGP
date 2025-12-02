@@ -334,6 +334,234 @@ class dgp:
                         n_rep = np.bincount(self.indices, minlength=G)
                         Out = np.log((sum_y + .5) / n_rep + 1e-12)
                         Out = Out.reshape(-1, 1)
+                elif l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='ZIP':
+                    Out = np.empty((np.shape(In)[0], num_kernel))
+                    lam_floor = 1e-6
+                    pi_min    = 1e-4
+                    pi_max    = 0.99
+                    y = self.Y.flatten()
+                    if self.indices is None:
+                        N = y.shape[0]
+                        lam_i = y + 0.5
+                        lam_i = np.maximum(lam_i, lam_floor)
+                        f_lambda = np.log(lam_i + 1e-12)
+                        Out[:, 0] = f_lambda
+
+                        # Global estimate of zero-inflation
+                        alpha0 = 0.5
+                        n0 = (y == 0).sum()
+                        p0 = (n0 + alpha0) / (N + 2 * alpha0)  
+
+                        mu = y.mean()
+                        if mu <= 0:
+                            # all-zero case
+                            lam0 = 1.0
+                            pi0  = p0
+                        else:
+                            lam0 = max(mu, lam_floor)
+                            q0   = np.exp(-lam0) # Poisson zero prob
+                            if q0 >= 1.0 - 1e-8:
+                                pi0 = 0.0
+                            else:
+                                raw_pi0 = (p0 - q0) / (1.0 - q0)
+                                pi0 = np.clip(raw_pi0, 0.0, pi_max)
+                                lam0 = mu / max(1.0 - pi0, 1e-3)
+                                lam0 = max(lam0, lam_floor)
+                        pi0 = np.clip(pi0, pi_min, 1.0 - pi_min)
+                        f_pi = np.full_like(f_lambda, np.log(pi0 / (1.0 - pi0)))
+                        Out[:, 1] = f_pi
+                    else:
+                        idx = np.asarray(self.indices)
+                        G, D = self.X.shape
+
+                        sum_y = np.bincount(idx, weights=y, minlength=G)
+                        n_g   = np.bincount(idx, minlength=G)
+                        n0_g  = np.bincount(idx, weights=(y == 0).astype(float), minlength=G)
+
+                        mu_g = sum_y / np.maximum(n_g, 1) 
+
+                        alpha0 = 0.1
+                        p0_g = (n0_g + alpha0) / (n_g + 2 * alpha0)
+
+                        pos_mask = y > 0
+                        if np.any(pos_mask):
+                            global_mu_pos = y[pos_mask].mean()
+                        else:
+                            global_mu_pos = 1.0
+
+                        lam0_g = mu_g.copy()
+                        lam0_g[mu_g == 0.0] = global_mu_pos
+                        lam0_g = np.maximum(lam0_g, lam_floor)
+
+                        q_g = np.exp(-lam0_g)
+                        denom = np.maximum(1.0 - q_g, 1e-8)
+
+                        raw_pi_g = (p0_g - q_g) / denom
+                        raw_pi_g = np.where(p0_g <= q_g, 0.0, raw_pi_g)
+                        pi_g = np.clip(raw_pi_g, 0.0, pi_max)
+
+                        lam_g = mu_g / np.maximum(1.0 - pi_g, 1e-3)
+                        lam_g = np.where(mu_g == 0.0, lam0_g, lam_g)
+                        lam_g = np.maximum(lam_g, lam_floor)
+
+                        pi_g = np.clip(pi_g, pi_min, 1.0 - pi_min)
+
+                        Out[:,0] = np.log(lam_g + 1e-12)
+                        Out[:,1] = np.log(pi_g / (1.0 - pi_g))
+                elif l == self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='ZINB':
+                    Out = np.empty((np.shape(In)[0], num_kernel))
+
+                    lam_floor = 1e-6
+                    pi_min    = 1e-4
+                    pi_max    = 0.99
+                    eps       = 1e-8
+
+                    y = self.Y.flatten()
+
+                    if self.indices is None:
+                        N = y.shape[0]
+                        mu_i = y + 0.5
+                        mu_i = np.maximum(mu_i, lam_floor)
+                        Out[:, 0] = np.log(mu_i + 1e-12)
+
+                        if N > 1:
+                            y_mean = y.mean()
+                            y_var  = y.var(ddof=1)
+                            sigma_global = (y_var - y_mean) / (y_mean**2 + eps)
+                        else:
+                            y_mean = y.mean()
+                            sigma_global = 1.0
+
+                        sigma_global = max(sigma_global, 1e-3)
+                        sigma_global = min(sigma_global, 10.0)
+                        Out[:, 1] = np.log(sigma_global)
+
+                        alpha0 = 0.5
+                        n0 = (y == 0).sum()
+                        p0 = (n0 + alpha0) / (N + 2 * alpha0)
+
+                        mu = y_mean
+                        if mu <= 0:
+                            # all-zero case
+                            lam0 = 1.0
+                            pi0  = p0
+                        else:
+                            lam0 = max(mu, lam_floor)
+                            q0   = np.exp(-lam0)  # Poisson zero prob
+                            if q0 >= 1.0 - 1e-8:
+                                pi0 = 0.0
+                            else:
+                                raw_pi0 = (p0 - q0) / (1.0 - q0)
+                                pi0 = np.clip(raw_pi0, 0.0, pi_max)
+
+                        pi0 = np.clip(pi0, pi_min, 1.0 - pi_min)
+                        f_pi = np.full_like(Out[:, 0], np.log(pi0 / (1.0 - pi0)))
+                        Out[:, 2] = f_pi
+                    else:
+                        idx = np.asarray(self.indices)
+                        G, _ = self.X.shape
+
+                        # Global overdispersion (for fallback)
+                        if y.size > 1:
+                            y_mean = y.mean()
+                            y_var  = y.var(ddof=1)
+                            sigma_global = (y_var - y_mean) / (y_mean**2 + eps)
+                        else:
+                            y_mean = y.mean()
+                            sigma_global = 1.0
+
+                        sigma_global = max(sigma_global, 1e-3)
+                        sigma_global = min(sigma_global, 10.0)
+
+                        n   = np.bincount(idx, minlength=G).astype(float)
+                        s1  = np.bincount(idx, weights=y,      minlength=G)
+                        s2  = np.bincount(idx, weights=y * y, minlength=G)
+
+                        mu_g = (s1 + 0.5) / np.maximum(n, 1.0)
+                        Out[:, 0] = np.log(mu_g + 1e-12)
+
+                        mask = n > 1
+
+                        var_hat = mu_g.astype(float).copy()
+                        nm   = n[mask]
+                        s1m  = s1[mask]
+                        s2m  = s2[mask]
+
+                        var_hat[mask] = (s2m - (s1m * s1m) / nm) / (nm - 1.0)
+
+                        sigma = (var_hat - mu_g) / (mu_g**2 + eps)
+
+                        bad = (~np.isfinite(sigma)) | (sigma <= 0.0)
+                        sigma[bad] = sigma_global
+                        sigma = np.clip(sigma, 1e-3, 10.0)
+                        Out[:, 1] = np.log(sigma)
+
+                        n0_g = np.bincount(idx, weights=(y == 0).astype(float), minlength=G)
+
+                        alpha0 = 0.1
+                        p0_g = (n0_g + alpha0) / (n + 2 * alpha0)
+
+                        mu_raw = s1 / np.maximum(n, 1.0) 
+
+                        pos_mask = y > 0
+                        if np.any(pos_mask):
+                            global_mu_pos = y[pos_mask].mean()
+                        else:
+                            global_mu_pos = 1.0
+
+                        lam0_g = mu_raw.copy()
+                        lam0_g[mu_raw == 0.0] = global_mu_pos
+                        lam0_g = np.maximum(lam0_g, lam_floor)
+
+                        q_g = np.exp(-lam0_g)
+                        denom = np.maximum(1.0 - q_g, 1e-8)
+
+                        raw_pi_g = (p0_g - q_g) / denom
+                        raw_pi_g = np.where(p0_g <= q_g, 0.0, raw_pi_g)
+
+                        pi_g = np.clip(raw_pi_g, 0.0, pi_max)
+                        pi_g = np.clip(pi_g, pi_min, 1.0 - pi_min)
+
+                        Out[:, 2] = np.log(pi_g / (1.0 - pi_g))
+                elif l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='NegBin':
+                    Out = np.empty((np.shape(In)[0], num_kernel))
+                    if self.indices is None:
+                        y = self.Y.flatten()
+                        mu = y + .5
+                        Out[:,0] = np.log(mu + 1e-12)
+                    else:
+                        eps = 1e-8
+                        y = self.Y.flatten()
+                        y_mean = y.mean()
+                        y_var  = y.var(ddof=1)
+                        sigma_global = (y_var - y_mean) / (y_mean**2 + eps)
+                        sigma_global = max(sigma_global, 1e-3)   
+                        G, _ = self.X.shape
+                        n   = np.bincount(self.indices, minlength=G).astype(float)
+                        s1  = np.bincount(self.indices, weights=y,   minlength=G)
+                        s2 = np.bincount(self.indices, weights=y*y,  minlength=G)
+                        mu   = (s1 + .5) / n
+                        Out[:,0] = np.log(mu + 1e-12)
+
+                        mask = n > 1
+
+                        # start from mu everywhere
+                        var_hat = mu.astype(float).copy()
+
+                        # compute variance only where n > 1
+                        nm   = n[mask]
+                        s1m  = s1[mask]
+                        s2m  = s2[mask]
+
+                        var_hat[mask] = (s2m - (s1m * s1m) / nm) / (nm - 1.0)
+
+                        # method-of-moments sigma from Var = mu + sigma * mu^2
+                        sigma = (var_hat - mu) / (mu**2 + eps)
+
+                        bad = (~np.isfinite(sigma)) | (sigma <= 0.0)
+                        sigma[bad] = sigma_global
+                        sigma = np.clip(sigma, 1e-3, 10.0)
+                        Out[:, 1] = np.log(sigma)
                 else:
                     if np.shape(In)[1]==num_kernel:
                         Out=copy.copy(In)
@@ -346,18 +574,6 @@ class dgp:
                             Out=pca.fit_transform(In)
                     else:
                         Out=np.concatenate((In, In[:,np.random.choice(np.shape(In)[1],num_kernel-np.shape(In)[1])]),1)
-                    if l==self.n_layer-2 and len(self.all_layer[l+1])==1 and self.all_layer[l+1][0].name=='NegBin':
-                        if self.indices is None:
-                            y = self.Y.flatten()
-                            mu = y + .5
-                            Out[:,0] = np.log(mu + 1e-12)
-                        else:
-                            y = self.Y.flatten()
-                            G, _ = self.X.shape
-                            n   = np.bincount(self.indices, minlength=G).astype(float)
-                            s1  = np.bincount(self.indices, weights=y,   minlength=G)
-                            mu   = (s1 + .5) / n
-                            Out[:,0] = np.log(mu + 1e-12)
             for k in range(num_kernel):
                 kernel=layer[k]
                 if l==self.n_layer-1 and self.indices is not None:
@@ -368,8 +584,10 @@ class dgp:
                         if kernel.type=='likelihood':
                             if kernel.name=='Poisson' and len(kernel.input_dim)!=1:
                                 raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
-                            elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
+                            elif (kernel.name=='Hetero' or kernel.name=='NegBin' or kernel.name=='ZIP') and len(kernel.input_dim)!=2:
                                 raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
+                            elif (kernel.name=='ZINB') and len(kernel.input_dim)!=3:
+                                raise Exception('You need two and only three GP nodes to feed the ' + kernel.name + ' likelihood node.')
                         if kernel.rep is None:
                             kernel.input=In[:,kernel.input_dim]
                         else:
@@ -385,8 +603,10 @@ class dgp:
                         if kernel.type=='likelihood':
                             if kernel.name=='Poisson' and len(kernel.input_dim)!=1:
                                 raise Exception('You need one and only one GP node to feed the ' + kernel.name + ' likelihood node.')
-                            elif (kernel.name=='Hetero' or kernel.name=='NegBin') and len(kernel.input_dim)!=2:
+                            elif (kernel.name=='Hetero' or kernel.name=='NegBin' or kernel.name=='ZIP') and len(kernel.input_dim)!=2:
                                 raise Exception('You need two and only two GP nodes to feed the ' + kernel.name + ' likelihood node.')
+                            elif (kernel.name=='ZINB') and len(kernel.input_dim)!=3:
+                                raise Exception('You need three and only three GP nodes to feed the ' + kernel.name + ' likelihood node.')
                         if kernel.rep is None:
                             kernel.input=copy.copy(In)
                         else:
