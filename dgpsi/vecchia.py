@@ -1,7 +1,7 @@
 from numba import njit, prange, config, vectorize, float64, set_num_threads
 import numpy as np
 from numpy.random import randn
-from math import erf, sqrt, pi, exp
+from math import erf, sqrt, pi, exp, fabs, log
 from scipy.sparse import csr_matrix
 try:
     import faiss
@@ -17,127 +17,209 @@ core_num = min(core_num, max_threads)
 config.THREADING_LAYER = 'tbb'
 set_num_threads(core_num)
 
-def get_pred_nn(query, x, m = 50, method = 'exact', size = 40, efSearch = 100, n_jobs = -1):
+def _build_knn_index(x, method='exact', size=40, efSearch=100, n_jobs=-1):
+    """
+    Build a kNN index on x.
+
+    Returns:
+      index: FAISS index or sklearn NearestNeighbors instance
+      x_index: only for FAISS: float32 contiguous version of x actually stored in the index
+               for sklearn: None
+    """
+    n, d = x.shape
+
+    if FAISS_AVAILABLE:
+        if method == 'exact':
+            index = faiss.IndexFlatL2(d)
+        elif method == 'approx':
+            index = faiss.IndexHNSWFlat(d, size)
+            index.hnsw.efSearch = efSearch
+        else:
+            raise ValueError("method must be 'exact' or 'approx'")
+
+        index.add(x)
+        return index
+
+    index = NearestNeighbors(algorithm='kd_tree', n_jobs=n_jobs)
+    index.fit(x)
+    return index
+
+def get_pred_nn(query, x, m=50, method='exact', size=40, efSearch=100, n_jobs=-1):
     n, d = x.shape
     m = min(m, n)
-    if m==n:
+
+    if m == n:
         k = query.shape[0]
-        NN = np.arange(m) + np.arange(k)[:, np.newaxis]
+        NN = np.arange(m, dtype=np.int32) + np.arange(k, dtype=np.int32)[:, None]
         NN %= m
-    else:
-        if FAISS_AVAILABLE:
-            if method == 'exact':
-                neigh = faiss.IndexFlatL2(d)
-            elif method == 'approx':
-                neigh = faiss.IndexHNSWFlat(d, size)
-                neigh.hnsw.efSearch = efSearch
-            neigh.add(x)
-            _, NN = neigh.search(query, k=int(m))
-        else:
-            neigh = NearestNeighbors(algorithm='kd_tree', n_jobs=n_jobs)
-            neigh.fit(x)
-            NN = neigh.kneighbors(query, n_neighbors=m, return_distance=False)
-    return NN
+        return NN
+
+    index = _build_knn_index(x, method=method, size=size, efSearch=efSearch, n_jobs=n_jobs)
+
+    if FAISS_AVAILABLE:
+        _, NN = index.search(query, int(m))
+        return NN.astype(np.int32, copy=False)
+
+    NN = index.kneighbors(query, n_neighbors=m, return_distance=False)
+    return NN.astype(np.int32, copy=False)
 
 @njit(cache=True)
 def nn_brute(x, m):
     n = x.shape[0]
-    m = min(m, n-1)
-    NNarray = np.full((n, m+1), -1)
+    m = min(m, n - 1)
+    NNarray = np.full((n, m + 1), -1, dtype=np.int32)
     for i in range(n):
-        dist = np.sum((x[:(i+1),:]-x[i,:])**2, axis=1)
+        # dist to prefix 0..i
+        dist = np.sum((x[:(i + 1), :] - x[i, :]) ** 2, axis=1)
         order = np.argsort(dist)
-        NNarray[i,:min(m+1, i+1)] = order[:min(m+1, i+1)]
+        kkeep = min(m + 1, i + 1)
+        NNarray[i, :kkeep] = order[:kkeep].astype(np.int32)
     return NNarray
 
 @njit(cache=True)
-def extract_NN_m(NN_mask, less_than_k_mask, m):
-    n = NN_mask.shape[0]
-    NN_m = np.empty((n,m))
-    for i in range(n):
-        NN_m[i,] = NN_mask[i][less_than_k_mask[i]][:m]
-    return NN_m
+def fill_vecchia_nn_if_enough(NNarray, query_inds, cand, m_out):
+    q, k = cand.shape
+    done = np.zeros(q, dtype=np.bool_)
+    buf = np.empty(m_out, dtype=np.int32)
+    for r in range(q):
+        i = query_inds[r]
+        t = 0
+        for j in range(k):
+            v = cand[r, j]
+            if v >= 0 and v <= i:
+                buf[t] = v
+                t += 1
+                if t == m_out:
+                    # commit only when complete
+                    for u in range(m_out):
+                        NNarray[i, u] = buf[u]
+                    done[r] = True
+                    break
+    return done
 
-def nn(x, m, method = 'exact', size = 40, efSearch = 100, n_jobs = -1):
+def nn(x, m, method='exact', size=40, efSearch=100, n_jobs=-1):
+    """
+    Compute Vecchia NNarray (n, m+1) with the constraint neighbors must be <= row index.
+    """
     n, d = x.shape
-    m, mult = min(m, n-1), 2
+    if n == 0:
+        return np.empty((0, 0), dtype=np.int32)
 
-    NNarray = np.full((n, m + 1), -1, dtype=int)
+    m = min(m, n - 1)
+    NNarray = np.full((n, m + 1), -1, dtype=np.int32)
 
+    # brute warm-start
+    mult = 2
     maxval = min(mult * m + 1, n)
     NNarray[:maxval] = nn_brute(x[:maxval], m)
 
-    query_inds, msearch = np.arange(maxval, n), m
+    if maxval >= n:
+        return np.fliplr(np.sort(NNarray, axis=1))
 
-    if FAISS_AVAILABLE:
-        while len(query_inds) > 0:
-            max_query_inds = np.max(query_inds) + 1
-            msearch = min(max_query_inds, 2*msearch)
-            data_inds = np.arange(min(max_query_inds, n))
-            if method == 'exact':
-                neigh = faiss.IndexFlatL2(d)
-            elif method == 'approx':
-                neigh = faiss.IndexHNSWFlat(d, size)
-                neigh.hnsw.efSearch = efSearch
-            neigh.add(x[data_inds,:])
-            _, NN = neigh.search(x[query_inds,:], k=int(msearch))
-            less_than_k = NN <= query_inds[:, np.newaxis]
-            less_than_k_valid = NN >= 0
-            less_than_k = np.logical_and(less_than_k, less_than_k_valid)
-            sum_less_than_k = np.sum(less_than_k, axis=1)
-            ind_less_than_k = sum_less_than_k >= m+1
-            NN_mask, less_than_k_mask, query_inds_mask = NN[ind_less_than_k,:], less_than_k[ind_less_than_k,:], query_inds[ind_less_than_k]
-            NN_m = extract_NN_m(NN_mask, less_than_k_mask, m+1)
-            NNarray[query_inds_mask,:] = NN_m
-            query_inds = query_inds[~ind_less_than_k]
-    else:
-        neigh = NearestNeighbors(algorithm='kd_tree', n_jobs=n_jobs)
-        while len(query_inds) > 0:
-            max_query_inds = np.max(query_inds) + 1
-            msearch = min(max_query_inds, 2*msearch)
-            data_inds = np.arange(min(max_query_inds, n))
-            neigh.fit(x[data_inds,:])
-            NN = neigh.kneighbors(x[query_inds,:], n_neighbors=msearch, return_distance=False)
-            less_than_k = NN <= query_inds[:, np.newaxis]
-            sum_less_than_k = np.sum(less_than_k, axis=1)
-            ind_less_than_k = sum_less_than_k >= m+1
-            NN_mask, less_than_k_mask, query_inds_mask = NN[ind_less_than_k,:], less_than_k[ind_less_than_k,:], query_inds[ind_less_than_k]
-            NN_m = extract_NN_m(NN_mask, less_than_k_mask, m+1)
-            NNarray[query_inds_mask,:] = NN_m
-            query_inds = query_inds[~ind_less_than_k]
-    NNarray = np.fliplr(np.sort(NNarray))
-    return(NNarray)
+    index = _build_knn_index(x, method=method, size=size, efSearch=efSearch, n_jobs=n_jobs)
+
+    query_inds = np.arange(maxval, n, dtype=np.int32)
+    ksearch = min(n, 2 * (m + 1))
+
+    while query_inds.size > 0:
+        if FAISS_AVAILABLE:
+            # query from float32 stored matrix
+            Q = x[query_inds]
+            _, cand = index.search(Q, int(ksearch))
+        else:
+            Q = x[query_inds]
+            cand = index.kneighbors(Q, n_neighbors=int(ksearch), return_distance=False)
+
+        cand = cand.astype(np.int32, copy=False)
+
+        done = fill_vecchia_nn_if_enough(NNarray, query_inds, cand, m + 1)
+        query_inds = query_inds[~done]
+
+        if query_inds.size == 0:
+            break
+
+        if ksearch >= n:
+            for i in query_inds:
+                dist = np.sum((x[:(i + 1), :] - x[i, :]) ** 2, axis=1)
+                order = np.argsort(dist).astype(np.int32)
+                NNarray[i, :] = order[:(m + 1)]
+            break
+
+        ksearch = min(n, 2 * ksearch)
+
+    NNarray = np.fliplr(np.sort(NNarray, axis=1))
+    return NNarray
 
 @njit(cache=True)
-def forward_solve_sp(L, NNarray, b):
-    n, m = L.shape
-    x = np.zeros(n)
+def preprocess_nn(NNarray):
+    n, m = NNarray.shape
+    NN_rev   = np.full((n, m), -1, dtype=NNarray.dtype)
+    NN_count = np.empty(n, dtype=np.int32)
+
     for i in range(n):
-        sumj = 0.0
-        for j in range(1, min(i+1, m)):
-            sumj += L[i, j] * x[NNarray[i, j]]
-        x[i] = (b[i] - sumj) / L[i,0]
+        t = 0
+        for j in range(m - 1, -1, -1):
+            v = NNarray[i, j]
+            if v >= 0:
+                NN_rev[i, t] = v
+                t += 1
+        NN_count[i] = t
+
+    return NN_rev, NN_count
+
+@njit(cache=True)
+def nn_fwd_from_rev(NN_rev, NN_count):
+    """
+    Build NN_fwd so that:
+      NN_fwd[i,0] is the "self" index (in ordered space),
+      and NN_fwd aligns with the columns of Lmat (diag at col 0).
+    """
+    n, m = NN_rev.shape
+    NN_fwd = np.full((n, m), -1, dtype=NN_rev.dtype)
+    for i in range(n):
+        k = NN_count[i]
+        for j in range(k):
+            NN_fwd[i, j] = NN_rev[i, k - 1 - j]
+    return NN_fwd
+
+@njit(cache=True, fastmath=True)
+def forward_solve_sp_inplace(Lmat, NN_fwd, NN_count, x):
+    """
+    In-place solve: Lmat * x = x  (x initially holds RHS b).
+    Uses NN_count to limit loop.
+    """
+    n = Lmat.shape[0]
+    for i in range(n):
+        k = NN_count[i]
+        s = x[i]
+        for j in range(1, k):
+            s -= Lmat[i, j] * x[NN_fwd[i, j]]
+        x[i] = s / Lmat[i, 0]
+
+@njit(cache=True)
+def fmvn_sp(X, NN_rev, NN_count, length, nugget, scale, name):
+    """
+    X_ord: X already ordered (X[ord])
+    returns sample in ordered space
+    """
+    NN_fwd = nn_fwd_from_rev(NN_rev, NN_count)
+    Lmat = L_matrix_nb(X, NN_rev, NN_count, length, nugget, name)
+    return fmvn_sp_nb(Lmat, NN_fwd, NN_count, sqrt(float(scale)))
+
+@njit(cache=True)
+def fmvn_sp_nb(Lmat, NN_fwd, NN_count, sqrt_scale):
+    """
+    Draw one sample in *ordered* index space:
+      x = L^{-1} (sqrt_scale * z),  z ~ N(0, I)
+    Equivalent to your old:
+      L = L_matrix(...)/sqrt(scale); solve(L, z)
+    but avoids allocating L/sqrt(scale).
+    """
+    n = Lmat.shape[0]
+    x = randn(n).astype(np.float64)
+    x *= sqrt_scale
+    forward_solve_sp_inplace(Lmat, NN_fwd, NN_count, x)
     return x
-
-#@njit(cache=True)
-def fmvn_mu_sp(X, NNarray, scale, length, nugget, name, mu):
-    """Generate multivariate Gaussian random samples with means.
-    """
-    d = X.shape[0]
-    sn = randn(d)
-    L = L_matrix(X, NNarray, length, nugget, name)/np.sqrt(scale)
-    samp = forward_solve_sp(L, NNarray, sn) + mu
-    return samp
-
-#@njit(cache=True)
-def fmvn_sp(X, NNarray, scale, length, nugget, name):
-    """Generate multivariate Gaussian random samples without means.
-    """
-    d = X.shape[0]
-    sn = randn(d)
-    L = L_matrix(X, NNarray, length, nugget, name)/np.sqrt(scale)
-    samp = forward_solve_sp(L, NNarray, sn)
-    return samp
 
 @njit(cache=True)
 def forward_solve(L, b):
@@ -149,6 +231,56 @@ def forward_solve(L, b):
             sumj += L[i, j] * x[j,0]
         x[i] = (b[i] - sumj) / L[i, i]
     return x
+
+@njit(cache=True, fastmath=True)
+def forward_solve_last(L, b):
+    """Overwrites b with x in Lx=b, returns x[-1]."""
+    n = L.shape[0]
+    for i in range(n):
+        s = b[i]
+        for j in range(i):
+            s -= L[i, j] * b[j]
+        b[i] = s / L[i, i]
+    return b[n - 1]
+
+# for vecchia
+@njit(cache=True, fastmath=True)
+def forward_solve_inplace(L, b, k):
+    """Overwrite b[:k] with x solving L x = b (L lower-triangular)."""
+    for i in range(k):
+        s = b[i]
+        for j in range(i):
+            s -= L[i, j] * b[j]
+        b[i] = s / L[i, i]
+
+@njit(cache=True, fastmath=True)
+def solve_lt_e_last_inplace(L, v, k):
+    """
+    Solve (L.T) v = e_last (e_last[k-1]=1) into v[:k].
+    This replaces:
+      Ii = zeros(k); Ii[-1]=1; v = solve(L.T, Ii)
+    """
+    for i in range(k - 1, -1, -1):
+        s = 1.0 if i == k - 1 else 0.0
+        for j in range(i + 1, k):
+            s -= L[j, i] * v[j]          # because (L.T)[i,j] = L[j,i]
+        v[i] = s / L[i, i]
+
+@njit(cache=True, fastmath=True)
+def dot_k(a, b, k):
+    s = 0.0
+    for i in range(k):
+        s += a[i] * b[i]
+    return s
+
+
+@njit(cache=True, fastmath=True)
+def matvec_k(A, x, out, k):
+    for i in range(k):
+        s = 0.0
+        for j in range(k):
+            s += A[i, j] * x[j]
+        out[i] = s
 
 @njit(cache=True)
 def backward_solve(U, b):
@@ -162,434 +294,774 @@ def backward_solve(U, b):
     return x
 
 @njit(cache=True, parallel=True, fastmath=True)
-def vecchia_llik(X, y, NNarray, scale, length, nugget, nugget_diag, name):
-    n = X.shape[0]
-    quad, logdet = np.array([0.]), np.array([0.])
+def vecchia_llik(X, y, NN_rev, NN_count, scale, length, nugget, nugget_diag, name):
+    n, d = X.shape
+    quad, logdet = 0., 0.
     for i in prange(n):
-        idx = NNarray[i]
-        idx = idx[idx>=0][::-1]
-        xi, yi= X[idx,:], y[idx,:]
-        nuggeti = nugget * nugget_diag[idx]
-        Ki = K_matrix_nb(xi, length, 0., name)
-        add_to_diag_square(Ki, nuggeti)
-        Li = np.linalg.cholesky(Ki)  
-        Liyi = forward_solve(Li, yi)
-        quad += Liyi[-1]**2
-        logdet += 2*np.log(np.abs(Li[-1,-1]))
-    llik = -0.5*(logdet + quad/scale) 
-    return llik
+        k = NN_count[i]
+        idx_row = NN_rev[i]
+
+        xi = np.empty((k, d), dtype=np.float64)
+        yi = np.empty(k, dtype=np.float64)
+        for a in range(k):
+            ia = idx_row[a]
+            yi[a] = y[ia]
+            for j in range(d):
+                xi[a, j] = X[ia, j]
+
+        Ki = K_matrix_nb(xi, length, 0.0, name)
+
+        for a in range(k):
+            Ki[a, a] += nugget * nugget_diag[idx_row[a]]
+
+        Li = np.linalg.cholesky(Ki)
+
+        z_last = forward_solve_last(Li, yi)
+        quad += z_last * z_last
+        logdet += 2.0 * log(Li[k - 1, k - 1])
+    return -0.5 * (logdet + quad / scale) 
 
 @njit(cache=True, parallel=True, fastmath=True)
-def vecchia_nllik(X, y, NNarray, scale, length, nugget, nugget_diag, name, scale_est, nugget_est, origin_n, rr):
-    n = X.shape[0]
-    p = len(length)
-    if nugget_est:
-        p += 1
-    #quad, logdet = np.array([0.]), np.array([0.])
-    dquad, dlogdet = np.zeros(p), np.zeros(p)
+def vecchia_nllik(
+    X, y, NN_rev, NN_count,
+    scale, length, nugget, nugget_diag, name,
+    scale_est, nugget_est, origin_n, rr
+):
+    n, d = X.shape
+    p = len(length) + (1 if nugget_est else 0)
 
-    idx = NNarray[0]
-    idx = idx[idx>=0][::-1]
-    xi, yi = X[idx,:], y[idx,:]
-    nuggeti = nugget * nugget_diag[idx]
-    Ki, dKi = dK_matrix_nb(xi, length, nuggeti, name, nugget_est)
-    #dquadi, dlogdeti = np.zeros(p), np.zeros(p)
-    for k in range(p):
-        dquad[k], dlogdet[k] = ((yi/Ki)**2*dKi[k])[0,0], (dKi[k]/Ki)[0,0]
-    quad = yi[0]**2/Ki[0]
-    logdet = np.log(Ki[0])
-    #dquad += dquadi
-    #dlogdet += dlogdeti
+    quad = 0.0
+    logdet = 0.0
+    dquad = np.zeros(p, dtype=np.float64)
+    dlogdet = np.zeros(p, dtype=np.float64)
 
-    for i in prange(1,n):
-        idx = NNarray[i]
-        idx = idx[idx>=0][::-1]
-        bsize = len(idx)
-        xi, yi, nuggeti = X[idx,:], y[idx,:], nugget * nugget_diag[idx]
-        Ki, dKi = dK_matrix_nb(xi, length, nuggeti, name, nugget_est)
-        dquadi, dlogdeti = np.zeros(p), np.zeros(p)
-        Li = np.linalg.cholesky(Ki)  # Perform Cholesky decomposition
-        Liyi = forward_solve(Li, yi)
-        Ii = np.zeros(bsize)
-        Ii[-1] = 1.0
-        LiIi = backward_solve(Li.T, Ii)
-        for k in range(p):
-            LidKi = forward_solve(Li, dKi[k]@LiIi)
-            si = (Liyi.T@LidKi)[0]
-            dquadi[k], dlogdeti[k] = (2*si*Liyi[-1]-LidKi[-1]*Liyi[-1]**2)[0], (LidKi[-1])[0]
-        quad += Liyi[-1]**2
-        logdet += 2*np.log(np.abs(Li[-1,-1]))
+    for i in prange(n):
+        k = NN_count[i]
+        idx_row = NN_rev[i]
+
+        # ---- gather local block (no fancy indexing) ----
+        xi = np.empty((k, d), dtype=np.float64)
+        yi = np.empty(k, dtype=np.float64)
+        nug_i = np.empty(k, dtype=np.float64)
+
+        for a in range(k):
+            ia = idx_row[a]
+            yi[a] = y[ia]
+            nug_i[a] = nugget * nugget_diag[ia]
+            for j in range(d):
+                xi[a, j] = X[ia, j]
+
+        # ---- build K and dK ----
+        Ki, dKi = dK_matrix_nb(xi, length, nug_i, name, nugget_est)
+
+        L = np.linalg.cholesky(Ki)
+
+        # z = L^{-1} y (in-place on yi)
+        forward_solve_inplace(L, yi, k)
+        z_last = yi[k - 1]
+
+        quad_i = z_last * z_last
+        logdet_i = 2.0 * log(L[k - 1, k - 1])
+
+        # v = (L.T)^{-1} e_last
+        v = np.empty(k, dtype=np.float64)
+        rhs = np.empty(k, dtype=np.float64)
+        solve_lt_e_last_inplace(L, v, k)
+
+        dquadi = np.empty(p, dtype=np.float64)
+        dlogdeti = np.empty(p, dtype=np.float64)
+
+        for t in range(p):
+            # rhs = dKi[t] @ v
+            matvec_k(dKi[t], v, rhs, k)
+            # rhs = L^{-1} rhs
+            forward_solve_inplace(L, rhs, k)
+
+            lid_last = rhs[k - 1]
+            si = dot_k(yi, rhs, k)
+
+            dquadi[t] = 2.0 * si * z_last - lid_last * z_last * z_last
+            dlogdeti[t] = lid_last
+
+        quad += quad_i
+        logdet += logdet_i
         dquad += dquadi
         dlogdet += dlogdeti
+
     if scale_est:
         if n == origin_n:
-            scale = quad[0]/n
-            nllik = 0.5*(logdet + n*np.log(scale))
-            ndllik = 0.5*(dlogdet - dquad/scale)
+            scale_out = quad / n
+            nllik = 0.5 * (logdet + n * log(scale_out))
+            grad = 0.5 * (dlogdet - dquad / scale_out)
         else:
-            scale = (quad[0] + rr/nugget)/origin_n
-            nllik = 0.5*(logdet + origin_n * np.log(scale))
-            ndllik = 0.5*(dlogdet - dquad/scale)
+            scale_out = (quad + rr / nugget) / origin_n
+            nllik = 0.5 * (logdet + origin_n * log(scale_out))
+            grad = 0.5 * (dlogdet - dquad / scale_out)
             if nugget_est:
-                nllik += 0.5*(origin_n - n) * np.log(nugget)
-                ndllik[-1] += 0.5*(-rr / (scale * nugget) + (origin_n - n))
+                nllik += 0.5 * (origin_n - n) * log(nugget)
+                grad[p - 1] += 0.5 * (-rr / (scale_out * nugget) + (origin_n - n))
     else:
-        nllik = 0.5*(logdet + quad/scale)
-        ndllik = 0.5*(dlogdet - dquad/scale)
+        scale_out = scale
+        nllik = 0.5 * (logdet + quad / scale_out)
+        grad = 0.5 * (dlogdet - dquad / scale_out)
         if n != origin_n and nugget_est:
-            nllik += 0.5 * (rr / (nugget * scale) + (origin_n - n) * np.log(nugget))
-            ndllik[-1] +=  0.5 * (-rr / (scale * nugget) + (origin_n - n))
-    return nllik, ndllik, np.array([scale])
+            nllik += 0.5 * (rr / (nugget * scale_out) + (origin_n - n) * log(nugget))
+            grad[p - 1] += 0.5 * (-rr / (scale_out * nugget) + (origin_n - n))
 
-@njit(cache=True,fastmath=True)
-def K_vec_nb(X, z, length, name):
-    """Compute cross-correlation matrix between the testing and training input data.
-    """
+    return nllik, grad, np.array([scale_out], dtype=np.float64)
+
+@njit(cache=True)
+def K_vec_nb(X, z, name):
+    """Compute cross-correlation vector between training inputs X and a single test point z."""
+    if name == "sexp":                                           
+        return K_vec_sexp_nb(X, z)                      
+    else:
+        return K_vec_matern25_nb(X, z)                
+
+
+@njit(cache=True, fastmath=True)
+def K_vec_sexp_nb(X, z):
+    n1, d = X.shape                                  
+    K_vec = np.empty(n1, dtype=np.float64)   
+    for i in range(n1):
+        Xi = X[i]
+        dist = 0.0
+        for k in range(d):
+            diff = Xi[k] - z[k]                  
+            dist += diff * diff
+        K_vec[i] = exp(-dist)
+    return K_vec                    
+
+@njit(cache=True, fastmath=True)
+def K_vec_matern25_nb(X, z):
     n1, d = X.shape
-    X_l, z_l = X/length, z/length
-    K_vec = np.zeros(n1)
-    if name == 'sexp':
-        for i in range(n1):
-            dist = 0
-            for k in range(d):
-                dist += (X_l[i,k] - z_l[k])**2
-            K_vec[i] = np.exp(-dist)
-    elif name=='matern2.5':
-        for i in range(n1):
-            coef1, coef2 = 1, 0
-            for k in range(d):
-                distk = np.abs(X_l[i,k] - z_l[k])
-                coef1 *= 1+np.sqrt(5)*distk+(5/3)*distk**2
-                coef2 += distk
-            K_vec[i] = coef1 * np.exp(-np.sqrt(5) * coef2)
+    K_vec = np.empty(n1, dtype=np.float64)                    
+
+    SQRT5 = 2.2360679774997898                                   
+    FIVE_THIRDS = 1.6666666666666667
+
+    for i in range(n1):
+        Xi = X[i]
+        coef1 = 1.0
+        coef2 = 0.0
+        for k in range(d):
+            distk = fabs(Xi[k] - z[k])
+            coef1 *= (1.0 + SQRT5 * distk + FIVE_THIRDS * distk * distk)
+            coef2 += distk
+        K_vec[i] = coef1 * exp(-SQRT5 * coef2)
     return K_vec
 
 @njit(cache=True)
-def K_cross_nb(x1, x2, length, name):
-    n1, d = x1.shape
-    n2, _ = x2.shape
-    x1_l = x1/length
-    x2_l = x2/length
-    K = np.zeros((n1, n2))
-    if name == 'sexp':
-        for i in range(n1):
-            for j in range(n2):
-                dist = 0
-                for k in range(d):
-                    dist += (x1_l[i,k] - x2_l[j,k])**2
-                K[i,j] = np.exp(-dist)
-    elif name == 'matern2.5':
-        for i in range(n1):
-            for j in range(n2):
-                coef1, coef2 = 1, 0
-                for k in range(d):
-                    distk = np.abs(x1_l[i,k] - x2_l[j,k])
-                    coef1 *= 1+np.sqrt(5)*distk+(5/3)*distk**2
-                    coef2 += distk
-                K[i,j] = coef1 * np.exp(-np.sqrt(5) * coef2)
-    return K
-
-@njit(cache=True)
-def K_matrix_nb(xi, length, nugget, name):
+def K_sexp_nb(xi, length, nugget):
     n, d = xi.shape
-    xi_l=xi/length
-    K = np.zeros((n,n))
-    if name == 'sexp':
-        for i in range(n):
-            for j in range(i + 1):
-                if i==j:
-                    K[i,j] = 1 + nugget
-                else:
-                    dist = 0
-                    for k in range(d):
-                        dist += (xi_l[i,k] - xi_l[j,k])**2
-                    K[i,j] = np.exp(-dist)
-                    K[j,i] = K[i,j]
-    elif name == 'matern2.5':
-        for i in range(n):
-            for j in range(i + 1):
-                if i==j:
-                    K[i,j] = 1 + nugget
-                else:
-                    coef1, coef2 = 1, 0
-                    for k in range(d):
-                        distk = np.abs(xi_l[i,k] - xi_l[j,k])
-                        coef1 *= 1+np.sqrt(5)*distk+(5/3)*distk**2
-                        coef2 += distk
-                    K[i,j] = coef1 * np.exp(-np.sqrt(5) * coef2)
-                    K[j,i] = K[i,j]
-    return K
+    iso = (length.size == 1)
 
-@njit(cache=True)
-def dK_matrix_nb(xi, length, nugget, name, nugget_est):
-    n, d = xi.shape
-    xi_l=xi/length
-    K = np.zeros((n,n))
-    if len(length)==1:
-        if nugget_est:
-            dK = np.zeros((2,n,n))
-            for i in range(n):
-                dK[1,i,i] = nugget[i]
-        else:
-            dK = np.zeros((1,n,n))
-        if name == 'sexp':
-            for i in range(n):
-                for j in range(i + 1):
-                    if i==j:
-                        K[i,j] = 1 + nugget[i]
-                    else:
-                        dist = 0
-                        for k in range(d):
-                            dist += (xi_l[i,k] - xi_l[j,k])**2
-                        K[i,j] = np.exp(-dist)
-                        dK[0,i,j] = 2*dist*K[i,j]
-                        K[j,i], dK[0,j,i] = K[i,j], dK[0,i,j]
-        elif name == 'matern2.5':
-            for i in range(n):
-                for j in range(i + 1):
-                    if i==j:
-                        K[i,j] = 1 + nugget[i]
-                    else:
-                        coef1, coef2, coef3 = 1, 0, 0
-                        for k in range(d):
-                            distk = np.abs(xi_l[i,k] - xi_l[j,k])
-                            el1, el2 = 1+np.sqrt(5)*distk, (5/3)*distk**2
-                            coef = el1 + el2
-                            coef1 *= coef
-                            coef2 += distk
-                            coef3 += el2*el1/coef
-                        K[i,j] = coef1 * np.exp(-np.sqrt(5) * coef2)
-                        dK[0,i,j] = coef3*K[i,j]
-                        K[j,i], dK[0,j,i] = K[i,j], dK[0,i,j]
+    K = np.empty((n, n), dtype=np.float64)
+    nug_scalar = (nugget.size == 1)
+
+    if nug_scalar:
+        ng0 = nugget[0]
+        for i in range(n):
+            K[i, i] = 1.0 + ng0
     else:
-        if nugget_est:
-            dK = np.zeros((d+1,n,n))
-            for i in range(n):
-                dK[d,i,i] = nugget[i]
-        else:
-            dK = np.zeros((d,n,n))
-        if name == 'sexp':
-            for i in range(n):
-                for j in range(i + 1):
-                    if i==j:
-                        K[i,j] = 1 + nugget[i]
-                    else:
-                        dist = 0
-                        coef = np.zeros(d)
-                        for k in range(d):
-                            el = (xi_l[i,k] - xi_l[j,k])**2
-                            dist += el
-                            coef[k] = 2*el
-                        K[i,j] = np.exp(-dist)
-                        K[j,i] = K[i,j]
-                        for k in range(d):
-                            dK[k,i,j] = coef[k]*K[i,j]
-                            dK[k,j,i] = dK[k,i,j]
-        elif name == 'matern2.5':
-            for i in range(n):
-                for j in range(i + 1):
-                    if i==j:
-                        K[i,j] = 1 + nugget[i]
-                    else:
-                        coef1, coef2, coef3 = 1, 0, np.zeros(d)
-                        for k in range(d):
-                            distk = np.abs(xi_l[i,k] - xi_l[j,k])
-                            el1, el2 = 1+np.sqrt(5)*distk, (5/3)*distk**2
-                            coef = el1 + el2
-                            coef1 *= coef
-                            coef2 += distk
-                            coef3[k] = el2*el1/coef
-                        K[i,j] = coef1 * np.exp(-np.sqrt(5) * coef2)
-                        K[j,i] = K[i,j]
-                        for k in range(d):
-                            dK[k,i,j] = coef3[k]*K[i,j]
-                            dK[k,j,i] = dK[k,i,j]
-    return K, dK
-    
+        for i in range(n):
+            K[i, i] = 1.0 + nugget[i]
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv
+                    dist += diff * diff
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv_ell[k]
+                    t = diff * diff
+                    dist += t
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+    return K
+
+@njit(cache=True)
+def K_matern25_nb(xi, length, nugget):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    K = np.empty((n, n), dtype=np.float64)
+    nug_scalar = (nugget.size == 1)
+
+    SQRT5 = 2.2360679774997898
+    FIVE_THIRDS = 1.6666666666666667  # 5/3
+
+    # diagonal
+    if nug_scalar:
+        ng0 = nugget[0]
+        for i in range(n):
+            K[i, i] = 1.0 + ng0
+    else:
+        for i in range(n):
+            K[i, i] = 1.0 + nugget[i]
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv)
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv_ell[k])
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+    return K
+
 @njit(cache=True, parallel=True)
-def L_matrix(X, NNarray, length, nugget, name):
-    n, m = NNarray.shape
-    L_matrix = np.zeros((n, m))
+def K_sexp_nb_parallel(xi, length, nugget):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    K = np.empty((n, n), dtype=np.float64)
+    nug_scalar = (nugget.size == 1)
+
+    if nug_scalar:
+        ng0 = nugget[0]
+        for i in range(n):
+            K[i, i] = 1.0 + ng0
+    else:
+        for i in range(n):
+            K[i, i] = 1.0 + nugget[i]
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in prange(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv
+                    dist += diff * diff
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        for i in prange(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv_ell[k]
+                    t = diff * diff
+                    dist += t
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+    return K
+
+@njit(cache=True, parallel=True)
+def K_matern25_nb_parallel(xi, length, nugget):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    K = np.empty((n, n), dtype=np.float64)
+    nug_scalar = (nugget.size == 1)
+
+    SQRT5 = 2.2360679774997898
+    FIVE_THIRDS = 1.6666666666666667  # 5/3
+
+    # diagonal
+    if nug_scalar:
+        ng0 = nugget[0]
+        for i in range(n):
+            K[i, i] = 1.0 + ng0
+    else:
+        for i in range(n):
+            K[i, i] = 1.0 + nugget[i]
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in prange(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv)
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        for i in prange(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv_ell[k])
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+    return K
+
+@njit(cache=True)
+def K_matrix_nb(xi, length, nugget, name, parallel = False):
+    nugget = np.atleast_1d(np.asarray(nugget, dtype=np.float64))
+    if name == "sexp":
+        if parallel:
+            return K_sexp_nb_parallel(xi, length, nugget)
+        else:
+            return K_sexp_nb(xi, length, nugget)
+    else:
+        if parallel:
+            return K_matern25_nb_parallel(xi, length, nugget)
+        else:
+            return K_matern25_nb(xi, length, nugget)
+
+@njit(cache=True)
+def dK_sexp_nb(xi, length, nugget, nugget_est):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    p_len = 1 if iso else d
+    p = p_len + (1 if nugget_est else 0)
+    nug_idx = p_len
+
+    K = np.empty((n, n), dtype=np.float64)
+    Kt = np.zeros((p, n, n), dtype=np.float64)
+
+    for i in range(n):
+        ng = nugget[i]
+        K[i, i] = 1.0 + ng
+        if nugget_est:
+            Kt[nug_idx, i, i] = ng
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv
+                    dist += diff * diff
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+                val = 2.0 * dist * kij
+                Kt[0, i, j] = val
+                Kt[0, j, i] = val
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        buf = np.empty(d, dtype=np.float64)
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv_ell[k]
+                    t = diff * diff
+                    dist += t
+                    buf[k] = 2.0 * t
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+                for k in range(d):
+                    val = buf[k] * kij
+                    Kt[k, i, j] = val
+                    Kt[k, j, i] = val
+    return K, Kt
+
+@njit(cache=True)
+def dK_matern25_nb(xi, length, nugget, nugget_est):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    p_len = 1 if iso else d
+    p = p_len + (1 if nugget_est else 0)
+    nug_idx = p_len
+
+    K = np.empty((n, n), dtype=np.float64)
+    Kt = np.zeros((p, n, n), dtype=np.float64)
+
+    SQRT5 = 2.2360679774997898
+    FIVE_THIRDS = 1.6666666666666667  # 5/3
+
+    # diagonal
+    for i in range(n):
+        ng = nugget[i]
+        K[i, i] = 1.0 + ng
+        if nugget_est:
+            Kt[nug_idx, i, i] = ng
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                coef3 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv)
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+                    coef3 += (el2 * el1) / coef
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+
+                val = coef3 * kij
+                Kt[0, i, j] = val
+                Kt[0, j, i] = val
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        buf = np.empty(d, dtype=np.float64)
+        for i in range(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv_ell[k])
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+                    buf[k] = (el2 * el1) / coef
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+
+                for k in range(d):
+                    val = buf[k] * kij
+                    Kt[k, i, j] = val
+                    Kt[k, j, i] = val
+    return K, Kt
+
+@njit(cache=True, parallel=True)
+def dK_sexp_nb_parallel(xi, length, nugget, nugget_est):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    p_len = 1 if iso else d
+    p = p_len + (1 if nugget_est else 0)
+    nug_idx = p_len
+
+    K = np.empty((n, n), dtype=np.float64)
+    Kt = np.zeros((p, n, n), dtype=np.float64)
+
+    for i in range(n):
+        ng = nugget[i]
+        K[i, i] = 1.0 + ng
+        if nugget_est:
+            Kt[nug_idx, i, i] = ng
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in prange(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv
+                    dist += diff * diff
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+                val = 2.0 * dist * kij
+                Kt[0, i, j] = val
+                Kt[0, j, i] = val
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        for i in prange(1, n):
+            buf = np.empty(d, dtype=np.float64)
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                dist = 0.0
+                for k in range(d):
+                    diff = (xi_i[k] - xi_j[k]) * inv_ell[k]
+                    t = diff * diff
+                    dist += t
+                    buf[k] = 2.0 * t
+                kij = exp(-dist)
+                K[i, j] = kij
+                K[j, i] = kij
+                for k in range(d):
+                    val = buf[k] * kij
+                    Kt[k, i, j] = val
+                    Kt[k, j, i] = val
+    return K, Kt
+
+@njit(cache=True, parallel=True)
+def dK_matern25_nb_parallel(xi, length, nugget, nugget_est):
+    n, d = xi.shape
+    iso = (length.size == 1)
+
+    p_len = 1 if iso else d
+    p = p_len + (1 if nugget_est else 0)
+    nug_idx = p_len
+
+    K = np.empty((n, n), dtype=np.float64)
+    Kt = np.zeros((p, n, n), dtype=np.float64)
+
+    SQRT5 = 2.2360679774997898
+    FIVE_THIRDS = 1.6666666666666667  # 5/3
+
+    # diagonal
+    for i in range(n):
+        ng = nugget[i]
+        K[i, i] = 1.0 + ng
+        if nugget_est:
+            Kt[nug_idx, i, i] = ng
+
+    if iso:
+        inv = 1.0 / length[0]
+        for i in prange(1, n):
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                coef3 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv)
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+                    coef3 += (el2 * el1) / coef
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+
+                val = coef3 * kij
+                Kt[0, i, j] = val
+                Kt[0, j, i] = val
+    else:
+        inv_ell = np.empty(d, dtype=np.float64)
+        for k in range(d):
+            inv_ell[k] = 1.0 / length[k]
+
+        for i in prange(1, n):
+            buf = np.empty(d, dtype=np.float64)
+            xi_i = xi[i]
+            for j in range(i):
+                xi_j = xi[j]
+                coef1 = 1.0
+                coef2 = 0.0
+                for k in range(d):
+                    distk = fabs((xi_i[k] - xi_j[k]) * inv_ell[k])
+                    el1 = 1.0 + SQRT5 * distk
+                    el2 = FIVE_THIRDS * distk * distk
+                    coef = el1 + el2
+                    coef1 *= coef
+                    coef2 += distk
+                    buf[k] = (el2 * el1) / coef
+
+                kij = coef1 * exp(-SQRT5 * coef2)
+                K[i, j] = kij
+                K[j, i] = kij
+
+                for k in range(d):
+                    val = buf[k] * kij
+                    Kt[k, i, j] = val
+                    Kt[k, j, i] = val
+    return K, Kt
+
+@njit(cache=True)
+def dK_matrix_nb(xi, length, nugget, kernel_name, nugget_est, parallel = False):
+    if kernel_name == "sexp":
+        if parallel:
+            return dK_sexp_nb_parallel(xi, length, nugget, nugget_est)
+        else:
+            return dK_sexp_nb(xi, length, nugget, nugget_est)
+    else:
+        if parallel:
+            return dK_matern25_nb_parallel(xi, length, nugget, nugget_est)
+        else:
+            return dK_matern25_nb(xi, length, nugget, nugget_est)
+
+@njit(cache=True, parallel=True)
+def L_matrix_nb(X_ord, NN_rev, NN_count, length, nugget, name):
+    """
+    Build sparse Vecchia factor coefficients Lmat (n,m):
+      - Lmat[i,0] is the diagonal coefficient for x[i]
+      - Lmat[i,1:k] align with neighbor indices NN_fwd[i,1:k]
+    X_ord is already ordered (X[ord]).
+    """
+    n, d = X_ord.shape
+    m = NN_rev.shape[1]
+    Lmat = np.zeros((n, m), dtype=np.float64)
+
     for i in prange(n):
-        idx = NNarray[i]
-        idx = idx[idx>=0][::-1]
-        bsize = len(idx)
-        Ii = np.zeros(bsize)
-        Ii[-1] = 1.0
-        xi = X[idx,:]
+        k = NN_count[i]
+        idx_rev = NN_rev[i]
+
+        # gather xi in idx_rev order (self is last in this order)
+        xi = np.empty((k, d), dtype=np.float64)
+        for a in range(k):
+            ia = idx_rev[a]
+            for j in range(d):
+                xi[a, j] = X_ord[ia, j]
+
         Ki = K_matrix_nb(xi, length, nugget, name)
         Li = np.linalg.cholesky(Ki)
-        LiIi = backward_solve(Li.T, Ii)
-        L_matrix[i, :bsize] = LiIi.T[0][::-1]
-    return L_matrix
+
+        # v = (Li.T)^{-1} e_last
+        v = np.empty(k, dtype=np.float64)
+        solve_lt_e_last_inplace(Li, v, k)
+
+        # store in forward order (reverse v): diag first
+        for j in range(k):
+            Lmat[i, j] = v[k - 1 - j]
+
+        # rest stays 0
+    return Lmat
 
 @njit(cache=True, parallel=True)
-def U_matrix(X, revNNarray, revCond, length, nugget, scale, gamma, name):
-    n, m = revNNarray.shape
-    U_matrix = np.zeros((n, m))
-    for i in prange(n):
-        idx = revNNarray[i]
-        cond = revCond[i]
-        idx = idx[idx>=0]
-        cond = cond[idx>=0]
-        bsize = len(idx)
-        Ii = np.zeros(bsize)
-        Ii[-1] = 1.0
-        xi = X[idx,:]
-        gammai = gamma[idx] * ~cond
-        Ki = scale * K_matrix_nb(xi, length, nugget, name)
-        add_to_diag_square(Ki, gammai + 1e-10)
-        Li = np.linalg.cholesky(Ki)
-        LiIi = backward_solve(Li.T, Ii)
-        U_matrix[i, :bsize] = LiIi.T[0]
-    return U_matrix
+def U_matrix_ptr(X, NNarray, n_obs, length, nugget, scale, gamma, name):
+    n, m = NNarray.shape
+    d = X.shape[1]
 
-#@njit(cache=True)
-#def pointers(NNarray):
-#    n, m = NNarray.shape
-#    length = int((n-m)*m+m*(m+1)/2)
-#    rows = np.zeros(length, dtype=np.int32)
-#    cols = np.zeros(length, dtype=np.int32)
-#    idx= 0
-#    for i in range(n):
-#        for j in range(min(i+1, m)):
-#            rows[idx]=i
-#            cols[idx]=NNarray[i, j]
-#            idx += 1
-#    return rows, cols
+    data = np.empty(n * m, dtype=np.float64)
+
+    for i in prange(n):
+        # Build idx in the same order as revNNarray row: NNarray[i, m-1], ..., NNarray[i, 0]
+        idx_mod = np.empty(m, dtype=np.int32)     
+        diag_add = np.empty(m, dtype=np.float64)  
+
+        t = 0
+        for j in range(m - 1, -1, -1):            
+            idx = NNarray[i, j]
+            cond = idx >= n_obs                   
+            ia = idx - n_obs if cond else idx     
+
+            idx_mod[t] = ia
+            diag_add[t] = (0.0 if cond else gamma[ia]) + 1e-10
+            t += 1
+
+        xi = X[idx_mod, :]                       
+
+        Ki = scale * K_matrix_nb(xi, length, nugget, name) 
+        add_to_diag_square(Ki, diag_add)                  
+        Li = np.linalg.cholesky(Ki)                        
+
+        v = np.empty(m, dtype=np.float64)                   
+        solve_lt_e_last_inplace(Li, v, m)                         
+
+        off = i * m
+        for j in range(m):
+            data[off + j] = v[j]
+    return data
 
 @njit(cache=True)
 def imp_pointers(NNarray):
-    n = NNarray.shape[0]
-    revNNarray = NNarray[:,::-1]
-    nentries = revNNarray.size
-    rowpointers, colindices = np.zeros(nentries), np.zeros(nentries)
+    n, m = NNarray.shape
+    rowp = np.empty(n * m, dtype=np.int32)
+    colp = np.empty(n * m, dtype=np.int32)
+
     cur = 0
     for i in range(n):
-        idx = revNNarray[i]
-        exist_n = idx>=0
-        idx = idx[exist_n]
-        n0 = len(idx)
-        rowpointers[cur:cur+n0] = i
-        colindices[cur:cur+n0] = idx
-        cur = cur + n0
-    return rowpointers, colindices
-
-# @njit(cache=True)
-# def imp_pointers_rep(NNarray, max_rep, rep, ord):
-#     n = NNarray.shape[0]
-#     rep_len = rep.shape[0]
-#     Cond = NNarray > n-1
-#     revNNarray = NNarray[:,::-1]
-#     revCond = Cond[:,::-1]
-#     nentries = revNNarray.size * max_rep
-#     rowpointers, colindices = np.full(nentries, -1), np.full(nentries, -1)
-#     cur = 0
-#     for i in range(n):
-#         idx = revNNarray[i]
-#         exist_n = idx>=0
-#         idx = idx[exist_n]
-#         revCond0 = revCond[i, exist_n]
-#         idx_latent = idx[revCond0]
-#         idx_obs = idx[~revCond0]
-#         selected_order_indices = ord[idx_obs]
-#         selected_order_set = set(selected_order_indices)
-#         mask = np.zeros(rep_len, dtype=np.bool_)
-#         for k in range(rep_len):
-#             if rep[k] in selected_order_set:
-#                 mask[k] = True
-#         obs_positions = np.where(mask)[0]
-#         latent_position = idx_latent - n + rep_len
-#         n0 = len(obs_positions) + len(latent_position)
-#         cur_cols = np.empty(n0, dtype=np.int32)
-#         cur_cols[:len(obs_positions)] = obs_positions
-#         cur_cols[len(obs_positions):] = latent_position
-#         rowpointers[cur:cur+n0] = i
-#         colindices[cur:cur+n0] = cur_cols
-#         cur = cur + n0
-#     valid = rowpointers != -1
-#     rowpointers = rowpointers[valid]
-#     colindices = colindices[valid]
-
-#     return rowpointers, colindices
-
-#def L_matrix_sp(X, NNarray, scale, length, nugget, name, rows, cols):
-#    n = X.shape[0]
-#    L = L_matrix(X, NNarray, length, nugget, name)/np.sqrt(scale)
-#    data = L[NNarray!=-1]
-#    L = csr_matrix((data, (rows, cols)), shape=(n, n))
-#    return L
-
-# @njit(cache=True, parallel=True)
-# def U_matrix_rep(X, revNNarray, revCond, rep, ord, row, length, nugget, scale, gamma, name):
-#     n = revNNarray.shape[0]
-#     rep_len = rep.shape[0]
-#     U_matrix = np.zeros(len(row))
-#     for i in prange(n):
-#         idx = revNNarray[i]
-#         cond = revCond[i]
-#         idx = idx[idx>=0]
-#         cond = cond[idx>=0]
-#         idx_latent = idx[cond]
-#         idx_obs = idx[~cond]
-#         idx_latent_prev = idx_latent[:-1]
-#         idx_latent_current = idx_latent[-1]
-#         selected_order_indices = ord[idx_obs]
-#         selected_order_set = set(selected_order_indices)
-#         rep0 = np.full(rep_len, -1)
-#         for k in range(rep_len):
-#             if rep[k] in selected_order_set:
-#                 rep0[k] = np.where(selected_order_indices == rep[k])[0][0]
-#         mask0 = rep0 != -1
-#         rep0_i = rep0[mask0]
-#         gamma_i = gamma[mask0]
-#         xi_obs = X[idx_obs,:]
-#         if len(idx_latent) == 1:
-#             x0 = X[idx_latent_current]
-#             Ki_obs = scale * K_matrix_nb(xi_obs, length, nugget, name)
-#             ki_obs_0 = scale * K_vec_nb(xi_obs, x0, length, name)
-
-#             GammaInv = 1.0/gamma_i
-#             N = Ki_obs.shape[0]
-#             MTGammaInvM = np.bincount(rep0_i, weights=GammaInv, minlength=N)
-#             invMTGammaInvM = 1.0/MTGammaInvM
-#             Ki_obs_invMTGammaInvM = Ki_obs.copy()
-#             add_to_diag_square(Ki_obs_invMTGammaInvM, invMTGammaInvM)
-#             Li_obs = np.linalg.cholesky(Ki_obs_invMTGammaInvM)
-#             Li_obs_forward = forward_solve(Li_obs, ki_obs_0).flatten()
-#             B11 = backward_solve(Li_obs.T, Li_obs_forward).flatten()
-#             B = B11 * invMTGammaInvM
-#             B = B[rep0_i] * GammaInv
-#             a = scale * (1 + nugget) - np.dot(Li_obs_forward, Li_obs_forward)
-#             val = np.concatenate((-1/np.sqrt(a)*B, 1/np.sqrt(np.array([a]))))
-#         else:
-#             xi_latent = X[idx_latent_prev,:]
-#             x0 = X[idx_latent_current]
-#             Ki_obs = scale * K_matrix_nb(xi_obs, length, nugget, name)
-#             Ki_latent = scale * K_matrix_nb(xi_latent, length, nugget, name)
-#             ki_obs_latent = scale * K_cross_nb(xi_obs, xi_latent, length, name)
-#             ki_obs_0 = scale * K_vec_nb(xi_obs, x0, length, name)
-#             ki_latent_0 = scale * K_vec_nb(xi_latent, x0, length, name)
-            
-#             GammaInv = 1.0/gamma_i
-#             N = Ki_obs.shape[0]
-#             MTGammaInvM = np.bincount(rep0_i, weights=GammaInv, minlength=N)
-#             invMTGammaInvM = 1.0/MTGammaInvM
-#             Ki_obs_invMTGammaInvM = Ki_obs.copy()
-#             add_to_diag_square(Ki_obs_invMTGammaInvM, invMTGammaInvM)
-#             Z1 = np.linalg.solve(Ki_obs_invMTGammaInvM, ki_obs_latent)
-#             Z2 = np.linalg.solve(Ki_obs_invMTGammaInvM, ki_obs_0)
-#             D = Ki_latent - np.dot(ki_obs_latent.T, Z1)
-#             y = ki_latent_0 - np.dot(ki_obs_latent.T, Z2)
-#             Li = np.linalg.cholesky(D)
-#             B2 = backward_solve(Li.T, forward_solve(Li, y).flatten()).flatten()
-#             B11 = Z2 - np.dot(Z1, B2)
-#             B1 = B11 * invMTGammaInvM
-#             B1 = B1[rep0_i] * GammaInv
-#             a = scale * (1 + nugget) - np.dot(B11, ki_obs_0) - np.dot(B2, ki_latent_0)
-#             val = np.concatenate((-1/np.sqrt(a)*B1, -1/np.sqrt(a)*B2, 1/np.sqrt(np.array([a]))))
-#         U_matrix[row==i] = val
-#     return U_matrix
+        for j in range(m - 1, -1, -1):
+            v = NNarray[i, j]
+            if v >= 0:
+                rowp[cur] = i
+                colp[cur] = v
+                cur += 1
+    return rowp, colp
 
 @njit(cache=True)
 def add_to_diag_square(A, d):
@@ -598,27 +1070,14 @@ def add_to_diag_square(A, d):
     step = n + 1
     flat[0 : n*n : step] += d[:n]
 
-# def U_matrix_sp_rep(X, NNarray, rep, ord, scale, length, nugget, name, gamma, rows, cols):
-#     n = X.shape[0]
-#     Cond = NNarray > n-1
-#     revNNarray = NNarray[:,::-1]
-#     revCond = Cond[:,::-1]
-#     data = U_matrix_rep(np.vstack((X, X)), revNNarray, revCond, rep, ord, rows, length, nugget, scale, gamma, name)
-#     U = csr_matrix((data, (cols, rows)), shape=(len(rep)+n, n))
-#     U_latent = U[-n:,:]
-#     U_obs_latent = U[:-n,:]
-#     return U_latent, U_obs_latent
-
-def U_matrix_sp(X, NNarray, scale, length, nugget, name, gamma, rows, cols):
+def U_matrix_sp_nb(X, NNarray, scale, length, nugget, name, gamma, rows, cols):
     n = X.shape[0]
-    Cond = NNarray > n-1
-    revNNarray = NNarray[:,::-1]
-    revCond = Cond[:,::-1]
-    U = U_matrix(np.vstack((X, X)), revNNarray, revCond, length, nugget, scale, gamma, name)
-    data = U.flatten()
-    U = csr_matrix((data, (cols, rows)), shape=(2*n, n))
-    U_latent = U[n::,:]
-    U_obs_latent = U[:n,:]
+
+    data = U_matrix_ptr(X, NNarray, n, length, nugget, scale, gamma, name)
+
+    U = csr_matrix((data, (cols, rows)), shape=(2 * n, n))
+    U_latent = U[n::, :]
+    U_obs_latent = U[:n, :]
     return U_latent, U_obs_latent
 
 def cond_mean_vecch(x, z, w1, global_w1, y, scale, length, nugget, name, m, nn_method):
@@ -636,22 +1095,41 @@ def cond_mean_vecch(x, z, w1, global_w1, y, scale, length, nugget, name, m, nn_m
 def gp_vecch(x,w,NNarray,y,scale,length,nugget,nugget_diag,name):
     """Make GP predictions with Vecchia approximation.
     """
-    n_pred = x.shape[0]
-    m, v = np.zeros(n_pred), np.zeros(n_pred)
+    n_pred, d = x.shape
+    k = NNarray.shape[1]
+    m_out = np.zeros(n_pred)
+    v_out = np.zeros(n_pred)
+
     for i in prange(n_pred):
-        idx = NNarray[i]
-        idx = idx[idx>=0]
-        Xi = np.vstack((w[idx,:], x[i:i+1,:]))
-        nuggeti = np.empty(len(idx)+1)
-        nuggeti[:len(idx)] = nugget * nugget_diag[idx]
-        nuggeti[-1] = nugget
-        Ki = K_matrix_nb(Xi, length, 0., name)
-        add_to_diag_square(Ki, nuggeti)
+        idx = NNarray[i]    
+        Xi = np.empty((k + 1, d), dtype=np.float64)
+        yi = np.empty(k, dtype=np.float64)
+
+        for a in range(k):
+            ia = idx[a]
+            yi[a] = y[ia, 0]
+            for j in range(d):
+                Xi[a, j] = w[ia, j]
+        for j in range(d):
+            Xi[k, j] = x[i, j]
+
+        Ki = K_matrix_nb(Xi, length, 0.0, name)
+
+        for a in range(k):
+            ia = idx[a]
+            Ki[a, a] += nugget * nugget_diag[ia]
+        Ki[k, k] += nugget
+
         Li = np.linalg.cholesky(Ki)
-        yi = y[idx,0]
-        m[i] = np.dot(Li[-1,:-1], forward_solve(Li[:-1, :-1], yi).flatten())
-        v[i] = scale * Li[-1,-1]**2
-    return m, v
+        forward_solve_inplace(Li, yi, k)
+        s = 0.0
+        for j in range(k):
+            s += Li[k, j] * yi[j]
+        m_out[i] = s
+
+        t = Li[k, k]
+        v_out[i] = scale * (t * t)
+    return m_out, v_out
 
 @njit(cache=True, parallel=True)
 def loo_gp_vecch(x,NNarray,y,scale,length,nugget,nugget_diag,name):
@@ -673,25 +1151,43 @@ def loo_gp_vecch(x,NNarray,y,scale,length,nugget,nugget_diag,name):
     return m, v
 
 @njit(cache=True)
-def gp_vecch_non_parallel(x,w,NNarray,y,scale,length,nugget,nugget_diag,name):
-    """Make GP predictions with Vecchia approximation.
-    """
-    n_pred = x.shape[0]
-    m, v = np.zeros(n_pred), np.zeros(n_pred)
+def gp_vecch_non_parallel(x, w, NNarray, y, scale, length, nugget, nugget_diag, name):
+    """Make GP predictions with Vecchia approximation."""
+    n_pred, d = x.shape
+    k = NNarray.shape[1]
+    m_out = np.zeros(n_pred)
+    v_out = np.zeros(n_pred)
+
     for i in range(n_pred):
         idx = NNarray[i]
-        idx = idx[idx>=0]
-        Xi = np.vstack((w[idx,:], x[i:i+1,:]))
-        nuggeti = np.empty(len(idx)+1)
-        nuggeti[:len(idx)] = nugget * nugget_diag[idx]
-        nuggeti[-1] = nugget
-        Ki = K_matrix_nb(Xi, length, 0., name)
-        add_to_diag_square(Ki, nuggeti)
+        Xi = np.empty((k + 1, d), dtype=np.float64)
+        yi = np.empty(k, dtype=np.float64)
+
+        for a in range(k):
+            ia = idx[a]
+            yi[a] = y[ia, 0]
+            for j in range(d):
+                Xi[a, j] = w[ia, j]
+        for j in range(d):
+            Xi[k, j] = x[i, j]
+
+        Ki = K_matrix_nb(Xi, length, 0.0, name)
+
+        for a in range(k):                      
+            ia = idx[a]
+            Ki[a, a] += nugget * nugget_diag[ia]
+        Ki[k, k] += nugget
+
         Li = np.linalg.cholesky(Ki)
-        yi = y[idx,0]
-        m[i] = np.dot(Li[-1,:-1], forward_solve(Li[:-1, :-1], yi).flatten())
-        v[i] = scale * Li[-1,-1]**2
-    return m, v
+        forward_solve_inplace(Li, yi, k)       
+        s = 0.0                              
+        for j in range(k):
+            s += Li[k, j] * yi[j]
+        m_out[i] = s
+
+        t = Li[k, k]
+        v_out[i] = scale * (t * t)        
+    return m_out, v_out
 
 @njit(cache=True)
 def forward_substitute(L_data, L_indices, L_indptr, b):
@@ -705,55 +1201,17 @@ def forward_substitute(L_data, L_indices, L_indptr, b):
     - x: Solution vector.
     """
     n = len(L_indptr) - 1  # Number of rows
-    x = np.zeros(n)  # Solution vector
+    x = np.empty(n)  # Solution vector
     for i in range(n):
         sum_lx = 0.
         for j in range(L_indptr[i], L_indptr[i + 1]):
-            if L_indices[j] < i:
-                sum_lx += L_data[j] * x[L_indices[j]]
-            elif L_indices[j] == i:
+            col = L_indices[j]
+            if col < i:
+                sum_lx += L_data[j] * x[col]
+            elif col == i:
                 x[i] = (b[i] - sum_lx) / L_data[j]
                 break  # Only one diagonal element per row, so can break after processing it
     return x
-
-@njit(cache=True)
-def backward_substitute(U_data, U_indices, U_indptr, b):
-    """
-    Solves Ux = b for x, where U is an upper triangular matrix in CSR format.
-    - U_data: Non-zero values of U.
-    - U_indices: Column indices of non-zero values in U.
-    - U_indptr: Index pointers for rows in U.
-    - b: Right-hand side vector.
-    Returns:
-    - x: Solution vector.
-    """
-    n = len(U_indptr) - 1  # Number of rows
-    x = np.zeros(n)  
-    for i in range(n - 1, -1, -1):
-        sum_lx = 0.0
-        diag_val = None
-        for j in range(U_indptr[i], U_indptr[i + 1]):
-            if U_indices[j] > i:
-                sum_lx += U_data[j] * x[U_indices[j]]
-            elif U_indices[j] == i:
-                diag_val = U_data[j]
-            x[i] = (b[i] - sum_lx) / diag_val
-    return x
-
-#def rep_sp(indices):
-#    num_rows = len(indices)
-#    num_cols = np.max(indices) + 1
-
-    # Create row and column indices for CSC format
-#    rows = np.arange(num_rows)  # Each entry specifies the row in M
-#    cols = indices  # Each index corresponds to a column in M
-
-    # Data for the matrix
-#    data = np.ones(num_rows)  # Place a '1' in each specified position
-
-    # Create the CSC matrix
-#    M_csc = csc_matrix((data, (rows, cols)), shape=(num_rows, num_cols))
-#    return M_csc
     
 @njit(cache=True, parallel=True)
 def link_gp_vecch(m, v, z, w1, global_w1, NNarray, y, scale, length, nugget, nugget_diag, name):

@@ -667,15 +667,23 @@ class dgp:
                     else:
                         if kernel.rep is None:
                             kernel.output=self.Y[:,[k]]
+                            kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                            kernel.sum_residual = -1.0
+                            kernel.origin_n = len(kernel.output)
                         else:
                             NN = kernel.rep.max() + 1
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y - kernel.output[kernel.rep,:]
-                            kernel.sum_residual = (residual.T @ residual).flatten()
+                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            kernel.sum_residual = np.dot(residual, residual)
+                            kernel.origin_n = len(kernel.rep)
                 else:
                     kernel.output=Out[:,[k]]
+                    if kernel.type=='gp':
+                        kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                        kernel.sum_residual = -1.0
+                        kernel.origin_n = len(kernel.output)
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         p=np.shape(kernel.input)[1]
@@ -921,6 +929,9 @@ class dgp:
                     Out[sub_idx,k]=kernel.output.flatten()
                     Out[~mask,k]=mu
                     kernel.output=Out[:,[k]].copy()
+                    kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                    kernel.sum_residual = -1.0
+                    kernel.origin_n = len(kernel.output)
                     if kernel.connect is not None:
                         kernel.global_input=(global_in[:,kernel.connect]).copy()
                     if kernel.vecch:
@@ -998,13 +1009,17 @@ class dgp:
                     else:
                         if kernel.rep is None:
                             kernel.output=(self.Y[:,[k]]).copy()
+                            kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                            kernel.sum_residual = -1.0
+                            kernel.origin_n = len(kernel.output)
                         else:
                             NN = kernel.rep.max() + 1
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y - kernel.output[kernel.rep,:]
-                            kernel.sum_residual = (residual.T @ residual).flatten()
+                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            kernel.sum_residual = np.dot(residual, residual)
+                            kernel.origin_n = len(kernel.rep)
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
@@ -1081,15 +1096,23 @@ class dgp:
                     else:
                         if kernel.rep is None:
                             kernel.output=(self.Y[:,[k]]).copy()
+                            kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                            kernel.sum_residual = -1.0
+                            kernel.origin_n = len(kernel.output)
                         else:
                             NN = kernel.rep.max() + 1
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y - kernel.output[kernel.rep,:]
-                            kernel.sum_residual = (residual.T @ residual).flatten()
+                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            kernel.sum_residual = np.dot(residual, residual)
+                            kernel.origin_n = len(kernel.rep)
                 else:
                     kernel.output=(kernel.output[sub_idx,:]).copy()
+                    if kernel.type=='gp':
+                        kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                        kernel.sum_residual = -1.0
+                        kernel.origin_n = len(kernel.output)
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
@@ -1346,15 +1369,23 @@ class dgp:
                     else:
                         if kernel.rep is None:
                             kernel.output=self.Y[:,[k]]
+                            kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                            kernel.sum_residual = -1.0
+                            kernel.origin_n = len(kernel.output)
                         else:
                             NN = kernel.rep.max() + 1
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y - kernel.output[kernel.rep,:]
-                            kernel.sum_residual = (residual.T @ residual).flatten()
+                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            kernel.sum_residual = np.dot(residual, residual)
+                            kernel.origin_n = len(kernel.rep)
                 else:
                     kernel.output=Out[:,k].reshape((-1,1))
+                    if kernel.type=='gp':
+                        kernel.W_diag = np.ones(kernel.output.shape[0], dtype=np.float64)
+                        kernel.sum_residual = -1.0
+                        kernel.origin_n = len(kernel.output)
                 if kernel.type=='gp':
                     if kernel.prior_name=='ref':
                         kernel.compute_cl()
@@ -1375,6 +1406,20 @@ class dgp:
         restarts = 0
         max_restarts = 3
         pgb = None
+
+        imp = self.imp
+        all_layer = self.all_layer
+        n_layer = self.n_layer
+        vecch = self.vecch
+
+        gp_plan = []
+        for l in range(n_layer):
+            layer_plan = []
+            for k in all_layer[l]:
+                if k.type == "gp":
+                    layer_plan.append((k, k.prior_name == "ref"))
+            gp_plan.append(layer_plan)
+
         while True:
             try:
                 pgb=trange(1,N+1,disable=disable)
@@ -1382,21 +1427,22 @@ class dgp:
                     #I-step
                     if i == 1:        
                         with self.change_init_scale():
-                            self.imp.sample(burnin=ess_burn)
+                            imp.sample(burnin=ess_burn)
                     else:
-                        (self.imp).sample(burnin=ess_burn)
-                    if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
-                        (self.imp).update_ord_nn()
+                        imp.sample(burnin=ess_burn)
+                    t = self.N + i
+                    if vecch and t > 1 and ((t & (t - 1)) == 0):
+                        imp.update_ord_nn()
                     #M-step
-                    for l in range(self.n_layer):
-                        for kernel in self.all_layer[l]:
-                            if kernel.type=='gp':
-                                if kernel.prior_name=='ref':
-                                    kernel.compute_cl()
-                                if l!=0:
-                                    kernel.r2()
-                                kernel.maximise()
-                        pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
+                    for l in range(n_layer):
+                        do_r2 = (l != 0)
+                        for k, is_ref in gp_plan[l]:
+                            if is_ref:
+                                k.compute_cl()
+                            if do_r2:
+                                k.r2()
+                            k.maximise()
+                    pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
                 self.N += N
                 return
             except (np.linalg.LinAlgError, SystemError):
@@ -1411,65 +1457,65 @@ class dgp:
                 self.reinit_all_layer(reset_lengthscale=True, row = self.N)
                 continue
 
-    def ptrain(self, N=500, ess_burn=10, disable=False, core_num=None):
-        """Train the DGP model with parallel GP optimizations in each layer.
+    # def ptrain(self, N=500, ess_burn=10, disable=False, core_num=None):
+    #     """Train the DGP model with parallel GP optimizations in each layer.
 
-        Args:
-            N (int): number of iterations for stochastic EM. Defaults to `500`.
-            ess_burn (int, optional): number of burnin steps for the ESS-within-Gibbs
-                at each I-step of the SEM. Defaults to `10`.
-            disable (bool, optional): whether to disable the training progress bar. 
-                Defaults to `False`.
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
-        """
-        os_type = platform.system()
-        if os_type in ['Darwin', 'Linux']:
-            ctx._force_start_method('forkserver')
-        total_cores = psutil.cpu_count(logical = False)
-        if core_num is None:
-            if self.vecch:
-                core_num = total_cores//2
-            else:
-                core_num = total_cores - 1
-        num_thread = total_cores // core_num
+    #     Args:
+    #         N (int): number of iterations for stochastic EM. Defaults to `500`.
+    #         ess_burn (int, optional): number of burnin steps for the ESS-within-Gibbs
+    #             at each I-step of the SEM. Defaults to `10`.
+    #         disable (bool, optional): whether to disable the training progress bar. 
+    #             Defaults to `False`.
+    #         core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
+    #             the number of cores is set to ``(max physical cores available - 1)``.
+    #     """
+    #     os_type = platform.system()
+    #     if os_type in ['Darwin', 'Linux']:
+    #         ctx._force_start_method('forkserver')
+    #     total_cores = psutil.cpu_count(logical = False)
+    #     if core_num is None:
+    #         if self.vecch:
+    #             core_num = total_cores//2
+    #         else:
+    #             core_num = total_cores - 1
+    #     num_thread = total_cores // core_num
 
-        def pmax(kernel):
-            if kernel.type=='gp':
-                if kernel.prior_name=='ref':
-                    kernel.compute_cl()
-                if kernel.vecch:
-                    set_num_threads(num_thread)
-                kernel.maximise()
-            return kernel
-        def pmax_r2(kernel):
-            if kernel.type=='gp':
-                if kernel.prior_name=='ref':
-                    kernel.compute_cl()
-                if kernel.vecch:
-                    set_num_threads(num_thread)
-                kernel.r2()
-                kernel.maximise()
-            return kernel
+    #     def pmax(kernel):
+    #         if kernel.type=='gp':
+    #             if kernel.prior_name=='ref':
+    #                 kernel.compute_cl()
+    #             if kernel.vecch:
+    #                 set_num_threads(num_thread)
+    #             kernel.maximise()
+    #         return kernel
+    #     def pmax_r2(kernel):
+    #         if kernel.type=='gp':
+    #             if kernel.prior_name=='ref':
+    #                 kernel.compute_cl()
+    #             if kernel.vecch:
+    #                 set_num_threads(num_thread)
+    #             kernel.r2()
+    #             kernel.maximise()
+    #         return kernel
         
-        pool = Pool(core_num)
-        pgb=trange(1,N+1,disable=disable)
-        for i in pgb:
-            #I-step           
-            (self.imp).sample(burnin=ess_burn)
-            if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
-                (self.imp).update_ord_nn()
-            #M-step
-            for l in range(self.n_layer):
-                if l==0:
-                    self.all_layer[l] = pool.map(pmax, self.all_layer[l])
-                else:
-                    self.all_layer[l] = pool.map(pmax_r2, self.all_layer[l])
-                pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
-        self.N += N
-        pool.close()
-        pool.join()
-        pool.clear()
+    #     pool = Pool(core_num)
+    #     pgb=trange(1,N+1,disable=disable)
+    #     for i in pgb:
+    #         #I-step           
+    #         (self.imp).sample(burnin=ess_burn)
+    #         if self.vecch and (self.N+i & (self.N+i-1)) == 0 and self.N+i > 1:
+    #             (self.imp).update_ord_nn()
+    #         #M-step
+    #         for l in range(self.n_layer):
+    #             if l==0:
+    #                 self.all_layer[l] = pool.map(pmax, self.all_layer[l])
+    #             else:
+    #                 self.all_layer[l] = pool.map(pmax_r2, self.all_layer[l])
+    #             pgb.set_description('Iteration %i: Layer %i' % (i,l+1))
+    #     self.N += N
+    #     pool.close()
+    #     pool.join()
+    #     pool.clear()
 
     def compute_r2(self):
         for l in range(1,self.n_layer):

@@ -38,11 +38,13 @@ class gp:
                 sum_y = np.bincount(self.indices, weights=Y.flatten(), minlength=N)
                 self.W_diag = 1.0 / counts
                 self.Y = (sum_y * self.W_diag).reshape(-1,1)
-                residual = Y - self.Y[self.indices,:]
-                self.sum_residual = (residual.T @ residual).flatten()
+                residual = Y[:,0] - self.Y[self.indices,0]
+                self.sum_residual = np.dot(residual, residual)
             else:  
                 self.X=X
                 self.Y=Y
+                self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+                self.sum_residual = -1.0
         else:
             self.X=X
             self.Y=Y
@@ -74,8 +76,16 @@ class gp:
             state['indices'] = None
         if 'check_rep' not in state:
             state['check_rep'] = False
+        if 'W_diag' not in state:
+            state['W_diag'] = None
+        if 'sum_residual' not in state:
+            state['sum_residual'] = None
         self.__dict__.update(state)
         self.kernel.target = 'gp'
+        if self.W_diag is None:
+            self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+        if self.sum_residual is None:
+            self.sum_residual = -1.0
 
     def initialize(self):
         """Assign input/output data to the kernel for training.
@@ -85,15 +95,18 @@ class gp:
         else:
             self.kernel.input=(self.X).copy()
             self.kernel.input_dim=np.arange(np.shape(self.X)[1])
+        self.kernel.output=(self.Y).copy()
         if self.indices is not None:
             self.kernel.rep=self.indices
-            self.kernel.W_diag=self.W_diag
-            self.kernel.sum_residual=self.sum_residual
+            self.kernel.origin_n = len(self.kernel.rep)
+        else:
+            self.kernel.origin_n = len(self.kernel.output)
+        self.kernel.sum_residual=self.sum_residual
+        self.kernel.W_diag=self.W_diag
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=self.X[:,self.kernel.connect]
-        self.kernel.output=(self.Y).copy()
         self.kernel.D=np.shape(self.kernel.input)[1]
         if self.kernel.connect is not None:
             self.kernel.D+=len(self.kernel.connect)
@@ -162,11 +175,13 @@ class gp:
                 sum_y = np.bincount(self.indices, weights=Y.flatten(), minlength=N)
                 self.W_diag = 1.0 / counts
                 self.Y = (sum_y * self.W_diag).reshape(-1,1)
-                residual = Y - self.Y[self.indices,:]
-                self.sum_residual = residual.T @ residual
+                residual = Y[:,0] - self.Y[self.indices,0]
+                self.sum_residual = np.dot(residual, residual)
             else:  
                 self.X=X
                 self.Y=Y
+                self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+                self.sum_residual = -1.0
         else:
             self.X=X
             self.Y=Y
@@ -185,20 +200,20 @@ class gp:
         Args: 
             reset_lengthscale (bool): whether to reset hyperparameter of the GP emulator to the initial values.
         """
+        self.kernel.output=self.Y.copy()
         if self.indices is not None:
             self.kernel.rep=self.indices
-            self.kernel.W_diag=self.W_diag
-            self.kernel.sum_residual=self.sum_residual
+            self.kernel.origin_n=len(self.kernel.rep)
         else: 
             self.kernel.rep=None
-            self.kernel.W_diag=None
-            self.kernel.sum_residual=None
+            self.kernel.origin_n=len(self.kernel.output)
+        self.kernel.sum_residual=self.sum_residual
+        self.kernel.W_diag=self.W_diag
         self.kernel.input=self.X[:,self.kernel.input_dim]
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=self.X[:,self.kernel.connect]
-        self.kernel.output=self.Y.copy()
         self.kernel.m = self.m
         if reset_lengthscale:
             initial_hypers=self.kernel.para_path[0,:]
@@ -345,10 +360,7 @@ class gp:
         if self.vecch:
             X_scale = self.X/self.kernel.length
             NNarray = get_pred_nn(X_scale, X_scale, m+1, method=self.kernel.nn_method)
-            if self.indices is None:
-                nugget_diag = np.ones(len(self.Y))
-            else:
-                nugget_diag = self.W_diag
+            nugget_diag = self.W_diag
             mu,sigma2 = loo_gp_vecch(self.X, NNarray, self.Y, self.kernel.scale[0], self.kernel.length, self.kernel.nugget[0],nugget_diag, self.kernel.name)
             mu,sigma2 = mu.reshape(-1,1), sigma2.reshape(-1,1)
         else:

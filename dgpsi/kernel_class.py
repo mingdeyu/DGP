@@ -1,10 +1,10 @@
 import numpy as np
-from numpy.linalg import LinAlgError, lstsq, matrix_rank
+from numpy.linalg import LinAlgError, lstsq#, matrix_rank
 from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
-from scipy.spatial.distance import pdist, squareform
-from .functions import Pmatrix, gp, gp_non_parallel, link_gp, link_gp_non_parallel, pdist_matern_one, pdist_matern_multi, pdist_matern_coef, fod_exp, logdet_nb, trace_nb, g
-from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, link_gp_vecch, link_gp_vecch_non_parallel
+from scipy.spatial.distance import pdist
+from .functions import gp, gp_non_parallel, logdet_nb, g, link_gp_matern25_noz_serial, link_gp_matern25_noz_parallel, link_gp_matern25_withz_serial, link_gp_matern25_withz_parallel, link_gp_sexp_noz_serial, link_gp_sexp_noz_parallel, link_gp_sexp_withz_serial, link_gp_sexp_withz_parallel
+from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, link_gp_vecch, link_gp_vecch_non_parallel, dK_matrix_nb, K_matrix_nb, preprocess_nn
 from .utils import get_thread
 class kernel:
     """
@@ -142,6 +142,7 @@ class kernel:
         self.loo_state=False
         self.sum_residual=None
         self.W_diag=None
+        self.origin_n=None
 
     def __setstate__(self, state):
         if 'g' in state:
@@ -200,9 +201,27 @@ class kernel:
             state['sum_residual'] = None
         if 'W_diag' not in state:
             state['W_diag'] = None
+        if 'NN_rev' not in state:
+            state['NN_rev'] = None
+        if 'NN_count' not in state:
+            state['NN_count'] = None
+        if 'origin_n' not in state:
+            state['origin_n'] = None
         self.__dict__.update(state)
         if new_R2_added:
             self.r2(overwritten=True)
+        if self.output is not None and self.W_diag is None:
+            self.W_diag = np.ones(self.output.shape[0], dtype=np.float64)
+        if self.output is not None and self.sum_residual is None:
+            self.sum_residual = -1.0
+        if self.NNarray is not None and (self.NN_rev is None or self.NN_count is None):
+            NN = np.ascontiguousarray(self.NNarray.astype(np.int32))
+            self.NN_rev, self.NN_count = preprocess_nn(NN)
+        if self.origin_n is None:
+            if self.rep is not None:
+                self.origin_n = len(self.rep)
+            elif self.output is not None:
+                self.origin_n = len(self.output)
 
     def compute_cl(self):
         if len(self.length)==1:
@@ -227,54 +246,146 @@ class kernel:
     def r2(self, overwritten = False):
         """Compute R2 of the linear regression between **global_input** and **input**.
         """
-        if self.global_input is not None:
-            X = np.concatenate((self.global_input, np.ones((len(self.global_input),1))), axis=1)
-            if matrix_rank(self.global_input) == matrix_rank(X):
-                X = self.global_input
-            N, D = X.shape
-            if N==D:
-                resids = np.zeros(self.input.shape[1], dtype=float)
-            else:
-                _, resids = lstsq(X, self.input, rcond = None)[:2]
-            rsq = 1 - resids / (len(self.input) * np.var(self.input, axis=0))
-            if overwritten:
-                self.R2 = np.atleast_2d(rsq)
-            else:
-                self.R2 = np.vstack((self.R2,rsq))
+        if self.global_input is None:
+            return
 
-    def ord_nn(self, ord = None, NNarray = None, pointer=False):
-        """Specify the ordering and NN for the Vecchia approximation
+        G = self.global_input
+        Y = self.input
+        N = G.shape[0]
+
+        X = np.concatenate((G, np.ones((N, 1), dtype=G.dtype)), axis=1)
+
+        beta, resids, _, _ = lstsq(X, Y, rcond=None)
+
+        if resids.size == 0:
+            E = Y - X @ beta
+            resids = np.sum(E * E, axis=0)
+
+        rsq = 1.0 - resids / (N * np.var(Y, axis=0)) 
+
+        if overwritten or self.R2 is None:
+            self.R2 = np.atleast_2d(rsq)
+        else:
+            self.R2 = np.vstack((self.R2, rsq))
+
+    # def ord_nn(self, ord = None, NNarray = None, pointer=False):
+    #     """Specify the ordering and NN for the Vecchia approximation
+    #     """
+    #     if ord is None:
+    #         if self.ord_fun is None:
+    #             self.ord = np.random.permutation(self.input.shape[0])
+    #         else:
+    #             if self.global_input is not None:
+    #                 X = np.concatenate((self.input, self.global_input),1)/self.length
+    #             else:
+    #                 X = self.input/self.length
+    #             self.ord = self.ord_fun(X)
+    #     else:
+    #         self.ord = ord
+    #     self.rev_ord = np.argsort(self.ord)
+    #     if NNarray is None:
+    #         if self.global_input is not None:
+    #             X = np.concatenate((self.input, self.global_input),1)/self.length
+    #         else:
+    #             X = self.input/self.length
+    #         self.NNarray = nn(X[self.ord], self.m, method = self.nn_method)
+    #     else:
+    #         self.NNarray = NNarray
+    #     NN = np.ascontiguousarray(self.NNarray.astype(np.int32))
+    #     self.NN_rev, self.NN_count = preprocess_nn(NN)
+    #     if pointer:
+    #         NNs = get_pred_nn(X[self.ord], X[self.ord], self.m)[:,1::]
+    #         n = X.shape[0]
+    #         prev = NNs < np.tile(np.arange(n), (self.m-1, 1)).T
+    #         NNs[prev] = NNs[prev] + n
+    #         self.imp_NNarray = np.hstack((np.arange(n).reshape(-1,1) + n, np.arange(n).reshape(-1,1), NNs))
+    #         self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
+
+    def ord_nn(self, ord=None, NNarray=None, pointer=False, rev_ord=None, NN_rev=None, NN_count=None):
+        """Specify the ordering and NN for the Vecchia approximation.
+
+        Reuse logic:
+        - If `ord` is provided, assign it; otherwise compute (random or via ord_fun).
+        - If `rev_ord` is provided, assign it; otherwise compute argsort(ord).
+        - If `NNarray` is provided, assign it; otherwise compute via nn(X[ord], m, method).
+        - If `NN_rev/NN_count` are provided, assign them; otherwise compute via preprocess_nn.
+        - If pointer=True, compute pointer arrays for THIS kernel (even if ord/NN were reused).
         """
+
+        # ----------------------------
+        # Decide if we need scaled X
+        # ----------------------------
+        need_X_for_ord = (ord is None and self.ord_fun is not None)
+        need_X_for_nn = (NNarray is None)
+        need_X_for_ptr = pointer
+
+        X = None
+        if need_X_for_ord or need_X_for_nn or need_X_for_ptr:
+            if self.global_input is not None:
+                X = np.concatenate((self.input, self.global_input), 1) / self.length
+            else:
+                X = self.input / self.length
+
+        # ----------
+        # Ordering
+        # ----------
         if ord is None:
             if self.ord_fun is None:
                 self.ord = np.random.permutation(self.input.shape[0])
             else:
-                if self.global_input is not None:
-                    X = np.concatenate((self.input, self.global_input),1)/self.length
-                else:
-                    X = self.input/self.length
                 self.ord = self.ord_fun(X)
         else:
             self.ord = ord
-        self.rev_ord = np.argsort(self.ord)
-        if NNarray is None:
-            if self.global_input is not None:
-                X = np.concatenate((self.input, self.global_input),1)/self.length
-            else:
-                X = self.input/self.length
-            self.NNarray = nn(X[self.ord], self.m, method = self.nn_method)
+
+        # ----------
+        # rev_ord
+        # ----------
+        if rev_ord is None:
+            self.rev_ord = np.argsort(self.ord)
         else:
-            self.NNarray = NNarray
+            self.rev_ord = rev_ord
+
+        # ----------
+        # NNarray
+        # ----------
+        if NNarray is None:
+            X_ord = X[self.ord]
+            NN = nn(X_ord, self.m, method=self.nn_method)
+            self.NNarray = np.ascontiguousarray(NN, dtype=np.int32)
+        else:
+            self.NNarray = np.ascontiguousarray(NNarray, dtype=np.int32)
+
+        # ----------
+        # NN_rev / NN_count
+        # ----------
+        if NN_rev is None or NN_count is None:
+            # preprocess_nn expects contiguous int32
+            self.NN_rev, self.NN_count = preprocess_nn(self.NNarray)
+        else:
+            self.NN_rev = NN_rev
+            self.NN_count = NN_count
+
+        # ----------
+        # Pointer (per kernel!)
+        # ----------
         if pointer:
-            NNs = get_pred_nn(X[self.ord], X[self.ord], self.m)[:,1::]
-            n = X.shape[0]
-            prev = NNs < np.tile(np.arange(n), (self.m-1, 1)).T
-            NNs[prev] = NNs[prev] + n
-            self.imp_NNarray = np.hstack((np.arange(n).reshape(-1,1) + n, np.arange(n).reshape(-1,1), NNs))
-            #if self.max_rep is None:
+            # X is guaranteed to exist because need_X_for_ptr -> True above
+            X_ord = X[self.ord]
+
+            NNs = get_pred_nn(X_ord, X_ord, self.m)[:, 1:]   # (n, m-1)
+            n = X_ord.shape[0]
+
+            prev = NNs < np.arange(n)[:, None]
+            NNs[prev] += n
+
+            imp = np.empty((n, self.m + 1), dtype=np.int32)  # 2 + (m-1) columns
+            base = np.arange(n, dtype=np.int32)
+            imp[:, 0] = base + n
+            imp[:, 1] = base
+            imp[:, 2:] = NNs
+
+            self.imp_NNarray = imp
             self.imp_pointer_row, self.imp_pointer_col = imp_pointers(self.imp_NNarray)
-            #else:
-            #    self.imp_pointer_row, self.imp_pointer_col = imp_pointers_rep(self.imp_NNarray, self.max_rep, self.rep_hetero, self.ord)
 
     def log_t(self):
         """Log transform the model parameters (lengthscales and nugget).
@@ -315,48 +426,19 @@ class kernel:
                    wrt log-transformed lengthscales and nugget. The length of the array equals to the total number 
                    of model parameters (i.e., the total number of lengthscales and nugget).
         """
-        n=len(self.input)
-        if self.global_input is not None:
-            X=np.concatenate((self.input, self.global_input),1)
+        if self.connect is not None:
+            X = np.concatenate((self.input,self.global_input),1)
         else:
-            X=self.input
-        #with np.errstate(divide='ignore'):
-        X_l=X/self.length
-        if self.name=='sexp':
-            dists = pdist(X_l, metric="sqeuclidean")
-            K = squareform(np.exp(-dists))
-            if fod_eval:
-                if len(self.length)==1:
-                    fod=np.expand_dims(squareform(2*dists)*K,axis=0)
-                else:
-                    fod=fod_exp(X_l,K)
-        elif self.name=='matern2.5':
-            if fod_eval:
-                K=squareform(np.exp(-np.sqrt(5)*pdist(X_l, metric="minkowski",p=1)))
-                if len(self.length)==1:
-                    coef1, coef2 = pdist_matern_one(X_l)
-                else:
-                    coef1, coef2 = pdist_matern_multi(X_l)
-                K*=coef1
-                fod=coef2*K
-            else:
-                K=np.exp(-np.sqrt(5)*pdist(X_l, metric="minkowski",p=1))
-                K*=pdist_matern_coef(X_l)
-                K=squareform(K)
-        if fod_eval and self.nugget_est:
-            if self.rep is None:
-                nugget_fod=np.expand_dims(self.nugget*np.eye(n),0)
-            else:
-                nugget_fod=np.expand_dims(np.diag(self.nugget*self.W_diag),0)
-            fod=np.concatenate((fod,nugget_fod),axis=0)
-        if self.rep is None:
-            np.fill_diagonal(K, 1+self.nugget)
-        else:
-            np.fill_diagonal(K, 1+self.nugget*self.W_diag)
+            X = self.input
+
+        n = self.output.shape[0]
+
+        nuggeti = self.nugget[0] * self.W_diag
+
         if fod_eval:
-            return K, fod
+            return dK_matrix_nb(X, self.length, nuggeti, self.name, self.nugget_est, (n>=400))
         else:
-            return K
+            return K_matrix_nb(X, self.length, nuggeti, self.name, (n>=400))
         
     def gfod(self, x):
         if self.prior_name=='ga':
@@ -400,7 +482,7 @@ class kernel:
                 fod=np.concatenate((fod, self.gfod(self.nugget)))
         return fod
     
-    def llik(self,x):
+    def llik(self, x):
         """Compute the negative log-likelihood function of the GP and the first order derivatives of the negative log-likelihood function wrt log-transformed model parameters..
 
         Args:
@@ -412,41 +494,53 @@ class kernel:
             contains first order derivatives of the negative log-likelihood function wrt log-transformed lengthscales and nugget.
         """
         self.update(x)
-        n=len(self.output)
-        K,Kt=self.k_matrix(fod_eval=True)
-        L=cholesky(K,lower=True,check_finite=False)
-        KinvKt=np.array([cho_solve((L, True), Kt_i, check_finite=False) for Kt_i in Kt])
-        #tr_KinvKt=np.trace(KinvKt, axis1=1, axis2=2)
-        #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-        tr_KinvKt=trace_nb(KinvKt)
-        logdet=logdet_nb(L)
-        KinvY=cho_solve((L, True), self.output, check_finite=False)
-        YKinvKtKinvY=((self.output).T@KinvKt@KinvY).flatten()
-        YKinvY=(self.output).T@KinvY
-        P1=-0.5*tr_KinvKt
-        P2=0.5*YKinvKtKinvY
+
+        y = self.output[:, 0]
+        n = y.shape[0]
+
+        K, Kt = self.k_matrix(fod_eval=True)
+
+        p = Kt.shape[0]
+        L = cholesky(K, lower=True, check_finite=False)
+        alpha = cho_solve((L, True), y, check_finite=False)   # (n,1)
+
+        logdet = logdet_nb(L)
+        yKy = np.atleast_1d(y @ alpha)
+
         if self.scale_est:
             if self.rep is None:
-                self.scale=(YKinvY/n).flatten()
-                neg_llik=0.5*(logdet+n*np.log(self.scale))
+                self.scale = yKy / n
+                neg_llik = 0.5 * (logdet + n * np.log(self.scale))
             else:
-                self.scale = ((YKinvY + self.sum_residual/self.nugget)/len(self.rep)).flatten()
-                neg_llik=0.5*(logdet+len(self.rep)*np.log(self.scale))
-            neg_St=-P1-P2/self.scale
-            if self.rep is not None and self.nugget_est:
-                neg_llik += 0.5*(len(self.rep)-n)*np.log(self.nugget)
-                neg_St[-1] += 0.5*(-self.sum_residual/(self.scale*self.nugget) + (len(self.rep)-n))
+                m = len(self.rep)
+                self.scale = (yKy + self.sum_residual / self.nugget) / m
+                neg_llik = 0.5 * (logdet + m * np.log(self.scale))
         else:
-            neg_llik=0.5*(logdet+YKinvY/self.scale) 
-            neg_St=-P1-P2/self.scale
-            if self.rep is not None and self.nugget_est:
-                neg_llik += 0.5*(self.sum_residual/(self.scale*self.nugget) + (len(self.rep)-n)*np.log(self.nugget))
-                neg_St[-1] += 0.5*(-self.sum_residual/(self.scale*self.nugget) + (len(self.rep)-n))
-        neg_llik=neg_llik.flatten()
+            neg_llik = 0.5 * (logdet + yKy / self.scale)
+
+        Kinv = cho_solve((L, True), np.eye(n, dtype=K.dtype), check_finite=False)
+
+        a = alpha.ravel()
+        W = Kinv - np.outer(a, a) / self.scale
+
+        grad = 0.5 * (Kt.reshape(p, -1) @ W.ravel())
+
+        if self.rep is not None and self.nugget_est:
+            m = len(self.rep)
+            if self.scale_est:
+                neg_llik += 0.5 * (m - n) * np.log(self.nugget)
+            else:
+                neg_llik += 0.5 * (self.sum_residual / (self.scale * self.nugget) + (m - n) * np.log(self.nugget))
+
+            grad[-1] += 0.5 * (-self.sum_residual / (self.scale * self.nugget) + (m - n))
+
+        neg_llik = np.asarray(neg_llik)
+
         if self.prior_name is not None:
-            neg_llik=neg_llik-self.log_prior()
-            neg_St=neg_St-self.log_prior_fod()
-        return neg_llik, neg_St
+            neg_llik = neg_llik - self.log_prior()
+            grad = grad - self.log_prior_fod()
+
+        return neg_llik, grad
     
     def llik_vecch(self,x):
         """Compute the negative log-likelihood function of the GP under Vecchia approximation.
@@ -464,28 +558,26 @@ class kernel:
             X = np.concatenate((self.input,self.global_input),1)
         else:
             X = self.input
-        if self.rep is None:
-            origin_n = len(self.output)
-            nugget_diag = np.ones(origin_n)
-            rr = np.array([-1.])
-        else:
-            origin_n = len(self.rep)
-            nugget_diag = self.W_diag
-            rr = self.sum_residual
-        neg_llik, neg_St, self.scale = vecchia_nllik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], nugget_diag[self.ord], self.name, self.scale_est, self.nugget_est, origin_n, rr[0])
+        nugget_diag = self.W_diag
+        ord = self.ord
+        X0, y0, nugget_diag0 = X[ord], self.output[ord,0], nugget_diag[ord]
+        neg_llik, neg_St, self.scale = vecchia_nllik(X0, y0, self.NN_rev, self.NN_count, self.scale[0], self.length, self.nugget[0], nugget_diag0, self.name, self.scale_est, self.nugget_est, self.origin_n, self.sum_residual)
         if self.prior_name is not None:
             neg_llik=neg_llik-self.log_prior()
             neg_St=neg_St-self.log_prior_fod()
         return neg_llik, neg_St
 
     def log_likelihood_func(self):
-        cov=self.scale*self.k_matrix()
-        L=cholesky(cov, lower=True, check_finite=False)
+        y = self.output.ravel()
+        K = self.k_matrix()
+        L = cholesky(K, lower=True, check_finite=False)
         #L=np.linalg.cholesky(cov)
         #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
-        logdet=logdet_nb(L)
-        quad=(self.output).T@cho_solve((L, True), self.output, check_finite=False)
-        llik=-0.5*(logdet+quad)
+        logdet = logdet_nb(L)
+        alpha = cho_solve((L, True), y, check_finite=False)
+        quad = y @ alpha
+        s = self.scale[0]  # shape (1,)
+        llik = -0.5 * (logdet + quad / s)
         if self.prior_name=='ref':
             self.compute_cl()
             llik+=self.log_prior()
@@ -498,11 +590,10 @@ class kernel:
             X=np.concatenate((self.input,self.global_input),1)
         else:
             X=self.input
-        if self.rep is None:
-            nugget_diag = np.ones(len(self.output))
-        else:
-            nugget_diag = self.W_diag
-        llik = vecchia_llik(X[self.ord], self.output[self.ord], self.NNarray, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+        nugget_diag = self.W_diag
+        ord = self.ord
+        X0, y0, nugget_diag0 = X[ord], self.output[ord,0], nugget_diag[ord]
+        llik = vecchia_llik(X0, y0, self.NN_rev, self.NN_count, self.scale[0], self.length, self.nugget[0], nugget_diag0, self.name)
         if self.prior_name=='ref':
             self.compute_cl()
             llik+=self.log_prior()
@@ -534,12 +625,12 @@ class kernel:
             bd=Bounds(lb, ub)
             if self.vecch:
                 if self.target=='gp' and len(self.length)!=1:
-                    _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                    res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
                     self.iter_count = 0
                 else:
-                    _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                    res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
             else:
-                _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                res = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
         else:
             if self.bds is None:
                 if self.prior_name=='ref':
@@ -548,21 +639,21 @@ class kernel:
                     bd=Bounds(lb, ub)
                     if self.vecch:
                         if self.target=='gp' and len(self.length)!=1:
-                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                            res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
                             self.iter_count = 0
                         else:
-                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                            res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                     else:
-                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                        res = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                 else:
                     if self.vecch:
                         if self.target=='gp' and len(self.length)!=1:
-                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                            res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
                             self.iter_count = 0                       
                         else:
-                            _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                            res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                     else:
-                        _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                        res = minimize(self.llik, initial_theta_trans, method=method, jac=True, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
             else:
                 with np.errstate(divide='ignore'):
                     lb=np.log(self.bds[0])*np.ones(len(initial_theta_trans))
@@ -570,12 +661,13 @@ class kernel:
                 bd=Bounds(lb, ub)
                 if self.vecch:
                     if self.target=='gp' and len(self.length)!=1:
-                        _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
+                        res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, callback=self.callback, options={'maxfun': np.max((50,20+5*self.D))})
                         self.iter_count = 0
                     else:
-                        _ = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                        res = minimize(self.llik_vecch, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
                 else:
-                    _ = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+                    res = minimize(self.llik, initial_theta_trans, method=method, jac=True, bounds=bd, options={'maxiter': 100, 'maxfun': np.max((30,20+5*self.D))})
+        self.update(res.x)
         self.add_to_path()
         
     def add_to_path(self):
@@ -609,19 +701,22 @@ class kernel:
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             if self.loo_state:
                 NNarray = NNarray[:,1:]
-            if self.rep is None:
-                nugget_diag = np.ones(len(self.output))
-            else:
-                nugget_diag = self.W_diag
+            nugget_diag = self.W_diag
             if parallel:
                 m,v = gp_vecch(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],nugget_diag,self.name)
             else:
                 m,v = gp_vecch_non_parallel(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],nugget_diag,self.name)
         else:
+            if z is not None:
+                x = np.concatenate((x, z), 1) / self.length                      
+                w = np.concatenate((self.input, self.global_input), 1) / self.length
+            else:   
+                x = x / self.length                                      
+                w = self.input / self.length
             if parallel:
-                m,v=gp(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
+                m,v=gp(x,w,self.Rinv,self.Rinv_y,self.scale[0],self.nugget[0],self.name)
             else:
-                m,v=gp_non_parallel(x,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.scale,self.length,self.nugget,self.name)
+                m,v=gp_non_parallel(x,w,self.Rinv,self.Rinv_y,self.scale[0],self.nugget[0],self.name)
         return m,v
 
     def linkgp_prediction(self,m,v,z):
@@ -654,20 +749,116 @@ class kernel:
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             if self.loo_state:
                 NNarray = NNarray[:,1:]
-            if self.rep is None:
-                nugget_diag = np.ones(len(self.output))
-            else:
-                nugget_diag = self.W_diag
+            nugget_diag = self.W_diag
             if parallel:
                 m,v = link_gp_vecch(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
             else:
                 m,v = link_gp_vecch_non_parallel(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+            return m, v
         else:
-            if parallel:
-                m,v=link_gp(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.R2sexp,self.Psexp,self.scale[0],self.length,self.nugget[0],self.name)
+            w1 = self.input
+            Rinv = self.Rinv
+            Rinv_y = self.Rinv_y
+            scale = self.scale[0]
+            nugget = self.nugget[0]
+            if self.name == "sexp":
+                Dw = w1.shape[1]
+                if z is None:
+                    if len(self.length) == 1:
+                        length_w = np.full(Dw, self.length[0], dtype=np.float64)
+                    else:
+                        length_w = np.asarray(self.length, dtype=np.float64)
+
+                    inv_len_w = 1.0 / length_w  # CHANGED: pass inv_len, avoid divides in kernels
+
+                    if parallel:
+                        m2, v2 = link_gp_sexp_noz_parallel(m, v, w1, Rinv, Rinv_y, scale, inv_len_w, nugget)  # CHANGED
+                    else:
+                        m2, v2 = link_gp_sexp_noz_serial(m, v, w1, Rinv, Rinv_y, scale, inv_len_w, nugget)    # CHANGED
+                    return m2, v2
+
+                else:
+                    Dz = z.shape[1]
+                    if len(self.length) == 1:
+                        length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64)
+                    else:
+                        length_full = np.asarray(self.length, dtype=np.float64)
+
+                    length_w = length_full[:Dw]
+                    length_z = length_full[Dw:Dw + Dz]
+                    inv_len_w = 1.0 / length_w
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        m2, v2 = link_gp_sexp_withz_parallel(m, v, z, self.input, self.global_input,
+                                                            Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)  # CHANGED
+                    else:
+                        m2, v2 = link_gp_sexp_withz_serial(m, v, z, self.input, self.global_input,
+                                                        Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)    # CHANGED
+                    return m2, v2
             else:
-                m,v=link_gp_non_parallel(m,v,z,self.input,self.global_input,self.Rinv,self.Rinv_y,self.R2sexp,self.Psexp,self.scale[0],self.length,self.nugget[0],self.name)
-        return m,v
+                Dw = w1.shape[1]
+                if z is None:
+                    if len(self.length) == 1:
+                        length_w = np.full(Dw, self.length[0], dtype=np.float64)
+                    else:
+                        length_w = np.asarray(self.length[:Dw], dtype=np.float64)
+
+                    inv_len_w = 1.0 / length_w
+                    inv_len2_w = inv_len_w * inv_len_w
+                    len2_w = length_w * length_w
+                    len3_w = len2_w * length_w
+                    len4_w = len2_w * len2_w
+
+                    if parallel:
+                        m2, v2 = link_gp_matern25_noz_parallel(
+                            m, v, w1, Rinv, Rinv_y,
+                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            nugget
+                        )
+                    else:
+                        m2, v2 = link_gp_matern25_noz_serial(
+                            m, v, w1, Rinv, Rinv_y,
+                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            nugget
+                        )
+                    return m2, v2
+
+                else:
+                    Dz = z.shape[1]
+                    if len(self.length) == 1:
+                        length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64)
+                    else:
+                        length_full = np.asarray(self.length, dtype=np.float64)
+
+                    length_w = length_full[:Dw]
+                    length_z = length_full[Dw:Dw + Dz]
+
+                    inv_len_w = 1.0 / length_w
+                    inv_len2_w = inv_len_w * inv_len_w
+                    len2_w = length_w * length_w
+                    len3_w = len2_w * length_w
+                    len4_w = len2_w * len2_w
+
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        m2, v2 = link_gp_matern25_withz_parallel(
+                            m, v, z, self.input, self.global_input, Rinv, Rinv_y,
+                            scale,
+                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            inv_len_z,
+                            nugget
+                        )
+                    else:
+                        m2, v2 = link_gp_matern25_withz_serial(
+                            m, v, z, self.input, self.global_input, Rinv, Rinv_y,
+                            scale,
+                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            inv_len_z,
+                            nugget
+                        )
+                    return m2, v2
 
     def linkgp_prediction_full(self,m,v,m_z,v_z,z):
         """Make linked GP predictions with additional input also generated by GPs/DGPs. 
@@ -692,9 +883,8 @@ class kernel:
         parallel = True if num_x > num_thread else False
         m=np.concatenate((m,m_z),axis=1)
         v=np.concatenate((v,v_z),axis=1)
-        idx1=np.arange(np.shape(m_z)[1])
-        idx2=np.arange(np.shape(m_z)[1],np.shape(self.global_input)[1])
-        overall_input=np.concatenate((self.input,self.global_input[:,idx1]),axis=1)
+        k = m_z.shape[1]
+        overall_input=np.concatenate((self.input,self.global_input[:,:k]),axis=1)
         if self.vecch:
             if z is not None:
                 x = np.concatenate((m, z),1)
@@ -703,39 +893,117 @@ class kernel:
                 x = m
                 w = overall_input
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
-            if self.rep is None:
-                nugget_diag = np.ones(len(self.output))
-            else:
-                nugget_diag = self.W_diag
+            nugget_diag = self.W_diag
             if parallel:     
-                m,v = link_gp_vecch(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+                m,v = link_gp_vecch(m, v, z, overall_input, self.global_input[:,k:], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
             else:
-                m,v = link_gp_vecch_non_parallel(m, v, z, overall_input, self.global_input[:,idx2], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+                m,v = link_gp_vecch_non_parallel(m, v, z, overall_input, self.global_input[:,k:], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
         else:
-            if self.name=='sexp':
-                if len(self.length)==1:
-                    global_input_l=self.global_input[:,idx1]/self.length
+            Rinv = self.Rinv
+            Rinv_y = self.Rinv_y
+            scale = self.scale[0]
+            nugget = self.nugget[0]
+
+            Dw = overall_input.shape[1]
+            Dz = 0 if z is None else z.shape[1]
+
+            if len(self.length) == 1:
+                length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64)
+            else:
+                length_full = np.asarray(self.length, dtype=np.float64)
+
+            if self.name == "sexp":
+                if z is None:
+                    length_w = length_full
+                    inv_len_w = 1.0 / length_w
+
+                    if parallel:
+                        return link_gp_sexp_noz_parallel(m, v, overall_input, Rinv, Rinv_y, scale, inv_len_w, nugget)
+                    else:
+                        return link_gp_sexp_noz_serial(m, v, overall_input, Rinv, Rinv_y, scale, inv_len_w, nugget)
                 else:
-                    D=np.shape(self.input)[1]
-                    global_input_l=self.global_input[:,idx1]/(self.length[D::][idx1])
-                dists = pdist(global_input_l, metric="sqeuclidean")
-                R2sexp_global = squareform(np.exp(-dists/2))
-                np.fill_diagonal(R2sexp_global, 1)
-                R2sexp = self.R2sexp*R2sexp_global
-                Psexp_global = Pmatrix(global_input_l)
-                Psexp = np.concatenate((self.Psexp,Psexp_global),axis=0)
+                    length_w = length_full[:Dw]
+                    length_z = length_full[Dw:Dw + Dz]
+                    inv_len_w = 1.0 / length_w
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        return link_gp_sexp_withz_parallel(
+                            m, v, z,
+                            overall_input, self.global_input[:, k:],
+                            Rinv, Rinv_y,
+                            scale, inv_len_w, inv_len_z,
+                            nugget
+                        )
+                    else:
+                        return link_gp_sexp_withz_serial(
+                            m, v, z,
+                            overall_input, self.global_input[:, k:],
+                            Rinv, Rinv_y,
+                            scale, inv_len_w, inv_len_z,
+                            nugget
+                        )
+            # ---------- matern2.5 ----------
             else:
-                R2sexp, Psexp = self.R2sexp, self.Psexp
-            if parallel:
-                m,v=link_gp(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,R2sexp,Psexp,self.scale[0],self.length,self.nugget[0],self.name)
-            else:
-                m,v=link_gp_non_parallel(m,v,z,overall_input,self.global_input[:,idx2],self.Rinv,self.Rinv_y,R2sexp,Psexp,self.scale[0],self.length,self.nugget[0],self.name)
-        return m,v
+                if z is None:
+                    length_w = length_full
+                    inv_len_w = 1.0 / length_w
+                    inv_len2_w = inv_len_w * inv_len_w
+                    len2_w = length_w * length_w
+                    len3_w = len2_w * length_w
+                    len4_w = len2_w * len2_w
+
+                    if parallel:
+                        return link_gp_matern25_noz_parallel(
+                            m, v, overall_input, Rinv, Rinv_y,
+                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            nugget
+                        )
+                    else:
+                        return link_gp_matern25_noz_serial(
+                            m, v, overall_input, Rinv, Rinv_y,
+                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            nugget
+                        )
+
+                else:
+                    length_w = length_full[:Dw]
+                    length_z = length_full[Dw:Dw + Dz]
+
+                    inv_len_w = 1.0 / length_w
+                    inv_len2_w = inv_len_w * inv_len_w
+                    len2_w = length_w * length_w
+                    len3_w = len2_w * length_w
+                    len4_w = len2_w * len2_w
+
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        return link_gp_matern25_withz_parallel(
+                            m, v, z,
+                            overall_input, self.global_input[:, k:],
+                            Rinv, Rinv_y,
+                            scale,
+                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            inv_len_z,
+                            nugget
+                        )
+                    else:
+                        return link_gp_matern25_withz_serial(
+                            m, v, z,
+                            overall_input, self.global_input[:, k:],
+                            Rinv, Rinv_y,
+                            scale,
+                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
+                            inv_len_z,
+                            nugget
+                        )
 
     def compute_stats(self):
         """Compute and store key statistics for the GP predictions
         """
         R=self.k_matrix()
+        n = self.output.shape[0]
         #U, s, Vh = np.linalg.svd(R)
         #self.Rinv=Vh.T@np.diag(s**-1)@U.T
         #L=np.linalg.cholesky(R)
@@ -744,24 +1012,11 @@ class kernel:
         #self.Rinv_y=np.dot(self.Rinv,self.output).flatten()
         try:
             L=np.linalg.cholesky(R)
-            self.Rinv=cho_solve((L, True), np.eye(len(R)), check_finite=False)
-            self.Rinv_y=cho_solve((L, True), self.output, check_finite=False).flatten()
+            self.Rinv=cho_solve((L, True), np.eye(n), check_finite=False)
+            self.Rinv_y=cho_solve((L, True), self.output[:,0], check_finite=False)
         except LinAlgError:
             self.Rinv=pinvh(R,check_finite=False)
-            self.Rinv_y=np.dot(self.Rinv,self.output).flatten()
-        if self.name=='sexp':
-            if self.global_input is None:
-                X_l=self.input/self.length
-            else:
-                if len(self.length)==1:
-                    X_l=self.input/self.length
-                else:
-                    D=np.shape(self.input)[1]
-                    X_l=self.input/self.length[:D]
-            dists = pdist(X_l, metric="sqeuclidean")
-            self.R2sexp = squareform(np.exp(-dists/2))
-            np.fill_diagonal(self.R2sexp, 1)
-            self.Psexp = Pmatrix(X_l)
+            self.Rinv_y=np.dot(self.Rinv,self.output[:,0])
 
 def combine(*layers):
     """Combine layers into one list as a DGP or linked (D)GP structure.

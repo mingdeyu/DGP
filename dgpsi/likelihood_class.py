@@ -109,27 +109,31 @@ class Hetero:
 
     def llik(self):
         mu,log_var=self.input[:,0],self.input[:,1]
-        r2 = ((self.output).flatten()-mu)**2
-        llik=-0.5*(np.log(2*np.pi)+log_var+np.exp(np.log(r2)-log_var))
-        llik=np.sum(llik)
+        y = self.output[:, 0]
+        res = y - mu  
+        r2 = res * res
+        var = np.exp(log_var)
+        llik = -0.5 * (np.log(2*np.pi) + log_var + (r2 / var))
+        llik = np.sum(llik)
         return llik
 
     @staticmethod
     def pllik(y,f):
-        mu,var=f[:,:,[0]],np.exp(f[:,:,[1]])
-        pllik=-0.5*(np.log(2*np.pi*var)+(y-mu)**2/var)
+        mu, logvar=f[:,:,[0]], f[:,:,[1]]
+        var = np.exp(logvar)
+        pllik = -0.5 * (np.log(2*np.pi) + logvar + (y - mu)**2 / var)
         return pllik
 
     @staticmethod    
     def prediction(m,v):
         y_mean=m[:,0]
         y_var=np.exp(m[:,1]+v[:,1]/2)+v[:,0]
-        return y_mean.flatten(),y_var.flatten()
+        return y_mean,y_var
     
     @staticmethod
     def sampling(f_sample):
         y_sample=np.random.normal(f_sample[:,0],np.sqrt(np.exp(f_sample[:,1])))
-        return y_sample.flatten()
+        return y_sample[:,0]
 
     def posterior(self,idx,v):
         """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood.
@@ -157,7 +161,7 @@ class Hetero:
             if self.rep is None:
                 f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, self.output[ord,0])[rev_ord]
             else:
-                num = np.bincount(self.rep, weights=invg*self.output.flatten(), minlength=U_sp_l.shape[0])[ord]
+                num = np.bincount(self.rep, weights=invg*self.output[:,0], minlength=U_sp_l.shape[0])[ord]
                 y = num * invd
                 f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, y)[rev_ord]
             return f_mu
@@ -197,9 +201,9 @@ class Hetero:
 
         L1 = cholesky(v, lower=True, check_finite=False)
         mu = v.dot(cho_solve((L, True), y_mask.flatten(), check_finite=False))
-        sd = np.random.randn(len(mu),2)
-        u = L1.dot(sd[:,0])
-        w = np.sqrt(Gamma) * sd[:,1]
+        sd0, sd1 = np.random.randn(len(mu)), np.random.randn(len(mu))      
+        u = L1.dot(sd0)
+        w = np.sqrt(Gamma) * sd1
         f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
         f += (mu + u)
 
@@ -219,7 +223,8 @@ class Hetero:
         GammaInvY = GammaInv * y_mask.flatten()
         MGammaInvY = np.bincount(mask_f, weights=GammaInvY, minlength=N)
         MGammaInvM = np.bincount(mask_f, weights=GammaInv, minlength=N)
-
+        
+        MGammaInvM = np.maximum(MGammaInvM, 1e-15)
         invMGammaInvM = 1.0/MGammaInvM
         vinvMGammaInvM = v.copy()
         #add_to_diag_square(vinvMGammaInvM, np.full(N, 1e-10))
@@ -235,9 +240,9 @@ class Hetero:
         L1 = cholesky(v, lower=True, check_finite=False)
         mu=v.dot(cho_solve((L, True), invMGammaInvM*MGammaInvY, check_finite=False))
 
-        sd = np.random.randn(len(mu),2)
-        u = L1.dot(sd[:,0])
-        w = np.sqrt(invMGammaInvM) * sd[:,1]
+        sd0, sd1 = np.random.randn(len(mu)), np.random.randn(len(mu))  
+        u = L1.dot(sd0)
+        w = np.sqrt(invMGammaInvM) * sd1
         f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
         f += (mu + u)
         return f    
