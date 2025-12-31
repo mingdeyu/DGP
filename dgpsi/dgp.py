@@ -920,7 +920,7 @@ class dgp:
                     else: 
                         R=kernel.k_matrix()
                         L=np.linalg.cholesky(R)
-                        Rinv_y=cho_solve((L, True), kernel.output, check_finite=False).flatten()
+                        Rinv_y=cho_solve((L, True), kernel.output, check_finite=False)[:,0]
                         if kernel.connect is not None:
                             mu=cond_mean(In[~mask,:][:,kernel.input_dim],global_in[~mask,:][:,kernel.connect],kernel.input,kernel.global_input,Rinv_y,kernel.length,kernel.name)
                         else:

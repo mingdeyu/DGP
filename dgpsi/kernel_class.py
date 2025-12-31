@@ -4,7 +4,7 @@ from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist
 from .functions import gp, gp_non_parallel, logdet_nb, g, link_gp_matern25_noz_serial, link_gp_matern25_noz_parallel, link_gp_matern25_withz_serial, link_gp_matern25_withz_parallel, link_gp_sexp_noz_serial, link_gp_sexp_noz_parallel, link_gp_sexp_withz_serial, link_gp_sexp_withz_parallel
-from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, link_gp_vecch, link_gp_vecch_non_parallel, dK_matrix_nb, K_matrix_nb, preprocess_nn
+from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, dK_matrix_nb, K_matrix_nb, preprocess_nn, link_gp_vecch_sexp_noz_parallel, link_gp_vecch_sexp_noz_serial, link_gp_vecch_sexp_withz_parallel, link_gp_vecch_sexp_withz_serial, link_gp_vecch_matern25_noz_parallel, link_gp_vecch_matern25_noz_serial, link_gp_vecch_matern25_withz_parallel, link_gp_vecch_matern25_withz_serial
 from .utils import get_thread
 class kernel:
     """
@@ -750,11 +750,54 @@ class kernel:
             if self.loo_state:
                 NNarray = NNarray[:,1:]
             nugget_diag = self.W_diag
-            if parallel:
-                m,v = link_gp_vecch(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+            scale = self.scale[0]
+            nugget = self.nugget[0]
+            y = self.output
+            w1 = self.input
+
+            if self.name == "sexp":
+                Dw = w1.shape[1]
+                if z is None:
+                    length_w = np.full(Dw, self.length[0], dtype=np.float64) if len(self.length) == 1 else self.length
+                    inv_len_w = 1.0 / length_w
+
+                    if parallel:
+                        return link_gp_vecch_sexp_noz_parallel(m, v, w1, NNarray, y, scale, length_w, inv_len_w, nugget, nugget_diag)
+                    else:
+                        return link_gp_vecch_sexp_noz_serial(m, v, w1, NNarray, y, scale, length_w, inv_len_w, nugget, nugget_diag)
+                else:
+                    Dz = z.shape[1]
+                    length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64) if len(self.length) == 1 else self.length
+                    length_w = length_full[:Dw]
+                    length_z = length_full[Dw:Dw + Dz]
+                    inv_len_w = 1.0 / length_w
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        return link_gp_vecch_sexp_withz_parallel(m, v, z, w1, self.global_input, NNarray, y, scale, length_full, inv_len_w, inv_len_z, nugget, nugget_diag)
+                    else:
+                        return link_gp_vecch_sexp_withz_serial(m, v, z, w1, self.global_input, NNarray, y, scale, length_full, inv_len_w, inv_len_z, nugget, nugget_diag)
+
+            # ===== matern2.5 =====
+            Dw = w1.shape[1]
+            if z is None:
+                length_w = np.full(Dw, self.length[0], dtype=np.float64) if len(self.length) == 1 else self.length
+
+                if parallel:
+                    return link_gp_vecch_matern25_noz_parallel(m, v, w1, NNarray, y, scale, length_w, nugget, nugget_diag)
+                else:
+                    return link_gp_vecch_matern25_noz_serial(m, v, w1, NNarray, y, scale, length_w, nugget, nugget_diag)
             else:
-                m,v = link_gp_vecch_non_parallel(m, v, z, self.input, self.global_input, NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
-            return m, v
+                Dz = z.shape[1]
+                length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64) if len(self.length) == 1 else self.length
+                length_w = length_full[:Dw]
+                length_z = length_full[Dw:Dw + Dz]
+                inv_len_z = 1.0 / length_z
+
+                if parallel:
+                    return link_gp_vecch_matern25_withz_parallel(m, v, z, w1, self.global_input, NNarray, y, scale, length_full, length_w, inv_len_z, nugget, nugget_diag)
+                else:
+                    return link_gp_vecch_matern25_withz_serial(m, v, z, w1, self.global_input, NNarray, y, scale, length_full, length_w, inv_len_z, nugget, nugget_diag)
         else:
             w1 = self.input
             Rinv = self.Rinv
@@ -767,14 +810,14 @@ class kernel:
                     if len(self.length) == 1:
                         length_w = np.full(Dw, self.length[0], dtype=np.float64)
                     else:
-                        length_w = np.asarray(self.length, dtype=np.float64)
+                        length_w = self.length
 
-                    inv_len_w = 1.0 / length_w  # CHANGED: pass inv_len, avoid divides in kernels
+                    inv_len_w = 1.0 / length_w
 
                     if parallel:
-                        m2, v2 = link_gp_sexp_noz_parallel(m, v, w1, Rinv, Rinv_y, scale, inv_len_w, nugget)  # CHANGED
+                        m2, v2 = link_gp_sexp_noz_parallel(m, v, w1, Rinv, Rinv_y, scale, inv_len_w, nugget) 
                     else:
-                        m2, v2 = link_gp_sexp_noz_serial(m, v, w1, Rinv, Rinv_y, scale, inv_len_w, nugget)    # CHANGED
+                        m2, v2 = link_gp_sexp_noz_serial(m, v, w1, Rinv, Rinv_y, scale, inv_len_w, nugget)
                     return m2, v2
 
                 else:
@@ -782,7 +825,7 @@ class kernel:
                     if len(self.length) == 1:
                         length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64)
                     else:
-                        length_full = np.asarray(self.length, dtype=np.float64)
+                        length_full = self.length
 
                     length_w = length_full[:Dw]
                     length_z = length_full[Dw:Dw + Dz]
@@ -790,11 +833,9 @@ class kernel:
                     inv_len_z = 1.0 / length_z
 
                     if parallel:
-                        m2, v2 = link_gp_sexp_withz_parallel(m, v, z, self.input, self.global_input,
-                                                            Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)  # CHANGED
+                        m2, v2 = link_gp_sexp_withz_parallel(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)  # CHANGED
                     else:
-                        m2, v2 = link_gp_sexp_withz_serial(m, v, z, self.input, self.global_input,
-                                                        Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)    # CHANGED
+                        m2, v2 = link_gp_sexp_withz_serial(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)    # CHANGED
                     return m2, v2
             else:
                 Dw = w1.shape[1]
@@ -802,26 +843,12 @@ class kernel:
                     if len(self.length) == 1:
                         length_w = np.full(Dw, self.length[0], dtype=np.float64)
                     else:
-                        length_w = np.asarray(self.length[:Dw], dtype=np.float64)
-
-                    inv_len_w = 1.0 / length_w
-                    inv_len2_w = inv_len_w * inv_len_w
-                    len2_w = length_w * length_w
-                    len3_w = len2_w * length_w
-                    len4_w = len2_w * len2_w
+                        length_w = self.length
 
                     if parallel:
-                        m2, v2 = link_gp_matern25_noz_parallel(
-                            m, v, w1, Rinv, Rinv_y,
-                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            nugget
-                        )
+                        m2, v2 = link_gp_matern25_noz_parallel(m, v, w1, Rinv, Rinv_y, scale, length_w, nugget)
                     else:
-                        m2, v2 = link_gp_matern25_noz_serial(
-                            m, v, w1, Rinv, Rinv_y,
-                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            nugget
-                        )
+                        m2, v2 = link_gp_matern25_noz_serial(m, v, w1, Rinv, Rinv_y, scale, length_w, nugget)
                     return m2, v2
 
                 else:
@@ -829,35 +856,17 @@ class kernel:
                     if len(self.length) == 1:
                         length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64)
                     else:
-                        length_full = np.asarray(self.length, dtype=np.float64)
+                        length_full = self.length
 
                     length_w = length_full[:Dw]
                     length_z = length_full[Dw:Dw + Dz]
 
-                    inv_len_w = 1.0 / length_w
-                    inv_len2_w = inv_len_w * inv_len_w
-                    len2_w = length_w * length_w
-                    len3_w = len2_w * length_w
-                    len4_w = len2_w * len2_w
-
                     inv_len_z = 1.0 / length_z
 
                     if parallel:
-                        m2, v2 = link_gp_matern25_withz_parallel(
-                            m, v, z, self.input, self.global_input, Rinv, Rinv_y,
-                            scale,
-                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            inv_len_z,
-                            nugget
-                        )
+                        m2, v2 = link_gp_matern25_withz_parallel(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
                     else:
-                        m2, v2 = link_gp_matern25_withz_serial(
-                            m, v, z, self.input, self.global_input, Rinv, Rinv_y,
-                            scale,
-                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            inv_len_z,
-                            nugget
-                        )
+                        m2, v2 = link_gp_matern25_withz_serial(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
                     return m2, v2
 
     def linkgp_prediction_full(self,m,v,m_z,v_z,z):
@@ -894,10 +903,57 @@ class kernel:
                 w = overall_input
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             nugget_diag = self.W_diag
-            if parallel:     
-                m,v = link_gp_vecch(m, v, z, overall_input, self.global_input[:,k:], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+            scale = self.scale[0]
+            nugget = self.nugget[0]
+
+            Dw = overall_input.shape[1]
+            Dz = 0 if z is None else z.shape[1]
+
+            # ---- length expansion (match your style) ----
+            if len(self.length) == 1:
+                length_full = np.full(Dw + Dz, self.length[0], dtype=np.float64)
             else:
-                m,v = link_gp_vecch_non_parallel(m, v, z, overall_input, self.global_input[:,k:], NNarray, self.output, self.scale[0], self.length, self.nugget[0], nugget_diag, self.name)
+                length_full = np.asarray(self.length, dtype=np.float64)
+
+            if self.name == "sexp":
+                # sexp needs inv_len_w, inv_len2_w, inv_len_z, and length_full for local K
+                if z is None:
+                    length_w = length_full
+                    inv_len_w = 1.0 / length_w
+                    if parallel:
+                        return link_gp_vecch_sexp_noz_parallel(m, v, overall_input, NNarray, self.output, scale, length_w, inv_len_w, nugget, nugget_diag)
+                    else:
+                        return link_gp_vecch_sexp_noz_serial(m, v, overall_input, NNarray, self.output, scale, length_w, inv_len_w, nugget, nugget_diag)
+                else:
+                    length_w = length_full[:Dw]
+                    inv_len_w = 1.0 / length_w
+
+                    length_z = length_full[Dw:Dw + Dz]
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        return link_gp_vecch_sexp_withz_parallel(
+                            m, v, z, overall_input, self.global_input[:, k:], NNarray, self.output, scale, length_full, inv_len_w, inv_len_z, nugget, nugget_diag)
+                    else:
+                        return link_gp_vecch_sexp_withz_serial(m, v, z, overall_input, self.global_input[:, k:], NNarray, self.output, scale, length_full, inv_len_w, inv_len_z, nugget, nugget_diag)
+            else:
+                # matern2.5 needs (length_w, inv_len_w, inv_len2_w, len2/3/4_w) + inv_len_z + length_full
+                if z is None:
+                    length_w = length_full
+                    if parallel:
+                        return link_gp_vecch_matern25_noz_parallel(m, v, overall_input, NNarray, self.output, scale, length_w, nugget, nugget_diag)
+                    else:
+                        return link_gp_vecch_matern25_noz_serial(m, v, overall_input, NNarray, self.output, scale, length_w, nugget, nugget_diag)
+                else:
+                    length_w = length_full[:Dw]
+
+                    length_z = length_full[Dw:Dw + Dz]
+                    inv_len_z = 1.0 / length_z
+
+                    if parallel:
+                        return link_gp_vecch_matern25_withz_parallel(m, v, z, overall_input, self.global_input[:, k:], NNarray, self.output, scale, length_full, length_w, inv_len_z, nugget, nugget_diag)
+                    else:
+                        return link_gp_vecch_matern25_withz_serial(m, v, z, overall_input, self.global_input[:, k:], NNarray, self.output, scale, length_full, length_w, inv_len_z, nugget, nugget_diag)
         else:
             Rinv = self.Rinv
             Rinv_y = self.Rinv_y
@@ -928,76 +984,28 @@ class kernel:
                     inv_len_z = 1.0 / length_z
 
                     if parallel:
-                        return link_gp_sexp_withz_parallel(
-                            m, v, z,
-                            overall_input, self.global_input[:, k:],
-                            Rinv, Rinv_y,
-                            scale, inv_len_w, inv_len_z,
-                            nugget
-                        )
+                        return link_gp_sexp_withz_parallel(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)
                     else:
-                        return link_gp_sexp_withz_serial(
-                            m, v, z,
-                            overall_input, self.global_input[:, k:],
-                            Rinv, Rinv_y,
-                            scale, inv_len_w, inv_len_z,
-                            nugget
-                        )
+                        return link_gp_sexp_withz_serial(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, inv_len_w, inv_len_z, nugget)
             # ---------- matern2.5 ----------
             else:
                 if z is None:
                     length_w = length_full
-                    inv_len_w = 1.0 / length_w
-                    inv_len2_w = inv_len_w * inv_len_w
-                    len2_w = length_w * length_w
-                    len3_w = len2_w * length_w
-                    len4_w = len2_w * len2_w
 
                     if parallel:
-                        return link_gp_matern25_noz_parallel(
-                            m, v, overall_input, Rinv, Rinv_y,
-                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            nugget
-                        )
+                        return link_gp_matern25_noz_parallel(m, v, overall_input, Rinv, Rinv_y, scale, length_w, nugget)
                     else:
-                        return link_gp_matern25_noz_serial(
-                            m, v, overall_input, Rinv, Rinv_y,
-                            scale, length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            nugget
-                        )
-
+                        return link_gp_matern25_noz_serial(m, v, overall_input, Rinv, Rinv_y, scale, length_w, nugget)
                 else:
                     length_w = length_full[:Dw]
                     length_z = length_full[Dw:Dw + Dz]
 
-                    inv_len_w = 1.0 / length_w
-                    inv_len2_w = inv_len_w * inv_len_w
-                    len2_w = length_w * length_w
-                    len3_w = len2_w * length_w
-                    len4_w = len2_w * len2_w
-
                     inv_len_z = 1.0 / length_z
 
                     if parallel:
-                        return link_gp_matern25_withz_parallel(
-                            m, v, z,
-                            overall_input, self.global_input[:, k:],
-                            Rinv, Rinv_y,
-                            scale,
-                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            inv_len_z,
-                            nugget
-                        )
+                        return link_gp_matern25_withz_parallel(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
                     else:
-                        return link_gp_matern25_withz_serial(
-                            m, v, z,
-                            overall_input, self.global_input[:, k:],
-                            Rinv, Rinv_y,
-                            scale,
-                            length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w,
-                            inv_len_z,
-                            nugget
-                        )
+                        return link_gp_matern25_withz_serial(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
 
     def compute_stats(self):
         """Compute and store key statistics for the GP predictions
