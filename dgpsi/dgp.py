@@ -17,11 +17,11 @@ from contextlib import contextmanager
 from sklearn.preprocessing import LabelEncoder
 from scipy.linalg import cho_solve
 from scipy.special import digamma as psi
-import multiprocess.context as ctx
-import platform
-from pathos.multiprocessing import ProcessingPool as Pool
-import psutil  
-from numba import set_num_threads
+#import multiprocess.context as ctx
+#import platform
+#from pathos.multiprocessing import ProcessingPool as Pool
+#import psutil  
+#from numba import set_num_threads
 
 class dgp:
     """
@@ -1392,13 +1392,13 @@ class dgp:
             if l!=self.n_layer-1:
                 In=copy.copy(Out)
        
-    def train(self, N=500, ess_burn=10, disable=False):
+    def train(self, N=500, ess_burn=5, disable=False):
         """Train the DGP model.
 
         Args:
             N (int): number of iterations for stochastic EM. Defaults to `500`.
             ess_burn (int, optional): number of burnin steps for the ESS-within-Gibbs
-                at each I-step of the SEM. Defaults to `10`.
+                at each I-step of the SEM. Defaults to `5`.
             disable (bool, optional): whether to disable the training progress bar. 
                 Defaults to `False`.
         """

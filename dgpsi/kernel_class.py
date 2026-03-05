@@ -864,9 +864,9 @@ class kernel:
                     inv_len_z = 1.0 / length_z
 
                     if parallel:
-                        m2, v2 = link_gp_matern25_withz_parallel(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
+                        m2, v2 = link_gp_matern25_withz_parallel(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, length_w, inv_len_z, nugget)
                     else:
-                        m2, v2 = link_gp_matern25_withz_serial(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
+                        m2, v2 = link_gp_matern25_withz_serial(m, v, z, self.input, self.global_input, Rinv, Rinv_y, scale, length_w, inv_len_z, nugget)
                     return m2, v2
 
     def linkgp_prediction_full(self,m,v,m_z,v_z,z):
@@ -1003,9 +1003,9 @@ class kernel:
                     inv_len_z = 1.0 / length_z
 
                     if parallel:
-                        return link_gp_matern25_withz_parallel(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
+                        return link_gp_matern25_withz_parallel(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, length_w, inv_len_z, nugget)
                     else:
-                        return link_gp_matern25_withz_serial(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, length_w, inv_len_w, inv_len_z, nugget)
+                        return link_gp_matern25_withz_serial(m, v, z, overall_input, self.global_input[:, k:], Rinv, Rinv_y, scale, length_w, inv_len_z, nugget)
 
     def compute_stats(self):
         """Compute and store key statistics for the GP predictions

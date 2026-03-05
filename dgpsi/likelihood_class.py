@@ -191,7 +191,7 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are no repetitions
            in the training data.
         """
-        #N = v.shape[0]
+        N = v.shape[0]
         vGamma = v.copy()
         #add_to_diag_square(vGamma, np.full(N, 1e-10))
         #v_jitter = vGamma.copy()
@@ -201,9 +201,9 @@ class Hetero:
 
         L1 = cholesky(v, lower=True, check_finite=False)
         mu = v.dot(cho_solve((L, True), y_mask.flatten(), check_finite=False))
-        sd0, sd1 = np.random.randn(len(mu)), np.random.randn(len(mu))      
-        u = L1.dot(sd0)
-        w = np.sqrt(Gamma) * sd1
+        sd = np.random.randn(N,2)
+        u = L1.dot(sd[:,0])
+        w = np.sqrt(Gamma) * sd[:,1]
         f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
         f += (mu + u)
 
@@ -224,7 +224,7 @@ class Hetero:
         MGammaInvY = np.bincount(mask_f, weights=GammaInvY, minlength=N)
         MGammaInvM = np.bincount(mask_f, weights=GammaInv, minlength=N)
         
-        MGammaInvM = np.maximum(MGammaInvM, 1e-15)
+        MGammaInvM = np.maximum(MGammaInvM, 1e-20)
         invMGammaInvM = 1.0/MGammaInvM
         vinvMGammaInvM = v.copy()
         #add_to_diag_square(vinvMGammaInvM, np.full(N, 1e-10))
@@ -239,10 +239,10 @@ class Hetero:
 
         L1 = cholesky(v, lower=True, check_finite=False)
         mu=v.dot(cho_solve((L, True), invMGammaInvM*MGammaInvY, check_finite=False))
-
-        sd0, sd1 = np.random.randn(len(mu)), np.random.randn(len(mu))  
-        u = L1.dot(sd0)
-        w = np.sqrt(invMGammaInvM) * sd1
+        
+        sd = np.random.randn(N,2)
+        u = L1.dot(sd[:,0])
+        w = np.sqrt(invMGammaInvM) * sd[:,1]
         f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
         f += (mu + u)
         return f    

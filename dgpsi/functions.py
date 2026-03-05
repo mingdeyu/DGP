@@ -2,9 +2,10 @@ from numba import njit, prange, config, set_num_threads
 import numpy as np
 from math import erf, sqrt, pi, exp, fabs
 from numpy.random import randn
-from scipy.linalg import pinvh, cholesky
+from scipy.linalg import pinvh, cholesky, solve_triangular, LinAlgError
 import itertools
 from psutil import cpu_count
+from functools import lru_cache
 
 core_num = cpu_count(logical = False)
 max_threads = config.NUMBA_NUM_THREADS
@@ -52,15 +53,90 @@ def logdet_nb(L):
     return 2*np.sum(np.log(np.abs(np.diag(L))))
 
 ######Gauss-Hermite quadrature######
-def ghdiag(fct,mu,var,y):
-    x, w = np.polynomial.hermite.hermgauss(10)
-    N = np.shape(mu)[1]
-    const = np.pi**(-0.5*N)
-    xn = np.array(list(itertools.product(*(x,)*N)))
-    wn = np.prod(np.array(list(itertools.product(*(w,)*N))), 1)[:, None]
-    fn = sqrt(2.0)*(np.sqrt(var[:,None])*xn) + mu[:,None]
-    llik=fct(y[:,None],fn)
-    return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
+# def ghdiag(fct,mu,var,y):
+#     x, w = np.polynomial.hermite.hermgauss(10)
+#     N = np.shape(mu)[1]
+#     const = np.pi**(-0.5*N)
+#     xn = np.array(list(itertools.product(*(x,)*N)))
+#     wn = np.prod(np.array(list(itertools.product(*(w,)*N))), 1)[:, None]
+#     fn = sqrt(2.0)*(np.sqrt(var[:,None])*xn) + mu[:,None]
+#     llik=fct(y[:,None],fn)
+#     return np.sum(np.exp(np.log((wn * const)[None,:]) + llik), axis=1)
+
+@lru_cache(maxsize=None)
+def _hermgauss_1d(q: int):
+    x, w = np.polynomial.hermite.hermgauss(q)
+    return np.asarray(x, dtype=np.float64), np.asarray(w, dtype=np.float64)
+
+@lru_cache(maxsize=None)
+def _gh_tensor_grid(N: int, q: int):
+    """
+    Tensor-product Gauss–Hermite nodes/weights in the SAME ordering as itertools.product(x, repeat=N),
+    but built in NumPy (much faster) and cached.
+    """
+    x, w = _hermgauss_1d(q)
+
+    X = np.meshgrid(*([x] * N), indexing="ij")
+    xn = np.stack(X, axis=-1).reshape(-1, N)  # (P, N)
+
+    W = np.meshgrid(*([w] * N), indexing="ij")
+    wn = np.prod(np.stack(W, axis=-1), axis=-1).reshape(-1)  # (P,)
+
+    logw = np.log(wn) - 0.5 * N * np.log(np.pi)  # log(wn * pi^{-N/2})
+    return xn, logw
+
+def _logsumexp_axis1(a: np.ndarray) -> np.ndarray:
+    """Compute logsumexp over axis=1 using only NumPy. a shape (M, K)."""
+    amax = np.max(a, axis=1, keepdims=True)
+    # handle all -inf rows safely
+    with np.errstate(under="ignore"):
+        s = np.sum(np.exp(a - amax), axis=1)
+    return amax[:, 0] + np.log(s)
+
+def ghdiag(fct, mu, var, y, q: int = 10, block: int = 8192, max_nodes: int = 2_000_000):
+    """
+    Gauss–Hermite quadrature for E[ exp(loglik(y | f)) ] with diagonal Gaussian uncertainty:
+      f ~ N(mu, var) elementwise across N dims.
+    """
+    mu = np.asarray(mu, dtype=np.float64)
+    var = np.asarray(var, dtype=np.float64)
+    y = np.asarray(y)
+
+    M, N = mu.shape
+    P = q ** N
+    if P > max_nodes:
+        raise ValueError(
+            f"Tensor GH grid too large: q**N = {q}^{N} = {P} nodes. "
+            f"Increase max_nodes, reduce N/q, or switch to a different approximation."
+        )
+
+    xn, logw = _gh_tensor_grid(N, q)  # (P,N), (P,)
+    sqrt_var = np.sqrt(var)
+    sqrt2 = np.sqrt(2.0)
+
+    # accumulate log(sum over all nodes) per data point, in log-space across chunks
+    log_total = np.full((M,), -np.inf, dtype=np.float64)
+
+    for j in range(0, P, block):
+        sl = slice(j, min(j + block, P))
+        xn_b = xn[sl]          # (B, N)
+        logw_b = logw[sl]      # (B,)
+
+        fn_b = sqrt2 * (sqrt_var[:, None, :] * xn_b[None, :, :]) + mu[:, None, :]
+
+        llik = np.asarray(fct(y[:, None], fn_b))
+        if llik.ndim == 3 and llik.shape[-1] == 1:
+            llik = llik[..., 0]     # (M, B)
+        elif llik.ndim != 2:
+            raise ValueError(f"Unexpected llik shape {llik.shape}; expected (M,B) or (M,B,1).")
+
+        # log(sum_{nodes in block} exp(llik + logw))
+        log_block = _logsumexp_axis1(llik + logw_b[None, :])
+
+        # combine blocks: log_total = logaddexp(log_total, log_block)
+        log_total = np.logaddexp(log_total, log_block)
+
+    return np.exp(log_total)
 
 ######MICE smooth pred var calculation######
 def mice_var(x, x_extra, input_dim, connect, name, length, scale, nugget, nugget_s):
@@ -72,10 +148,17 @@ def mice_var(x, x_extra, input_dim, connect, name, length, scale, nugget, nugget
         kernel_input=np.concatenate((kernel_input, kernel_global_input),1)
     kernel_nugget=max(nugget_s,nugget)
     R=K_matrix_nb(kernel_input, length, kernel_nugget, name)
-    Rinv=pinvh(R,check_finite=False)
-    sigma2 = (1/np.diag(Rinv)).reshape(-1,1)
-    sigma2 = scale*sigma2
-    return sigma2
+    n = R.shape[0]
+    try:
+        L = cholesky(R, lower=True, check_finite=False)
+        invL = solve_triangular(L, np.eye(n), lower=True, check_finite=False)
+        diag_Rinv = np.sum(invL * invL, axis=0)
+        sigma2 = (scale / diag_Rinv).reshape(-1, 1)
+        return sigma2
+    except LinAlgError:
+        Rinv=pinvh(R,check_finite=False)
+        sigma2 = (scale/np.diag(Rinv)).reshape(-1,1)
+        return sigma2
 
 ######helper functions for predictions########
 @njit(cache=True, fastmath=True)

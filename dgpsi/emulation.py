@@ -1,15 +1,10 @@
-import multiprocess.context as ctx
-import platform
 import numpy as np
-from pathos.multiprocessing import ProcessingPool as Pool
-import psutil   
 from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
 from .functions import ghdiag, mice_var
 from .vecchia import get_pred_nn
 from contextlib import contextmanager
-from numba import set_num_threads
 
 class emulator:
     """Class to make predictions from the trained DGP model.
@@ -34,14 +29,14 @@ class emulator:
             (self.imp).sample(burnin=20)
         else:
             (self.imp).sample(burnin=50)
-        self.all_layer_set=[]
-        for _ in range(N):
+        self.all_layer_set=[None] * N
+        for i in range(N):
             if self.vecch:
                 (self.imp).update_ord_nn()
             (self.imp).sample()
             if not self.vecch:
                 (self.imp).key_stats()
-            (self.all_layer_set).append(copy.deepcopy(self.all_layer))
+            self.all_layer_set[i] = copy.deepcopy(self.all_layer)
         #self.nb_parallel=nb_parallel
         #if len(self.all_layer[0][0].input)>=500 and self.nb_parallel==False:
         #    print('Your training data size is greater than %i, you might want to set "nb_parallel=True" to accelerate the prediction.' % (500))
@@ -112,10 +107,8 @@ class emulator:
         Args:
             X (ndarray): the training input data used to build the DGP emulator via the :class:`.dgp` class.
             method (str, optional): the prediction approach: mean-variance (`mean_var`) or sampling 
-                (`sampling`) approach for the LOO. If set to None, sampling 
-                (`sampling`) approach is used for DGP emulators with a categorical likelihood. Otherwise, 
-                mean-variance (`mean_var`) approach is used. mean-variance (`mean_var`) approach is not applicable
-                to DGP emulators with a categorical likelihood. Defaults to None.
+                (`sampling`) approach for the LOO. If set to None, 
+                mean-variance (`mean_var`) approach is used. Defaults to None.
             sample_size (int, optional): the number of samples to draw for each given imputation if **method** = '`sampling`'.
                  Defaults to `50`.
             m (int, optional): the size of the conditioning set for loo calculations if the GP was built under the Vecchia approximation. Defaults to `30`.
@@ -142,183 +135,6 @@ class emulator:
             modified_items = [item[indices, :] for item in final_res]
             final_res = type(final_res)(modified_items)
         return final_res
-    
-    def ploo(self, X, method=None, sample_size=50, m=30, core_num=None):
-        """Implement the parallel Leave-One-Out cross-validation from a DGP emulator.
-
-        Args:
-            X, method, mode, sample_size, m: see descriptions of the method :meth:`.emulator.loo`.
-            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``max physical cores available // 2``.
-
-        Returns:
-            Same as the method :meth:`.emulator.loo`.
-        """
-        if method is None:
-            method = 'mean_var'
-        isrep = len(X) != len(self.all_layer[0][0].input)
-        if isrep:
-            X, indices = np.unique(X, return_inverse=True, axis=0)
-        m_pred = m+1 if self.vecch else X.shape[0]
-        with self.change_vecch_state():
-            final_res = self.ppredict(X, method=method, sample_size=sample_size, m=m_pred, core_num=core_num)
-        if isrep:
-            modified_items = [item[indices, :] for item in final_res]
-            final_res = type(final_res)(modified_items)
-        return final_res
-
-    def pmetric(self, x_cand, method='ALM', obj=None, nugget_s=1.,m=50,score_only=False,chunk_num=None,core_num=None):
-        """Compute the value of the ALM or MICE criterion for sequential designs in parallel.
-
-        Args:
-            x_cand, method, obj, nugget_s, m, score_only: see descriptions of the method :meth:`.emulator.metric`.
-            chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
-                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``max physical cores available // 2``.
-
-        Returns:
-            Same as the method :meth:`.emulator.metric`.
-        """
-        if x_cand.ndim==1:
-            raise Exception('The candidate design set has to be a numpy 2d-array.')
-        islikelihood = True if self.all_layer[self.n_layer-1][0].type=='likelihood' else False
-        #if self.all_layer[self.n_layer-1][0].type=='likelihood':
-        #    raise Exception('The method is only applicable to DGPs without likelihood layers.')
-        if method == 'ALM':
-            if islikelihood:
-                _, sigma2 = self.ppredict(x=x_cand,full_layer=True,m=m,chunk_num=chunk_num,core_num=core_num)
-                sigma2 = sigma2[-2]
-            else:
-                _, sigma2 = self.ppredict(x=x_cand,chunk_num=chunk_num,core_num=core_num)
-            if score_only:
-                return sigma2 
-            else:
-                idx = np.argmax(sigma2, axis=0)
-                return idx, sigma2[idx,np.arange(sigma2.shape[1])]
-        elif method == 'MICE':
-            os_type = platform.system()
-            if os_type in ['Darwin', 'Linux']:
-                ctx._force_start_method('forkserver')
-            total_cores = psutil.cpu_count(logical = False)
-            if core_num is None:
-                core_num=total_cores//2
-            if chunk_num is None:
-                chunk_num=core_num
-            if chunk_num<core_num:
-                core_num=chunk_num
-            num_thread = total_cores // core_num
-            if islikelihood and self.n_layer==2:
-                def f(params):
-                    x_cand,m = params
-                    set_num_threads(num_thread)
-                    return self.predict_mice_2layer_likelihood(x_cand,m)
-                z=np.array_split(x_cand,chunk_num)
-                with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, m] for x in z])
-                    pool.close()
-                    pool.join()
-                    pool.clear()
-                sigma2 = np.concatenate(res)
-                M=len(x_cand)
-                last_layer = self.all_layer[0]
-                D=len(last_layer)
-                sigma2_s=np.empty((M,D))
-                for k in range(D):
-                    kernel = last_layer[k]
-                    sigma2_s[:,k] = mice_var(x_cand, x_cand, kernel.input_dim, kernel.connect, kernel.name, kernel.length, kernel.scale, kernel.nugget[0], nugget_s).flatten()
-                avg_mice = sigma2/sigma2_s
-            else:
-                def f(params):
-                    x, islikelihood, m = params
-                    set_num_threads(num_thread)
-                    return self.predict_mice(x, islikelihood, m)
-                z=np.array_split(x_cand,chunk_num)
-                with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, islikelihood, m] for x in z])
-                    pool.close()
-                    pool.join()
-                    pool.clear()
-                combined_res=[]
-                for element in zip(*res):
-                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
-                predicted_input, sigma2 = combined_res[0], combined_res[1]   
-                M=len(x_cand)
-                D=len(self.all_layer[-2]) if islikelihood else len(self.all_layer[-1])
-                mice=np.zeros((M,D))
-                S=len(self.all_layer_set)
-                for i in range(S):
-                    last_layer=self.all_layer_set[i][-2] if islikelihood else self.all_layer_set[i][-1]
-                    sigma2_s_i=np.empty((M,D))
-                    for k in range(D):
-                        kernel = last_layer[k]
-                        sigma2_s_i[:,k] = mice_var(predicted_input[i], x_cand, kernel.input_dim, kernel.connect, kernel.name, kernel.length, kernel.scale, kernel.nugget[0], nugget_s).flatten()
-                    with np.errstate(divide='ignore'):
-                        mice += np.log(sigma2[i]/sigma2_s_i)
-                avg_mice=mice/S
-            if score_only:
-                return avg_mice
-            else:
-                idx = np.argmax(avg_mice, axis=0)
-                return idx, avg_mice[idx,np.arange(avg_mice.shape[1])]
-        elif method == 'VIGF':
-            os_type = platform.system()
-            if os_type in ['Darwin', 'Linux']:
-                ctx._force_start_method('forkserver')
-            total_cores = psutil.cpu_count(logical = False)
-            if core_num is None:
-                core_num=total_cores//2
-            if chunk_num is None:
-                chunk_num=core_num
-            if chunk_num<core_num:
-                core_num=chunk_num
-            num_thread = total_cores // core_num
-            if obj is None:
-                raise Exception('The dgp object that is used to build the emulator must be supplied to the argument `obj` when VIGF criterion is chosen.')
-            if islikelihood is not True and obj.indices is not None:
-                raise Exception('VIGF criterion is currently not applicable to DGP emulators whose training data contain replicates but without a likelihood node.')
-            X=obj.X
-            if obj.vecch or obj.n_data>500:
-                index = get_pred_nn(x_cand, X, 1, method = obj.nn_method).flatten()
-            else:
-                Dist=cdist(x_cand, X, "euclidean")
-                index=np.argmin(Dist, axis=1)
-            if islikelihood and self.n_layer==2:
-                def f(params):
-                    x, index, m = params
-                    set_num_threads(num_thread)
-                    return self.predict_vigf_2layer_likelihood(x, index, m)
-                z=np.array_split(x_cand,chunk_num)
-                sub_indx=np.array_split(index,chunk_num)
-                with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, index, m] for x,index in zip(z,sub_indx)])
-                    pool.close()
-                    pool.join()
-                    pool.clear()
-            else:
-                def f(params):
-                    x, index, islikelihood, m = params
-                    set_num_threads(num_thread)
-                    return self.predict_vigf(x, index, islikelihood, m)
-                z=np.array_split(x_cand,chunk_num)
-                sub_indx=np.array_split(index,chunk_num)
-                with Pool(core_num) as pool:
-                    res = pool.map(f, [[x, index, islikelihood, m] for x,index in zip(z,sub_indx)])
-                    pool.close()
-                    pool.join()
-                    pool.clear()
-            combined_res=[]
-            for element in zip(*res):
-                combined_res.append(list(np.concatenate(workers) for workers in zip(*list(element))))
-            bias, sigma2 = np.asarray(combined_res[0]), np.asarray(combined_res[1])
-            E1=np.mean(np.square(bias)+6*bias*sigma2+3*np.square(sigma2),axis=0)
-            E2=np.mean(bias+sigma2, axis=0)
-            vigf=E1-E2**2  
-            if score_only:
-                return vigf
-            else:
-                idx = np.argmax(vigf, axis=0)
-                return idx, vigf[idx,np.arange(vigf.shape[1])]
 
     def metric(self, x_cand, method='ALM', obj=None, nugget_s=1.,m=50,score_only=False):
         """Compute the value of the ALM, MICE, or VIGF criterion for sequential designs.
@@ -575,59 +391,6 @@ class emulator:
             #input_variance_pred_set.append(overall_test_input_var)
         return bias_pred_set,variance_pred_set
 
-    def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50,chunk_num=None,core_num=None):
-        """Implement parallel predictions from the trained DGP model.
-
-        Args:
-            x, method, full_layer, sample_size, m: see descriptions of the method :meth:`.emulator.predict`.
-            chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
-                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``max physical cores available // 2``.
-
-        Returns:
-            Same as the method :meth:`.emulator.predict`.
-        """
-        os_type = platform.system()
-        if os_type in ['Darwin', 'Linux']:
-            ctx._force_start_method('forkserver')
-        total_cores = psutil.cpu_count(logical = False)
-        if core_num is None:
-            core_num = total_cores//2
-        if chunk_num is None:
-            chunk_num=core_num
-        if chunk_num<core_num:
-            core_num=chunk_num
-        num_thread = total_cores // core_num
-        
-        def f(params):
-            x_chunk, method, full_layer, sample_size, m, aggregation = params
-            set_num_threads(num_thread)
-            return self.predict(x_chunk, method, full_layer, sample_size, m, aggregation)
-        z=np.array_split(x,chunk_num)
-        with Pool(core_num) as pool:
-            #pool.restart()
-            res = pool.map(f, [[x, method, full_layer, sample_size, m, True] for x in z])
-            pool.close()
-            pool.join()
-            pool.clear()
-        if method == 'mean_var':
-            if full_layer:
-                combined_res=[]
-                for layer in zip(*res):
-                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(layer))))
-                return tuple(combined_res)
-            else:
-                return tuple(np.concatenate(worker) for worker in zip(*res))
-        elif method == 'sampling':
-            if full_layer:
-                combined_res=[]
-                for layer in zip(*res):
-                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(layer))))
-                return combined_res
-            else:
-                return list(np.concatenate(worker) for worker in zip(*res))
-
     def predict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50,aggregation=True):
         """Implement predictions from the trained DGP model.
 
@@ -683,7 +446,7 @@ class emulator:
                    with the number of arrays equal to the number of classes. In the binary classification case, the final sub-set only contains a single array, 
                    representing samples of the probability of class 1.
         """
-        if x.ndim==1:
+        if x.ndim != 2:
             raise Exception('The testing input has to be a numpy 2d-array')
         is_cat = False
         if self.all_layer[-1][0].name=='Categorical':
@@ -691,14 +454,25 @@ class emulator:
             n_class = self.all_layer[-1][0].num_classes
         #   raise Exception('Use `classify` method to make predictions for the catagorical likelihood.' )
         M=len(x)
-        if method=='mean_var':
-            sample_size=1
+        S = len(self.all_layer_set)
+        T = S * sample_size
+
+        do_stream_agg = (method == 'mean_var') and (not full_layer) and aggregation
+        if do_stream_agg:
+            likelihood_mean_sum = None
+            likelihood_m2v_sum = None
+
         #start predictions
         mean_pred=[]
         variance_pred=[]
         likelihood_mean=[]
         likelihood_variance=[]
-        for s in range(len(self.all_layer_set)):
+
+        if full_layer:
+            mean_pred_layers = []      # list length S, each is list of (n_layer-1) arrays
+            variance_pred_layers = []
+
+        for s in range(S):
             overall_global_test_input=x
             one_imputed_all_layer=self.all_layer_set[s]
             if full_layer:
@@ -768,62 +542,125 @@ class emulator:
                     if full_layer:
                         mean_pred_oneN.append(overall_test_input_mean)
                         variance_pred_oneN.append(overall_test_input_var)
-            for _ in range(sample_size):
-                if full_layer:
-                    mean_pred.append(mean_pred_oneN)
-                    variance_pred.append(variance_pred_oneN)
+            
+            if full_layer:
+                mean_pred_layers.append(mean_pred_oneN)
+                variance_pred_layers.append(variance_pred_oneN)
+
+            if (method == 'sampling') and (not full_layer):
+                mean_pred.append(overall_test_input_mean)
+                variance_pred.append(overall_test_input_var)
+
+            # For mean_var+aggregation+full_layer=False, stream aggregate and do not store lists
+            if do_stream_agg:
+                if likelihood_mean_sum is None:
+                    likelihood_mean_sum = likelihood_gp_mean.copy()
+                    likelihood_m2v_sum = (likelihood_gp_mean * likelihood_gp_mean + likelihood_gp_var)
                 else:
-                    mean_pred.append(overall_test_input_mean)
-                    variance_pred.append(overall_test_input_var)
+                    likelihood_mean_sum += likelihood_gp_mean
+                    likelihood_m2v_sum += (likelihood_gp_mean * likelihood_gp_mean + likelihood_gp_var)
+            else:
                 likelihood_mean.append(likelihood_gp_mean)
                 likelihood_variance.append(likelihood_gp_var)
+
+        if do_stream_agg:
+            agg_mean = likelihood_mean_sum / S
+            agg_var = (likelihood_m2v_sum / S) - agg_mean * agg_mean
+            if is_cat:
+                mu, sigma2 = self.all_layer[-1][0].prediction(agg_mean, agg_var)
+                return mu, sigma2
+            else:
+                return agg_mean, agg_var
+
         if method=='sampling':
             if full_layer:
-                mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
-                var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
-                samples=[]
-                for l in range(self.n_layer):
-                    samples_layerwise=[]
-                    if l==self.n_layer-1:
-                        for mu_likelihood, sigma2_likelihood, dgp_sample in zip(likelihood_mean, likelihood_variance, samples_layer_before_likelihood):
-                            realisation=np.empty_like(mu_likelihood)
-                            for count, kernel in enumerate(self.all_layer[-1]):
-                                if kernel.type=='gp':
-                                    realisation[:,count]=np.random.normal(mu_likelihood[:,count],np.sqrt(sigma2_likelihood[:,count]))
-                                elif kernel.type=='likelihood':
-                                    if is_cat:
-                                        realisation[:,:] = kernel.sampling(dgp_sample[:,kernel.input_dim])
-                                    else:
-                                        realisation[:,count]=kernel.sampling(dgp_sample[:,kernel.input_dim])
-                            samples_layerwise.append(realisation)
-                    else:
-                        for mu, sigma2 in zip(mu_layerwise[l], var_layerwise[l]):
-                            realisation=np.random.normal(mu,np.sqrt(sigma2))
-                            samples_layerwise.append(realisation)
-                        if l==self.n_layer-2:
-                            samples_layer_before_likelihood=samples_layerwise
-                    samples_layerwise=np.asarray(samples_layerwise).transpose(2,1,0)
-                    samples.append(list(samples_layerwise))
-            else:
-                samples=[]
-                for mu_dgp, sigma2_dgp, mu_likelihood, sigma2_likelihood  in zip(mean_pred, variance_pred, likelihood_mean, likelihood_variance):
-                    realisation=np.empty_like(mu_likelihood)
-                    for count, kernel in enumerate(self.all_layer[-1]):
-                        if kernel.type=='gp':
-                            realisation[:,count]=np.random.normal(mu_likelihood[:,count],np.sqrt(sigma2_likelihood[:,count]))
-                        elif kernel.type=='likelihood':
-                            dgp_sample=np.random.normal(mu_dgp,np.sqrt(sigma2_dgp))
+                samples = []
+
+                samples_layer_before_likelihood = None
+
+                for l in range(self.n_layer - 1):
+                    D_l = mean_pred_layers[0][l].shape[1]
+
+                    samples_layer_arr = np.empty((T, M, D_l))
+
+                    for s, (mu, sigma2) in enumerate(zip(
+                        (item[l] for item in mean_pred_layers),
+                        (item[l] for item in variance_pred_layers),
+                    )):
+                        t0, t1 = s * sample_size, (s + 1) * sample_size
+
+                        block = np.random.normal(
+                            loc=mu,
+                            scale=np.sqrt(sigma2),
+                            size=(sample_size,) + mu.shape
+                        )  # (sample_size, M, D_l)
+
+                        samples_layer_arr[t0:t1, :, :] = block
+
+                    if l == self.n_layer - 2:
+                        samples_layer_before_likelihood = samples_layer_arr  # shape (T, M, D_prev)
+
+                    # output format: list of D_l arrays, each (M, T)
+                    samples.append(list(samples_layer_arr.transpose(2, 1, 0)))
+
+                samples_arr = np.empty((T, M, likelihood_mean[0].shape[1]))
+
+                for s, (mu_likelihood, sigma2_likelihood) in enumerate(zip(likelihood_mean, likelihood_variance)):
+                    t0, t1 = s * sample_size, (s + 1) * sample_size
+
+                    block = np.random.normal(
+                        loc=mu_likelihood,
+                        scale=np.sqrt(sigma2_likelihood),
+                        size=(sample_size,) + mu_likelihood.shape
+                    )  # (sample_size, M, D)
+
+                    samples_arr[t0:t1, :, :] = block
+
+                lik_nodes = [(count, kernel) for count, kernel in enumerate(self.all_layer[-1]) if kernel.type == 'likelihood']
+
+                if lik_nodes:
+                    for t, dgp_sample in enumerate(samples_layer_before_likelihood):
+                        for count, kernel in lik_nodes:
                             if is_cat:
-                                realisation[:,:] = kernel.sampling(dgp_sample[:,kernel.input_dim])
+                                samples_arr[t, :, :] = kernel.sampling(dgp_sample[:, kernel.input_dim])
                             else:
-                                realisation[:,count]=kernel.sampling(dgp_sample[:,kernel.input_dim])
-                    samples.append(realisation)
-                samples=list(np.asarray(samples).transpose(2,1,0))
+                                samples_arr[t, :, count] = kernel.sampling(dgp_sample[:, kernel.input_dim])
+
+                samples.append(list(samples_arr.transpose(2, 1, 0)))
+            else:
+                samples_arr = np.empty((T, M, likelihood_mean[0].shape[1]))
+                lik_nodes = [(count, kernel) for count, kernel in enumerate(self.all_layer[-1]) if kernel.type == 'likelihood']
+
+                for s, (mu_dgp, sigma2_dgp, mu_likelihood, sigma2_likelihood) in enumerate(
+                    zip(mean_pred, variance_pred, likelihood_mean, likelihood_variance)
+                ):
+                    t0, t1 = s * sample_size, (s + 1) * sample_size
+
+                    block = np.random.normal(
+                        loc=mu_likelihood,
+                        scale=np.sqrt(sigma2_likelihood),
+                        size=(sample_size,) + mu_likelihood.shape
+                    ) 
+
+                    # overwrite likelihood outputs only if present
+                    if lik_nodes:
+                        for r in range(sample_size):
+                            realisation = block[r]  # view (M, D)
+                            for count, kernel in lik_nodes:
+                                dgp_sample = np.random.normal(mu_dgp, np.sqrt(sigma2_dgp))
+                                if is_cat:
+                                    realisation[:, :] = kernel.sampling(dgp_sample[:, kernel.input_dim])
+                                else:
+                                    realisation[:, count] = kernel.sampling(dgp_sample[:, kernel.input_dim])
+
+                    samples_arr[t0:t1, :, :] = block
+
+                samples = list(samples_arr.transpose(2, 1, 0))
             return samples
         elif method=='mean_var':
             if full_layer:
-                mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred)]
-                var_layerwise=[list(var_n) for var_n in zip(*variance_pred)]
+                mu_layerwise=[list(mean_n) for mean_n in zip(*mean_pred_layers)]
+                var_layerwise=[list(var_n) for var_n in zip(*variance_pred_layers)]
                 mu=[np.mean(mu_l,axis=0) for mu_l in mu_layerwise]
                 mu2_mean=[np.mean(np.square(mu_l),axis=0) for mu_l in mu_layerwise]
                 var_mean=[np.mean(var_l,axis=0) for var_l in var_layerwise]
@@ -837,20 +674,11 @@ class emulator:
                     mu.append(np.mean(likelihood_mean,axis=0))
                     sigma2.append(np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-np.mean(likelihood_mean,axis=0)**2)
             else:
-                if aggregation:
-                    if is_cat:
-                        agg_mean = np.mean(likelihood_mean,axis=0)
-                        agg_var = np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-agg_mean**2
-                        mu, sigma2 = self.all_layer[-1][0].prediction(agg_mean, agg_var)
-                    else:
-                        mu=np.mean(likelihood_mean,axis=0)
-                        sigma2=np.mean((np.square(likelihood_mean)+likelihood_variance),axis=0)-mu**2
+                if is_cat:
+                    mu, sigma2 = [list(x) for x in zip(*(self.all_layer[-1][0].prediction(a, b) for a, b in zip(likelihood_mean, likelihood_variance)))]
                 else:
-                    if is_cat:
-                        mu, sigma2 = [list(x) for x in zip(*(self.all_layer[-1][0].prediction(a, b) for a, b in zip(likelihood_mean, likelihood_variance)))]
-                    else:
-                        mu=likelihood_mean
-                        sigma2=likelihood_variance
+                    mu=likelihood_mean
+                    sigma2=likelihood_variance
             return mu, sigma2
         
     def nllik(self,x,y,m=50):
@@ -876,42 +704,68 @@ class emulator:
             x = X0
         M=len(x)
         #start predictions
-        predicted_lik=[]
-        for s in range(len(self.all_layer_set)):
-            overall_global_test_input=x
-            one_imputed_all_layer=self.all_layer_set[s]
-            for l in range(self.n_layer-1):
-                layer=one_imputed_all_layer[l]
-                n_kerenl=len(layer)
-                overall_test_output_mean=np.empty((M,n_kerenl))
-                overall_test_output_var=np.empty((M,n_kerenl))
-                if l==0:
-                    for k in range(n_kerenl):
-                        kernel=layer[k]
+        S = len(self.all_layer_set)
+        N_latent_layers = self.n_layer - 1  # layers before likelihood
+
+        # Precompute kernel counts per latent layer
+        latent_widths = [len(self.all_layer_set[0][l]) for l in range(N_latent_layers)]
+        mean_bufs = [np.empty((M, w)) for w in latent_widths]
+        var_bufs  = [np.empty((M, w)) for w in latent_widths]
+
+        log_sum = None
+
+        for s in range(S):
+            one_imputed_all_layer = self.all_layer_set[s]
+
+            for l in range(N_latent_layers):
+                layer = one_imputed_all_layer[l]
+                out_mean = mean_bufs[l]
+                out_var  = var_bufs[l]
+                n_kernel = len(layer)
+
+                if l == 0:
+                    # inputs come from x
+                    for k in range(n_kernel):
+                        kernel = layer[k]
                         kernel.pred_m = m
-                        if kernel.connect is not None:
-                            z_k_in=overall_global_test_input[:,kernel.connect]
-                        else:
-                            z_k_in=None
-                        m_k,v_k=kernel.gp_prediction(x=overall_global_test_input[:,kernel.input_dim],z=z_k_in)
-                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
-                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
+                        z_k_in = x[:, kernel.connect] if kernel.connect is not None else None
+                        mk, vk = kernel.gp_prediction(x=x[:, kernel.input_dim], z=z_k_in)
+                        out_mean[:, k] = mk
+                        out_var[:, k]  = vk
                 else:
-                    for k in range(n_kerenl):
-                        kernel=layer[k]
+                    # inputs come from previous layer buffers
+                    prev_mean = mean_bufs[l - 1]
+                    prev_var  = var_bufs[l - 1]
+                    for k in range(n_kernel):
+                        kernel = layer[k]
                         kernel.pred_m = m
-                        m_k_in,v_k_in=overall_test_input_mean[:,kernel.input_dim],overall_test_input_var[:,kernel.input_dim]
-                        if kernel.connect is not None:
-                            z_k_in=overall_global_test_input[:,kernel.connect]
-                        else:
-                            z_k_in=None
-                        m_k,v_k=kernel.linkgp_prediction(m=m_k_in,v=v_k_in,z=z_k_in)
-                        overall_test_output_mean[:,k],overall_test_output_var[:,k]=m_k,v_k
-                    overall_test_input_mean,overall_test_input_var=overall_test_output_mean,overall_test_output_var
-            predicted_lik.append(ghdiag(one_imputed_all_layer[-1][0].pllik,overall_test_input_mean[indices,:],overall_test_input_var[indices,:],y))
-        nllik=-np.log(np.mean(predicted_lik,axis=0)).flatten()
-        average_nllik=np.mean(nllik)
-        return average_nllik, nllik
+                        m_in = prev_mean[:, kernel.input_dim]
+                        v_in = prev_var[:, kernel.input_dim]
+                        z_k_in = x[:, kernel.connect] if kernel.connect is not None else None
+                        mk, vk = kernel.linkgp_prediction(m=m_in, v=v_in, z=z_k_in)
+                        out_mean[:, k] = mk
+                        out_var[:, k]  = vk
+
+            # latent stats at the final latent layer:
+            latent_mean = mean_bufs[N_latent_layers - 1]
+            latent_var  = var_bufs[N_latent_layers - 1]
+
+            # compute likelihood for original x (incl duplicates) using indices
+            p = ghdiag(
+                one_imputed_all_layer[-1][0].pllik,
+                latent_mean[indices, :],
+                latent_var[indices, :],
+                y
+            ).reshape(-1)
+
+            # accumulate log-sum-exp in a streaming way
+            logp = np.log(p)
+            log_sum = logp if log_sum is None else np.logaddexp(log_sum, logp)
+
+        # log(mean_s p_s) = logsumexp - log(S)
+        log_mean = log_sum - np.log(S)
+        nllik = -log_mean
+        return float(np.mean(nllik)), nllik
 
         
       

@@ -1,11 +1,6 @@
-import multiprocess.context as ctx
-import platform
 import numpy as np
-from pathos.multiprocessing import ProcessingPool as Pool
-import psutil
 from .imputation import imputer
 import copy
-from numba import set_num_threads
 from .utils import have_same_shape
 from contextlib import contextmanager
 
@@ -211,77 +206,6 @@ class lgp:
                         if cont.type=='dgp':
                             (cont.imp).key_stats()
     
-    def ppredict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50,chunk_num=None,core_num=None):
-        """Implement parallel predictions from the trained DGP model.
-
-        Args:
-            x, method, full_layer, sample_size, m: see descriptions of the method :meth:`.lgp.predict`.
-            chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
-                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of cores/workers to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``(max physical cores available - 1)``.
-
-        Returns:
-            Same as the method `predict`.
-        """
-        os_type = platform.system()
-        if os_type in ['Darwin', 'Linux']:
-            ctx._force_start_method('forkserver')
-        total_cores = psutil.cpu_count(logical = False)
-        if core_num==None:
-            core_num=total_cores//2
-        if chunk_num==None:
-            chunk_num=core_num
-        if chunk_num<core_num:
-            core_num=chunk_num
-        num_thread = total_cores // core_num
-        def f(params):
-            x, method, full_layer, sample_size, m = params
-            set_num_threads(num_thread)
-            return self.predict(x, method, full_layer, sample_size, m)
-        if isinstance(x, list):
-            if len(x)!=self.L:
-                raise Exception('When test input is given as a list, it must contain global inputs to the all layers (even with no global inputs to internal layers). Set None as the global input to the internal models if they have no global inputs.')
-            else:
-                for l in range(self.L):
-                    if l==0:
-                        z=[[element] for element in np.array_split(x[l],chunk_num)]
-                    else:
-                        z_l=x[l]
-                        z_m=[[]]*chunk_num
-                        for m in range(len(z_l)):
-                            if z_l[m] is None:
-                                z_m=[i+j for i, j in zip(z_m,[[None]]*chunk_num)]
-                            else:
-                                z_m=[i+[j] for i, j in zip(z_m,np.array_split(z_l[m],chunk_num))]
-                        z=[i+[j] for i,j in zip(z,z_m)]
-        elif not isinstance(x, list):
-            z=np.array_split(x,chunk_num)
-        with Pool(core_num) as pool:
-            res = pool.map(f, [[x, method, full_layer, sample_size, m] for x in z])
-        if method == 'mean_var':
-            if full_layer:
-                combined_res=[]
-                for comp in zip(*res):
-                    combined_comp=[]
-                    for layer in zip(*comp):
-                        combined_comp.append(list(np.concatenate(worker) for worker in zip(*list(layer))))
-                    combined_res.append(combined_comp)
-                return tuple(combined_res)
-            else:
-                combined_res=[]
-                for comp in zip(*res):
-                    combined_res.append(list(np.concatenate(workers) for workers in zip(*list(comp))))
-                return tuple(combined_res)
-        elif method == 'sampling':
-            if full_layer:
-                combined_res=[]
-                for layer in zip(*res):
-                    combined_res.append(list(np.concatenate(workers,axis=1) for workers in zip(*list(layer))))
-                return combined_res
-            else:
-                return list(np.concatenate(worker,axis=1) for worker in zip(*res))
-
     def predict(self,x,method='mean_var',full_layer=False,sample_size=50,m=50):
         """Implement predictions from the linked (D)GP model.
 
