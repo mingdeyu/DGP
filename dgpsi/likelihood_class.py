@@ -588,24 +588,19 @@ class ZIP:
         lam_mean = np.exp(m_lambda + 0.5 * v_lambda)
         lam_var  = (np.exp(v_lambda) - 1.0) * np.exp(2.0 * m_lambda + v_lambda)
 
-        # Moments of pi
+        # Approximate mean of pi
         denom   = 1.0 + (np.pi / 8.0) * v_pi
         denom   = np.maximum(denom, 1e-12)  # numerical safety
         mu_star = m_pi / np.sqrt(denom)
-
-        pi_mean = expit(mu_star) 
-        var_star = v_pi / denom
-        pi_var   = (pi_mean * (1.0 - pi_mean))**2 * var_star
-        pi_var   = np.clip(pi_var, 0.0, pi_mean * (1.0 - pi_mean))
+        pi_mean = expit(mu_star)
 
         # Predictive mean
         y_mean = (1.0 - pi_mean) * lam_mean
 
         # Predictive variance
-        cond_var = (1.0 - pi_mean) * lam_mean * (1.0 + pi_mean * lam_mean)
-        var_g = ((1.0 - pi_mean)**2 + pi_var) * lam_var + pi_var * lam_mean**2
-        y_var = cond_var + var_g
-        y_var = np.maximum(y_var, 0.0)  # numerical safety
+        y_var = (1.0 - pi_mean) * (lam_mean + lam_var) + pi_mean * (1.0 - pi_mean) * lam_mean**2
+
+        y_var = np.maximum(y_var, 0.0)
 
         return y_mean.flatten(), y_var.flatten()
     
@@ -761,35 +756,24 @@ class ZINB:
         mu_mean = np.exp(m1 + 0.5 * v1)
         mu_var  = (np.exp(v1) - 1.0) * np.exp(2.0 * m1 + v1)
         mu2_mean = np.exp(2.0 * m1 + 2.0 * v1)
-
         E_exp_f2 = np.exp(m2 + 0.5 * v2)
-        mu2_over_n_mean = mu2_mean * E_exp_f2 
+        mu2_over_n_mean = mu2_mean * E_exp_f2
 
-        # Moments of pi
-        denom = 1.0 + (np.pi / 8.0) * v_pi
-        denom = np.maximum(denom, 1e-12)
+        # Approximate mean of mu
+        denom   = 1.0 + (np.pi / 8.0) * v_pi
+        denom   = np.maximum(denom, 1e-12)
         mu_star = m_pi / np.sqrt(denom)
-
-        pi_mean = expit(mu_star) 
-        var_star = v_pi / denom
-        pi_var = (pi_mean * (1.0 - pi_mean))**2 * var_star
-        pi_var = np.clip(pi_var, 0.0, pi_mean * (1.0 - pi_mean))
+        pi_mean = expit(mu_star)
 
         # Predictive mean
         y_mean = (1.0 - pi_mean) * mu_mean
 
-        # Predictive variance
-        E_pi1m = pi_mean * (1.0 - pi_mean) - pi_var
-        E_pi1m = np.clip(E_pi1m, 0.0, pi_mean * (1.0 - pi_mean))
+        # Base NB predictive variance:
+        base_var = mu_mean + mu2_over_n_mean + mu_var
 
-        cond_var = (
-            (1.0 - pi_mean) * (mu_mean + mu2_over_n_mean)
-            + E_pi1m * mu2_mean
-        )
+        # Predictive variance of ZINB
+        y_var = (1.0 - pi_mean) * base_var + pi_mean * (1.0 - pi_mean) * mu_mean**2
 
-        var_g = ((1.0 - pi_mean)**2 + pi_var) * mu_var + pi_var * (mu_mean**2)
-
-        y_var = cond_var + var_g
         y_var = np.maximum(y_var, 0.0)
 
         return y_mean.flatten(), y_var.flatten()
