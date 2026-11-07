@@ -3,6 +3,7 @@ from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
 from .functions import ghdiag, mice_var
+from .functions import _ghdiag_log  
 from .vecchia import get_pred_nn
 from contextlib import contextmanager
 
@@ -700,8 +701,8 @@ class emulator:
             if self.all_layer[-1][0].type!='likelihood':
                 raise Exception('The method is only applicable to a DGP with the final layer formed by only ONE node, which must be a likelihood node.')
         X0, indices = np.unique(x, return_inverse=True, axis=0)
-        if len(X0) != len(x):
-            x = X0
+        
+        x = X0
         M=len(x)
         #start predictions
         S = len(self.all_layer_set)
@@ -751,7 +752,7 @@ class emulator:
             latent_var  = var_bufs[N_latent_layers - 1]
 
             # compute likelihood for original x (incl duplicates) using indices
-            p = ghdiag(
+            logp = _ghdiag_log(
                 one_imputed_all_layer[-1][0].pllik,
                 latent_mean[indices, :],
                 latent_var[indices, :],
@@ -759,7 +760,6 @@ class emulator:
             ).reshape(-1)
 
             # accumulate log-sum-exp in a streaming way
-            logp = np.log(p)
             log_sum = logp if log_sum is None else np.logaddexp(log_sum, logp)
 
         # log(mean_s p_s) = logsumexp - log(S)

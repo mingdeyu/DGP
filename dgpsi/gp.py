@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.spatial.distance import cdist
 from .functions import mice_var
-from .vecchia import get_pred_nn, loo_gp_vecch
+from .vecchia import get_pred_nn, loo_gp_vecch, _loo_target_first_inplace
 import copy
 
 class gp:
@@ -308,6 +308,7 @@ class gp:
         if self.vecch:
             X_scale = self.X/self.kernel.length
             NNarray = get_pred_nn(X_scale, X_scale, m+1, method=self.kernel.nn_method)
+            NNarray = _loo_target_first_inplace(NNarray)
             nugget_diag = self.W_diag
             mu,sigma2 = loo_gp_vecch(self.X, NNarray, self.Y, self.kernel.scale[0], self.kernel.length, self.kernel.nugget[0],nugget_diag, self.kernel.name)
             mu,sigma2 = mu.reshape(-1,1), sigma2.reshape(-1,1)

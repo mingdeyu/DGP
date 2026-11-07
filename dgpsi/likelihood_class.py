@@ -133,7 +133,7 @@ class Hetero:
     @staticmethod
     def sampling(f_sample):
         y_sample=np.random.normal(f_sample[:,0],np.sqrt(np.exp(f_sample[:,1])))
-        return y_sample[:,0]
+        return y_sample
 
     def posterior(self,idx,v):
         """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood.
@@ -174,15 +174,8 @@ class Hetero:
         """
         L_sp_l = U_sp_l.transpose().tocsr()
         intermediate = U_sp_ol.transpose().dot(y)
-        #U_latent_obs_y = U_sp_ol.transpose().dot(y)
-        #U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
-        #intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_obs_y)
-        mu = -forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, intermediate)
-        #mu = -spsolve_triangular(L_sp_l, intermediate)
         sd = np.random.randn(U_sp_l.shape[0])
-        samp = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd)
-        #samp = spsolve_triangular(L_sp_l, sd)
-        f = mu + samp
+        f = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd - intermediate)
         return f
 
     @staticmethod

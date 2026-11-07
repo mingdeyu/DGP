@@ -2,7 +2,8 @@ from numba import njit, prange, config, set_num_threads
 import numpy as np
 from numpy.random import randn
 from math import sqrt, exp, fabs, log
-from .functions import _Jij_sexp_scaled, _sexp_kvec_invlen, _compute_denoms_from_vs_scaled, _Jii_matern25, _Jij_matern25, _matern25_I1d, _matern25_kvec_invlen, K_matrix_nb, K_sexp_nb, K_matern25_nb
+from .functions import _Jij_sexp_scaled, _sexp_kvec_invlen, _compute_denoms_from_vs_scaled, _Jii_matern25, _Jij_matern25, _matern25_I1d, _matern25_kvec_invlen, K_matrix_nb, K_sexp_nb, K_matern25_nb, _m5_log_pair, SQRT5, FIVE_THIRDS
+from .functions import _m52opt_workspace, _m52opt_query, _m52opt_query_withz
 from .chol_backend import forward_solve_inplace, chol_solve_vec_inplace, chol_inv_eye
 from scipy.sparse import csr_matrix
 try:
@@ -15,7 +16,7 @@ from psutil import cpu_count
 
 core_num = cpu_count(logical = False)
 max_threads = config.NUMBA_NUM_THREADS
-core_num = min(core_num, max_threads)
+core_num = min(core_num or max_threads, max_threads)
 config.THREADING_LAYER = 'tbb'
 set_num_threads(core_num)
 
@@ -58,6 +59,62 @@ def get_pred_nn(query, x, m=50, method='exact', size=40, efSearch=100, n_jobs=-1
     NN = neigh.kneighbors(query, n_neighbors=m, return_distance=False)
     return NN.astype(np.int32) if cast_int32 else NN
 
+
+@njit(cache=True)
+def _loo_exclude_inplace(NNarray):
+    """Exclude training index i from row i, preserving candidate order.
+
+    NNarray must be a private, writable search result in training-row order,
+    with distinct valid indices per row and at least one candidate column.
+    It contains one extra candidate. Return a view with one fewer column;
+    entries may be shifted in place. Do not pass shared training NN state.
+    """
+    n, width = NNarray.shape
+    for i in range(n):
+        if NNarray[i, 0] != i:
+            break
+    else:
+        return NNarray[:, 1:]
+
+    for i in range(n):
+        for j in range(width - 1):
+            if NNarray[i, j] == i:
+                for k in range(j, width - 1):
+                    NNarray[i, k] = NNarray[i, k + 1]
+                break
+    return NNarray[:, :-1]
+
+@njit(cache=True)
+def _loo_target_first_inplace(NNarray):
+    """Put observation i first in row i; modify and return the same array.
+
+    Expects a fresh writable integer neighbour array for the full training
+    batch, with distinct valid IDs per row and candidates ordered by distance.
+    If i is present, move it first; otherwise insert i and drop the last
+    candidate. Preserve the relative order of all retained non-target IDs.
+    Empty batches are accepted; nonempty batches require at least one column.
+    Uses constant auxiliary storage and leaves already-correct rows untouched.
+    """
+    n, width = NNarray.shape
+    if n == 0:
+        return NNarray
+    if width == 0:
+        raise ValueError("A nonempty neighbour array needs at least one column")
+
+    for i in range(n):
+        carry = NNarray[i, 0]
+        if carry == i:
+            continue
+
+        NNarray[i, 0] = i
+        for j in range(1, width):
+            current = NNarray[i, j]
+            NNarray[i, j] = carry
+            if current == i:
+                break
+            carry = current
+
+    return NNarray
 
 @njit(cache=True)
 def nn_brute(x, m):
@@ -106,7 +163,9 @@ def nn(x, m, method="exact", size=40, efSearch=100, n_jobs=-1):
 
     query_inds = np.arange(maxval, n, dtype=np.int32)
     if query_inds.size == 0:
-        return np.fliplr(np.sort(NNarray, axis=1))
+        NNarray = np.fliplr(np.sort(NNarray, axis=1))
+        NNarray[:, 0] = np.arange(n, dtype=NNarray.dtype)
+        return NNarray
 
     # ---- build/search backend ----
     if FAISS_AVAILABLE:
@@ -181,7 +240,9 @@ def nn(x, m, method="exact", size=40, efSearch=100, n_jobs=-1):
 
             ksearch = min(n, 2 * ksearch)
 
-    return np.fliplr(np.sort(NNarray, axis=1))
+    NNarray = np.fliplr(np.sort(NNarray, axis=1))
+    NNarray[:, 0] = np.arange(n, dtype=NNarray.dtype)
+    return NNarray
 
 @njit(cache=True)
 def preprocess_nn(NNarray):
@@ -249,7 +310,7 @@ def fmvn_sp_nb(Lmat, NN_fwd, NN_count, sqrt_scale):
     but avoids allocating L/sqrt(scale).
     """
     n = Lmat.shape[0]
-    x = randn(n).astype(np.float64)
+    x = randn(n)
     x *= sqrt_scale
     forward_solve_sp_inplace(Lmat, NN_fwd, NN_count, x)
     return x
@@ -283,6 +344,125 @@ def solve_lt_e_last_inplace(L, v, k):
 
 
 # likelihood functions
+PAIR_MAP_MAX_BYTES = 256 * 1024**2
+
+
+@njit(cache=True)
+def _vecchia_pair_codes(nn, count):
+    n = len(count)
+    offsets = np.zeros(n + 1, dtype=np.int64)
+    for i in range(n):
+        k = np.int64(count[i])
+        offsets[i + 1] = offsets[i] + k*(k-1)//2
+    codes = np.empty(offsets[-1], dtype=np.int64)
+    for i in range(n):
+        p = offsets[i]
+        for a in range(count[i]):
+            for b in range(a):
+                ia, ib = np.int64(nn[i, a]), np.int64(nn[i, b])
+                codes[p] = min(ia, ib)*n + max(ia, ib)
+                p += 1
+    return codes, offsets
+
+
+@njit(cache=True)
+def _vecchia_pair_index(codes, order, n):
+    unique_count = 0
+    previous = -1
+    for p in order:
+        code = codes[p]
+        if code != previous:
+            unique_count += 1
+            previous = code
+    first = np.empty(unique_count, dtype=np.int32)
+    second = np.empty(unique_count, dtype=np.int32)
+    ids = np.empty(len(codes), dtype=np.int32)
+    previous = -1
+    uid = -1
+    for p in order:
+        code = codes[p]
+        if code != previous:
+            uid += 1
+            first[uid], second[uid] = code//n, code % n
+            previous = code
+        ids[p] = uid
+    return first, second, ids
+
+
+def prepare_vecchia_pairs(nn, count):
+    """Graph-only map, or None when construction would exceed its memory budget.
+
+    Sorting codes needs 8 bytes per occurrence for codes, 8 for the permutation,
+    4 for its inverse, and at most 8 for unique endpoints. No sorted code copy
+    or int64 inverse is retained. Snapshots, offsets and count scratch are
+    included in the cap. Existing maps must be released before calling this.
+    """
+    n = len(count)
+    fixed_bytes = nn.nbytes + count.nbytes + 8*(n+1) + 24*n
+    if fixed_bytes > PAIR_MAP_MAX_BYTES or n > np.iinfo(np.int32).max:
+        return None
+    sizes = count.astype(np.int64)
+    occurrences = int(np.sum(sizes*(sizes-1)//2))
+    del sizes
+    if 28*occurrences + fixed_bytes > PAIR_MAP_MAX_BYTES:
+        return None
+    codes, offsets = _vecchia_pair_codes(nn, count)
+    order = np.argsort(codes)
+    return (*_vecchia_pair_index(codes, order, n), offsets)
+
+
+@njit(cache=True, parallel=True, fastmath=False)
+def vecchia_pair_values(x, first, second, length, name):
+    """Fresh correlations with v7's separable Matérn arithmetic and guard."""
+    iso = length.size == 1
+    inv_length = 1.0/length
+    values = np.empty(len(first), dtype=np.float64)
+    for p in prange(len(first)):
+        ia, ib = first[p], second[p]
+        if name == 'sexp':
+            distance = 0.0
+            for j in range(x.shape[1]):
+                delta = (x[ia, j]-x[ib, j])*inv_length[0 if iso else j]
+                distance += delta*delta
+            values[p] = exp(-distance)
+        else:
+            product, distance = 1.0, 0.0
+            for j in range(x.shape[1]):
+                delta = fabs((x[ia, j]-x[ib, j])*inv_length[0 if iso else j])
+                product *= (1.0 + SQRT5*delta) + FIVE_THIRDS*delta*delta
+                distance += delta
+            if distance <= 300.0 and product <= 1e300:
+                values[p] = product*exp(-SQRT5*distance)
+            else:
+                values[p] = _m5_log_pair(x[ia], x[ib], length, 2)
+    return values
+
+
+@njit(cache=True, parallel=True, fastmath=True)
+def vecchia_llik_pairs(x, y, nn, count, scale, length, nugget, weights, name,
+                       first, second, ids, offsets):
+    values = vecchia_pair_values(x, first, second, length, name)
+    quad, logdet = 0.0, 0.0
+    for i in prange(len(count)):
+        k = count[i]
+        K = np.empty((k, k), dtype=np.float64)
+        yi = np.empty(k, dtype=np.float64)
+        p = offsets[i]
+        for a in range(k):
+            ia = nn[i, a]
+            yi[a] = y[ia]
+            K[a, a] = 1.0 + nugget*weights[ia]
+            for b in range(a):
+                value = values[ids[p]]
+                K[a, b], K[b, a] = value, value
+                p += 1
+        L = np.linalg.cholesky(K)
+        z = forward_solve_last(L, yi)
+        quad += z*z
+        logdet += 2.0*log(L[k-1, k-1])
+    return -0.5*(logdet + quad/scale)
+
+
 @njit(cache=True, parallel=True, fastmath=True)
 def vecchia_llik(X, y, NN_rev, NN_count, scale, length, nugget, nugget_diag, name):
     n, d = X.shape
@@ -557,43 +737,51 @@ def dK_sexp_nb_parallel(xi, length, nugget, nugget_est):
 
     if iso:
         inv = 1.0 / length[0]
-        for i in prange(1, n):
-            xi_i = xi[i]
-            for j in range(i):
-                xi_j = xi[j]
-                dist = 0.0
-                for k in range(d):
-                    diff = (xi_i[k] - xi_j[k]) * inv
-                    dist += diff * diff
-                kij = exp(-dist)
-                K[i, j] = kij
-                K[j, i] = kij
-                val = 2.0 * dist * kij
-                Kt[0, i, j] = val
-                Kt[0, j, i] = val
+        for task in prange(n // 2):
+            low = np.int64(task) + 1
+            high = n - low
+            for side in range(1 if low == high else 2):
+                i = low if side == 0 else high
+                xi_i = xi[i]
+                for j in range(i):
+                    xi_j = xi[j]
+                    dist = 0.0
+                    for k in range(d):
+                        diff = (xi_i[k] - xi_j[k]) * inv
+                        dist += diff * diff
+                    kij = exp(-dist)
+                    K[i, j] = kij
+                    K[j, i] = kij
+                    val = 2.0 * dist * kij
+                    Kt[0, i, j] = val
+                    Kt[0, j, i] = val
     else:
         inv_ell = np.empty(d, dtype=np.float64)
         for k in range(d):
             inv_ell[k] = 1.0 / length[k]
 
-        for i in prange(1, n):
+        for task in prange(n // 2):
             buf = np.empty(d, dtype=np.float64)
-            xi_i = xi[i]
-            for j in range(i):
-                xi_j = xi[j]
-                dist = 0.0
-                for k in range(d):
-                    diff = (xi_i[k] - xi_j[k]) * inv_ell[k]
-                    t = diff * diff
-                    dist += t
-                    buf[k] = 2.0 * t
-                kij = exp(-dist)
-                K[i, j] = kij
-                K[j, i] = kij
-                for k in range(d):
-                    val = buf[k] * kij
-                    Kt[k, i, j] = val
-                    Kt[k, j, i] = val
+            low = np.int64(task) + 1
+            high = n - low
+            for side in range(1 if low == high else 2):
+                i = low if side == 0 else high
+                xi_i = xi[i]
+                for j in range(i):
+                    xi_j = xi[j]
+                    dist = 0.0
+                    for k in range(d):
+                        diff = (xi_i[k] - xi_j[k]) * inv_ell[k]
+                        t = diff * diff
+                        dist += t
+                        buf[k] = 2.0 * t
+                    kij = exp(-dist)
+                    K[i, j] = kij
+                    K[j, i] = kij
+                    for k in range(d):
+                        val = buf[k] * kij
+                        Kt[k, i, j] = val
+                        Kt[k, j, i] = val
     return K, Kt
 
 @njit(cache=True, parallel=True)
@@ -620,58 +808,66 @@ def dK_matern25_nb_parallel(xi, length, nugget, nugget_est):
 
     if iso:
         inv = 1.0 / length[0]
-        for i in prange(1, n):
-            xi_i = xi[i]
-            for j in range(i):
-                xi_j = xi[j]
-                coef1 = 1.0
-                coef2 = 0.0
-                coef3 = 0.0
-                for k in range(d):
-                    distk = fabs((xi_i[k] - xi_j[k]) * inv)
-                    el1 = 1.0 + SQRT5 * distk
-                    el2 = FIVE_THIRDS * distk * distk
-                    coef = el1 + el2
-                    coef1 *= coef
-                    coef2 += distk
-                    coef3 += (el2 * el1) / coef
+        for task in prange(n // 2):
+            low = np.int64(task) + 1
+            high = n - low
+            for side in range(1 if low == high else 2):
+                i = low if side == 0 else high
+                xi_i = xi[i]
+                for j in range(i):
+                    xi_j = xi[j]
+                    coef1 = 1.0
+                    coef2 = 0.0
+                    coef3 = 0.0
+                    for k in range(d):
+                        distk = fabs((xi_i[k] - xi_j[k]) * inv)
+                        el1 = 1.0 + SQRT5 * distk
+                        el2 = FIVE_THIRDS * distk * distk
+                        coef = el1 + el2
+                        coef1 *= coef
+                        coef2 += distk
+                        coef3 += (el2 * el1) / coef
 
-                kij = coef1 * exp(-SQRT5 * coef2)
-                K[i, j] = kij
-                K[j, i] = kij
+                    kij = coef1 * exp(-SQRT5 * coef2)
+                    K[i, j] = kij
+                    K[j, i] = kij
 
-                val = coef3 * kij
-                Kt[0, i, j] = val
-                Kt[0, j, i] = val
+                    val = coef3 * kij
+                    Kt[0, i, j] = val
+                    Kt[0, j, i] = val
     else:
         inv_ell = np.empty(d, dtype=np.float64)
         for k in range(d):
             inv_ell[k] = 1.0 / length[k]
 
-        for i in prange(1, n):
+        for task in prange(n // 2):
             buf = np.empty(d, dtype=np.float64)
-            xi_i = xi[i]
-            for j in range(i):
-                xi_j = xi[j]
-                coef1 = 1.0
-                coef2 = 0.0
-                for k in range(d):
-                    distk = fabs((xi_i[k] - xi_j[k]) * inv_ell[k])
-                    el1 = 1.0 + SQRT5 * distk
-                    el2 = FIVE_THIRDS * distk * distk
-                    coef = el1 + el2
-                    coef1 *= coef
-                    coef2 += distk
-                    buf[k] = (el2 * el1) / coef
+            low = np.int64(task) + 1
+            high = n - low
+            for side in range(1 if low == high else 2):
+                i = low if side == 0 else high
+                xi_i = xi[i]
+                for j in range(i):
+                    xi_j = xi[j]
+                    coef1 = 1.0
+                    coef2 = 0.0
+                    for k in range(d):
+                        distk = fabs((xi_i[k] - xi_j[k]) * inv_ell[k])
+                        el1 = 1.0 + SQRT5 * distk
+                        el2 = FIVE_THIRDS * distk * distk
+                        coef = el1 + el2
+                        coef1 *= coef
+                        coef2 += distk
+                        buf[k] = (el2 * el1) / coef
 
-                kij = coef1 * exp(-SQRT5 * coef2)
-                K[i, j] = kij
-                K[j, i] = kij
+                    kij = coef1 * exp(-SQRT5 * coef2)
+                    K[i, j] = kij
+                    K[j, i] = kij
 
-                for k in range(d):
-                    val = buf[k] * kij
-                    Kt[k, i, j] = val
-                    Kt[k, j, i] = val
+                    for k in range(d):
+                        val = buf[k] * kij
+                        Kt[k, i, j] = val
+                        Kt[k, j, i] = val
     return K, Kt
 
 @njit(cache=True)
@@ -724,36 +920,58 @@ def L_matrix_nb(X_ord, NN_rev, NN_count, length, nugget, name):
         # rest stays 0
     return Lmat
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, inline='never')
+def chol_retry_subblock(H, scale):
+    """Try unperturbed first; cold fallback uses kernel-scale-relative jitter.
+
+Three trial diagonal additions: 1e-14, 1e-12, 1e-10 times GP scale.
+Only H is perturbed, and own observation noise remains separate. Successful
+Cholesky is not a guarantee of accurate coefficients when H is ill-conditioned.
+"""
+    try:
+        return np.linalg.cholesky(H)
+    except Exception:
+        pass
+    previous = 0.0
+    for relative in (1e-14, 1e-12, 1e-10):
+        jitter = relative * scale
+        for j in range(H.shape[0]):
+            H[j, j] += jitter - previous
+        previous = jitter
+        try:
+            return np.linalg.cholesky(H)
+        except Exception:
+            pass
+    raise np.linalg.LinAlgError('Local covariance failed bounded jitter retries')
+
+@njit(cache=True, parallel=True, fastmath=False)
 def U_matrix_ptr(X, NNarray, n_obs, length, nugget, scale, gamma, name):
+    if nugget != 0.0:
+        raise ValueError('U requires nugget=0')
     n, m = NNarray.shape
-    d = X.shape[1]
 
     data = np.empty(n * m, dtype=np.float64)
 
     for i in prange(n):
-        # Build idx in the same order as revNNarray row: NNarray[i, m-1], ..., NNarray[i, 0]
-        idx_mod = np.empty(m, dtype=np.int32)     
-        diag_add = np.empty(m, dtype=np.float64)  
+        idx_mod = np.empty(m, dtype=np.int32)
+        diag_add = np.empty(m, dtype=np.float64)
 
         t = 0
-        for j in range(m - 1, -1, -1):            
+        for j in range(m - 1, -1, -1):
             idx = NNarray[i, j]
-            cond = idx >= n_obs                   
-            ia = idx - n_obs if cond else idx     
+            cond = idx >= n_obs
+            ia = idx - n_obs if cond else idx
 
             idx_mod[t] = ia
-            diag_add[t] = (0.0 if cond else gamma[ia]) + 1e-10
+            diag_add[t] = (0.0 if cond else gamma[ia])
             t += 1
 
-        xi = X[idx_mod, :]                       
+        xi = X[idx_mod, :]
 
-        Ki = scale * K_matrix_nb(xi, length, nugget, name) 
-        add_to_diag_square(Ki, diag_add)                  
-        Li = np.linalg.cholesky(Ki)                        
+        Ki = scale * K_matrix_nb(xi, length, nugget, name)
+        add_to_diag_square(Ki, diag_add)
+        v = _U_row(Ki)
 
-        v = np.empty(m, dtype=np.float64)                   
-        solve_lt_e_last_inplace(Li, v, m)                         
 
         off = i * m
         for j in range(m):
@@ -778,16 +996,210 @@ def imp_pointers(NNarray):
 
 @njit(cache=True)
 def add_to_diag_square(A, d):
-    n = A.shape[0]
-    flat = A.ravel()
-    step = n + 1
-    flat[0 : n*n : step] += d[:n]
+    for i in range(A.shape[0]):
+        A[i, i] += d[i]
+
+
+
+
+_RESOLUTION = np.sqrt(32.0 * np.finfo(np.float64).eps)
+_COARSE_RCOND = np.sqrt(np.finfo(np.float64).eps)
+
+def _U_validate_parameters(X, length, scale, gamma):
+    if (not np.isfinite(X).all() or not np.isfinite(length).all() or
+        np.any(np.asarray(length) <= 0) or not np.isfinite(scale) or scale <= 0 or
+        not np.isfinite(gamma).all() or np.any(np.asarray(gamma) <= 0)):
+        raise np.linalg.LinAlgError('U factor/solve failed: inputs, scale, length and observation variances must be finite and positive')
+    if np.asarray(length).size not in (1, X.shape[1]):
+        raise ValueError('U length must be scalar or have one entry per input dimension')
+
+@njit(cache=True, fastmath=False)
+def _U_physical_pairs(geometry, NNarray, rows, tolerance):
+    """Conservative row-local broad phase; exact norms remain at the boundary.
+
+    A physically near local pair necessarily has globally near endpoints.
+    Scanning only local latent pairs avoids a global spatial query and exits
+    ordinary pairs at their first separated coordinate. No all-pairs array
+    is allocated. An O(n*local_width) mask marks possible pair endpoints;
+    exact norms and kernel eligibility are evaluated one row at a time.
+    """
+    n, d = geometry.shape
+    width = NNarray.shape[1]
+    possible_endpoints = np.zeros(NNarray.shape, dtype=np.bool_)
+    for row in rows:
+        for pos_a in range(width):
+            a = NNarray[row, width - 1 - pos_a] - n
+            if a < 0:
+                continue
+            for pos_b in range(pos_a):
+                b = NNarray[row, width - 1 - pos_b] - n
+                if b < 0:
+                    continue
+                possible = True
+                for k in range(d):
+                    if abs(geometry[a,k] - geometry[b,k]) > tolerance:
+                        possible = False
+                        break
+                if possible:
+                    possible_endpoints[row, pos_a] = True
+                    possible_endpoints[row, pos_b] = True
+    return possible_endpoints
+
+def _U_near_rows(X, NNarray, length):
+    """Identify native rows containing physically close distinct latent inputs.
+
+    Physical tolerance scales with design extent, so changing length scales
+    cannot make an otherwise ordinary fitted trajectory eligible. A second
+    threshold requires a small kernel distance. All original dimensions enter
+    both tests. Observation copies alone do not establish a near pair.
+    """
+    n = len(X)
+    rows = np.flatnonzero(np.sum(NNarray >= n, axis=1) >= 2)
+    if not len(rows):
+        return {}
+    
+    
+    
+    amplitude = float(np.max(np.abs(X)))
+    geometry = X / amplitude if amplitude > 0.0 else X
+    extent = float(np.linalg.norm(np.ptp(geometry, axis=0)))
+    tolerance = _RESOLUTION * extent
+    
+    
+    
+    broad_tolerance = max(np.nextafter(tolerance,np.inf),
+                          np.sqrt(np.finfo(np.float64).tiny))
+    candidates = _U_physical_pairs(geometry,NNarray,rows,broad_tolerance)
+    result = {}
+    for row in np.flatnonzero(candidates.sum(axis=1) >= 2):
+        ids = NNarray[row, ::-1]
+        positions = np.flatnonzero(candidates[row])
+        found = []
+        triggered = False
+        for j,pos_a in enumerate(positions):
+            a = ids[pos_a] - n
+            for pos_b in positions[:j]:
+                b = ids[pos_b] - n
+                if np.linalg.norm(geometry[a]-geometry[b]) > tolerance:
+                    continue
+                with np.errstate(over='ignore',invalid='ignore',divide='ignore'):
+                    distance = np.linalg.norm((X[a]-X[b])/length)
+                
+                
+                
+                if distance <= np.sqrt(_COARSE_RCOND):
+                    found.append((int(pos_a),int(pos_b)))
+                if distance <= _RESOLUTION:
+                    triggered = True
+        if found and triggered:
+            result[int(row)] = found
+    return result
+
+def _U_coarse_resolved(K, near_pairs, latent):
+    
+    
+    
+    
+    
+    parent = list(range(len(K)))
+    def find(i):
+        while parent[i] != i:
+            i = parent[i]
+        return i
+    for a,b in near_pairs:
+        parent[find(b)] = find(a)
+    keep = [i for i in range(len(K)) if latent[i] and find(i) == i]
+    eig = np.linalg.eigvalsh(K[np.ix_(keep,keep)])
+    return bool(np.isfinite(eig).all() and eig[-1] > 0.0 and eig[0] > _COARSE_RCOND * eig[-1])
+
+@njit(cache=True, fastmath=False, inline='never')
+def _U_bounded_row(K, scale, max_jitter):
+    """Full joint covariance: unperturbed first, then bounded scale-relative jitter.
+
+    Return (coefficients, diagonal addition). The caller also caps the addition
+    relative to observation noise. Neither K nor any conditioning variable is
+    modified in place. A checked factorization of a perturbed matrix does not
+    certify agreement with the original unperturbed statistical model.
+    """
+    m = len(K)
+    if (not np.isfinite(K).all() or not np.isfinite(scale) or scale <= 0.0 or
+        not np.isfinite(max_jitter) or max_jitter < 0.0):
+        raise np.linalg.LinAlgError('U factor/solve failed: invalid bounded covariance')
+    bound = min(max_jitter, 1e-10 * scale)
+    previous = -1.0
+    for attempt in range(4):
+        jitter = 0.0
+        if attempt == 1:
+            jitter = min(1e-14 * scale, bound)
+        elif attempt == 2:
+            jitter = min(1e-12 * scale, bound)
+        elif attempt == 3:
+            jitter = bound
+        if jitter <= previous:
+            continue
+        previous = jitter
+        H = K.copy()
+        for j in range(m):
+            H[j, j] += jitter
+        try:
+            L = np.linalg.cholesky(H)
+            resolved = True
+            for j in range(m):
+                if not np.isfinite(L[j, j]) or L[j, j] * L[j, j] <= 64.0 * np.finfo(np.float64).eps * m * scale:
+                    resolved = False
+                    break
+            if not resolved:
+                continue
+            v = np.empty(m)
+            
+            for j in range(m - 1, -1, -1):
+                residual = 1.0 if j == m - 1 else 0.0
+                for k in range(j + 1, m):
+                    residual -= L[k, j] * v[k]
+                v[j] = residual / L[j, j]
+            if not np.isfinite(v).all() or v[-1] <= 0.0:
+                continue
+            
+            factor_error = np.max(np.abs(L @ L.T - H))
+            matrix_norm = np.max(np.sum(np.abs(H), axis=1))
+            rhs = L.T @ v
+            rhs[-1] -= 1.0
+            solve_norm = np.max(np.sum(np.abs(L.T), axis=1)) * np.max(np.abs(v)) + 1.0
+            tolerance = 64.0 * np.finfo(np.float64).eps * m
+            if factor_error <= tolerance * matrix_norm and np.max(np.abs(rhs)) <= tolerance * solve_norm:
+                return v, jitter
+        except Exception:
+            pass
+    raise np.linalg.LinAlgError('U factor/solve failed: bounded jitter exhausted')
 
 def U_matrix_sp_nb(X, NNarray, scale, length, nugget, name, gamma, rows, cols):
     n = X.shape[0]
 
+    _U_validate_parameters(X, length, scale, gamma)
     data = U_matrix_ptr(X, NNarray, n, length, nugget, scale, gamma, name)
-
+    m = NNarray.shape[1]
+    for row, pairs in _U_near_rows(X, NNarray, length).items():
+        ids = NNarray[row, ::-1]
+        xi = X[ids % n]
+        latent = ids >= n
+        
+        positions = np.flatnonzero(latent)
+        for j, a in enumerate(positions):
+            for b in positions[:j]:
+                if np.array_equal(xi[a], xi[b]):
+                    raise np.linalg.LinAlgError('U factor/solve failed: identical latent positions')
+        coarse = K_matrix_nb(xi, length, 0.0, name)
+        if not _U_coarse_resolved(coarse, pairs, latent):
+            continue
+        observations = np.where(latent, 0.0, gamma[ids % n])
+        covariance = scale * coarse
+        add_to_diag_square(covariance, observations)
+        bound = 1e-10 * scale
+        if np.any(~latent):
+            bound = min(bound, 1e-3 * float(np.min(observations[~latent])))
+        coefficients, _ = _U_bounded_row(covariance, scale, bound)
+        data[row*m:(row+1)*m] = coefficients
+    _check_U(data, m)
     U = csr_matrix((data, (cols, rows)), shape=(2 * n, n))
     U_latent = U[n::, :]
     U_obs_latent = U[:n, :]
@@ -816,6 +1228,24 @@ def gp_vecch(x,w,NNarray,y,scale,length,nugget,nugget_diag,name):
 
     for i in prange(n_pred):
         idx = NNarray[i]    
+        
+        if nugget == 0.0:
+            matched = -1
+            for a in range(k):
+                ia = idx[a]
+                same = True
+                for j in range(d):
+                    if x[i, j] != w[ia, j]:
+                        same = False
+                        break
+                if same:
+                    matched = ia
+                    break
+            if matched >= 0:
+                m_out[i] = y[matched, 0]
+                v_out[i] = 0.0
+                continue
+
         Xi = np.empty((k + 1, d), dtype=np.float64)
         yi = np.empty(k, dtype=np.float64)
 
@@ -897,6 +1327,24 @@ def gp_vecch_non_parallel(x, w, NNarray, y, scale, length, nugget, nugget_diag, 
 
     for i in range(n_pred):
         idx = NNarray[i]
+        
+        if nugget == 0.0:
+            matched = -1
+            for a in range(k):
+                ia = idx[a]
+                same = True
+                for j in range(d):
+                    if x[i, j] != w[ia, j]:
+                        same = False
+                        break
+                if same:
+                    matched = ia
+                    break
+            if matched >= 0:
+                m_out[i] = y[matched, 0]
+                v_out[i] = 0.0
+                continue
+
         Xi = np.empty((k + 1, d), dtype=np.float64)
         yi = np.empty(k, dtype=np.float64)
 
@@ -952,6 +1400,75 @@ def forward_substitute(L_data, L_indices, L_indptr, b):
 
 # linked gp prediction (sexp, vecchia)
 
+@njit(cache=True, fastmath=False, inline='never')
+def _gp_vecch_deterministic_row(m, z, w1, global_w1, NNarray, y,
+                              scale, length, nugget, nugget_diag, name, t):
+    """Ordinary GP conditional for one exactly deterministic linked-input row.
+
+    Only selected neighbours are used. Optional z contains deterministic global
+    inputs. Strict arithmetic keeps variance independent of the responses.
+    """
+    k = NNarray.shape[1]
+    Dw = w1.shape[1]
+    Dz = 0 if z is None else z.shape[1]
+    if k == 0:
+        return 0.0, scale * (1.0 + nugget)
+
+    if nugget == 0.0:
+        for a in range(k):
+            ia = NNarray[t, a]
+            same = True
+            for j in range(Dw):
+                if m[t, j] != w1[ia, j]:
+                    same = False
+                    break
+            if same and z is not None:
+                for j in range(Dz):
+                    if z[t, j] != global_w1[ia, j]:
+                        same = False
+                        break
+            if same:
+                return y[ia, 0], 0.0
+
+    Xi = np.empty((k + 1, Dw + Dz), dtype=np.float64)
+    yi = np.empty(k, dtype=np.float64)
+    for a in range(k):
+        ia = NNarray[t, a]
+        yi[a] = y[ia, 0]
+        for j in range(Dw):
+            Xi[a, j] = w1[ia, j]
+        if z is not None:
+            for j in range(Dz):
+                Xi[a, Dw + j] = global_w1[ia, j]
+    for j in range(Dw):
+        Xi[k, j] = m[t, j]
+    if z is not None:
+        for j in range(Dz):
+            Xi[k, Dw + j] = z[t, j]
+
+    Ki = K_matrix_nb(Xi, length, 0.0, name)
+    for a in range(k):
+        Ki[a, a] += nugget * nugget_diag[NNarray[t, a]]
+    
+    
+    L = np.linalg.cholesky(Ki[:k, :k])
+    c = Ki[k, :k].copy()
+    forward_solve_inplace(L, yi, k)
+    forward_solve_inplace(L, c, k)
+    mean = 0.0
+    explained = 0.0
+    for a in range(k):
+        mean += c[a] * yi[a]
+        explained += c[a] * c[a]
+    variance = 1.0 + nugget - explained
+    if variance < 0.0:
+        
+        tolerance = 16.0 * np.finfo(np.float64).eps * k * (1.0 + nugget + explained)
+        if variance < -tolerance:
+            raise ValueError("Negative deterministic GP conditional variance")
+        variance = 0.0
+    return mean, scale * variance
+
 @njit(cache=False, fastmath=True)
 def link_gp_vecch_sexp_noz_serial(m, v, w1, NNarray, y,
                                  scale, length_w, inv_len_w,
@@ -962,6 +1479,16 @@ def link_gp_vecch_sexp_noz_serial(m, v, w1, NNarray, y,
     k = NNarray.shape[1]
 
     for t in range(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, None, w1, None, NNarray, y, scale, length_w,
+                nugget, nugget_diag, "sexp", t)
+            continue
+
         idx = NNarray[t]
 
         wi = np.empty((k, w1.shape[1]), dtype=np.float64)
@@ -1036,6 +1563,16 @@ def link_gp_vecch_sexp_noz_parallel(m, v, w1, NNarray, y,
     k = NNarray.shape[1]
 
     for t in prange(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, None, w1, None, NNarray, y, scale, length_w,
+                nugget, nugget_diag, "sexp", t)
+            continue
+
         idx = NNarray[t]
 
         wi = np.empty((k, w1.shape[1]), dtype=np.float64)
@@ -1116,6 +1653,16 @@ def link_gp_vecch_sexp_withz_serial(m, v, z, w1, global_w1, NNarray, y,
     v_new = np.empty(n_pred, dtype=np.float64)
 
     for t in range(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, z, w1, global_w1, NNarray, y, scale, length_full,
+                nugget, nugget_diag, "sexp", t)
+            continue
+
         idx = NNarray[t]
 
         wi = np.empty((k, Dw), dtype=np.float64)
@@ -1208,6 +1755,16 @@ def link_gp_vecch_sexp_withz_parallel(m, v, z, w1, global_w1, NNarray, y,
     v_new = np.empty(n_pred, dtype=np.float64)
 
     for t in prange(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, z, w1, global_w1, NNarray, y, scale, length_full,
+                nugget, nugget_diag, "sexp", t)
+            continue
+
         idx = NNarray[t]
 
         wi = np.empty((k, Dw), dtype=np.float64)
@@ -1290,6 +1847,52 @@ def link_gp_vecch_sexp_withz_parallel(m, v, z, w1, global_w1, NNarray, y,
 # MATERN2.5: z is None
 # ============================================================
 
+@njit(cache=True, fastmath=False)
+def _m52vecch_guarded_zero(wi, mean, variance, length):
+    """Keep the scalar log-kernel guard when a deterministic t*t may overflow.
+
+    Positive variances, including arbitrarily small positive values, always
+    retain the prepared moment route. No input distribution is rounded.
+    """
+    for d in range(len(mean)):
+        if variance[d] == 0.0:
+            for i in range(wi.shape[0]):
+                if abs((mean[d] - wi[i, d]) / length[d]) > 1e150:
+                    return True
+    return False
+
+
+@njit(cache=True, fastmath=False)
+def _m52vecch_scalar_contract(mean, variance, wi, inverse, alpha, length, weights):
+    """Preserved scalar contraction for extreme deterministic coordinates only."""
+    inv_len = 1.0 / length
+    inv_len2 = inv_len * inv_len
+    len2 = length * length
+    len3 = len2 * length
+    len4 = len2 * len2
+    IR = 0.0
+    quad = 0.0
+    tr = 0.0
+    for i in range(wi.shape[0]):
+        Ii = 1.0
+        for d in range(len(mean)):
+            Ii *= _matern25_I1d(wi[i, d], mean[d], variance[d],
+                               length[d], inv_len[d], inv_len2[d])
+        si = weights[i]
+        ai = alpha[i]
+        IR += (Ii * si) * ai
+        Jii = _Jii_matern25(wi, i, mean, variance, length,
+                           inv_len, inv_len2, len2, len3, len4) * (si * si)
+        tr += inverse[i, i] * Jii
+        quad += Jii * ai * ai
+        for j in range(i):
+            Jij = _Jij_matern25(wi, i, j, mean, variance, length,
+                               inv_len, inv_len2, len2, len3, len4) * (si * weights[j])
+            tr += 2.0 * inverse[i, j] * Jij
+            quad += 2.0 * Jij * ai * alpha[j]
+    return IR, quad, tr
+
+
 @njit(cache=False, fastmath=True)
 def link_gp_vecch_matern25_noz_serial(m, v, w1, NNarray, y, scale, length_w, nugget, nugget_diag):
 
@@ -1300,13 +1903,20 @@ def link_gp_vecch_matern25_noz_serial(m, v, w1, NNarray, y, scale, length_w, nug
     m_new = np.empty(n_pred, dtype=np.float64)
     v_new = np.empty(n_pred, dtype=np.float64)
 
-    inv_len_w = 1.0 / length_w
-    inv_len2_w = inv_len_w * inv_len_w
-    len2_w = length_w * length_w
-    len3_w = len2_w * length_w
-    len4_w = len2_w * len2_w
 
+    
+    workspace = _m52opt_workspace(k, d)
     for t in range(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, None, w1, None, NNarray, y, scale, length_w,
+                nugget, nugget_diag, "matern2.5", t)
+            continue
+
         idx = NNarray[t]
 
         wi = np.empty((k, Dw), dtype=np.float64)
@@ -1330,32 +1940,13 @@ def link_gp_vecch_matern25_noz_serial(m, v, w1, NNarray, y, scale, length_w, nug
         #Kinv = np.linalg.solve(Ki, np.eye(k))
         Kinv = chol_inv_eye(Ki, L, k)
 
-        m_row = m[t]
-        v_row = v[t]
-
-        IR = 0.0
-        quad = 0.0
-        tr = 0.0
-
-        for i in range(k):
-            Ii = 1.0
-            for kk in range(d):
-                Ii *= _matern25_I1d(wi[i, kk], m_row[kk], v_row[kk],
-                                    length_w[kk], inv_len_w[kk], inv_len2_w[kk])
-
-            ai = alpha[i]
-            IR += Ii * ai
-
-            Jii = _Jii_matern25(wi, i, m_row, v_row,
-                                length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w)
-            tr += Kinv[i, i] * Jii
-            quad += Jii * ai * ai
-
-            for j in range(i):
-                Jij = _Jij_matern25(wi, i, j, m_row, v_row,
-                                    length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w)
-                tr += 2.0 * Kinv[i, j] * Jij
-                quad += 2.0 * Jij * ai * alpha[j]
+        
+        if _m52vecch_guarded_zero(wi, m[t], v[t], length_w):
+            IR, quad, tr = _m52vecch_scalar_contract(
+                m[t], v[t], wi, Kinv, alpha, length_w, np.ones(k))
+        else:
+            IR, quad, tr = _m52opt_query(
+                m[t], v[t], wi, Kinv, alpha, length_w, workspace)
 
         m_new[t] = IR
         v_new[t] = abs(quad - IR * IR + scale * (1.0 + nugget - tr))
@@ -1372,13 +1963,20 @@ def link_gp_vecch_matern25_noz_parallel(m, v, w1, NNarray, y, scale, length_w, n
     m_new = np.empty(n_pred, dtype=np.float64)
     v_new = np.empty(n_pred, dtype=np.float64)
 
-    inv_len_w = 1.0 / length_w
-    inv_len2_w = inv_len_w * inv_len_w
-    len2_w = length_w * length_w
-    len3_w = len2_w * length_w
-    len4_w = len2_w * len2_w
 
     for t in prange(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, None, w1, None, NNarray, y, scale, length_w,
+                nugget, nugget_diag, "matern2.5", t)
+            continue
+
+        
+        workspace = _m52opt_workspace(k, d)
         idx = NNarray[t]
 
         wi = np.empty((k, Dw), dtype=np.float64)
@@ -1402,32 +2000,13 @@ def link_gp_vecch_matern25_noz_parallel(m, v, w1, NNarray, y, scale, length_w, n
         #Kinv = np.linalg.solve(Ki, np.eye(k))
         Kinv = chol_inv_eye(Ki, L, k)
 
-        m_row = m[t]
-        v_row = v[t]
-
-        IR = 0.0
-        quad = 0.0
-        tr = 0.0
-
-        for i in range(k):
-            Ii = 1.0
-            for kk in range(d):
-                Ii *= _matern25_I1d(wi[i, kk], m_row[kk], v_row[kk],
-                                    length_w[kk], inv_len_w[kk], inv_len2_w[kk])
-
-            ai = alpha[i]
-            IR += Ii * ai
-
-            Jii = _Jii_matern25(wi, i, m_row, v_row,
-                                length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w)
-            tr += Kinv[i, i] * Jii
-            quad += Jii * ai * ai
-
-            for j in range(i):
-                Jij = _Jij_matern25(wi, i, j, m_row, v_row,
-                                    length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w)
-                tr += 2.0 * Kinv[i, j] * Jij
-                quad += 2.0 * Jij * ai * alpha[j]
+        
+        if _m52vecch_guarded_zero(wi, m[t], v[t], length_w):
+            IR, quad, tr = _m52vecch_scalar_contract(
+                m[t], v[t], wi, Kinv, alpha, length_w, np.ones(k))
+        else:
+            IR, quad, tr = _m52opt_query(
+                m[t], v[t], wi, Kinv, alpha, length_w, workspace)
 
         m_new[t] = IR
         v_new[t] = abs(quad - IR * IR + scale * (1.0 + nugget - tr))
@@ -1448,13 +2027,20 @@ def link_gp_vecch_matern25_withz_serial(m, v, z, w1, global_w1, NNarray, y, scal
     m_new = np.empty(n_pred, dtype=np.float64)
     v_new = np.empty(n_pred, dtype=np.float64)
 
-    inv_len_w = 1.0 / length_w
-    inv_len2_w = inv_len_w * inv_len_w
-    len2_w = length_w * length_w
-    len3_w = len2_w * length_w
-    len4_w = len2_w * len2_w
 
+    
+    workspace = _m52opt_workspace(k, d)
     for t in range(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, z, w1, global_w1, NNarray, y, scale, length_full,
+                nugget, nugget_diag, "matern2.5", t)
+            continue
+
         idx = NNarray[t]
 
         wi = np.empty((k, Dw), dtype=np.float64)
@@ -1487,36 +2073,15 @@ def link_gp_vecch_matern25_withz_serial(m, v, z, w1, global_w1, NNarray, y, scal
         #Kinv = np.linalg.solve(Ki, np.eye(k))
         Kinv = chol_inv_eye(Ki, L, k)
 
-        Izi = _matern25_kvec_invlen(gi, z[t], inv_len_z)
-
-        m_row = m[t]
-        v_row = v[t]
-
-        IR = 0.0
-        quad = 0.0
-        tr = 0.0
-
-        for i in range(k):
-            Ii = 1.0
-            for kk in range(d):
-                Ii *= _matern25_I1d(wi[i, kk], m_row[kk], v_row[kk],
-                                    length_w[kk], inv_len_w[kk], inv_len2_w[kk])
-
-            si = Izi[i]
-            ai = alpha[i]
-            IR += (Ii * si) * ai
-
-            Jii = _Jii_matern25(wi, i, m_row, v_row,
-                                length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w) * (si * si)
-            tr += Kinv[i, i] * Jii
-            quad += Jii * ai * ai
-
-            for j in range(i):
-                sj = Izi[j]
-                Jij = _Jij_matern25(wi, i, j, m_row, v_row,
-                                    length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w) * (si * sj)
-                tr += 2.0 * Kinv[i, j] * Jij
-                quad += 2.0 * Jij * ai * alpha[j]
+        
+        if _m52vecch_guarded_zero(wi, m[t], v[t], length_w):
+            weights = _matern25_kvec_invlen(gi, z[t], inv_len_z)
+            IR, quad, tr = _m52vecch_scalar_contract(
+                m[t], v[t], wi, Kinv, alpha, length_w, weights)
+        else:
+            IR, quad, tr = _m52opt_query_withz(
+                m[t], v[t], z[t], wi, gi, Kinv, alpha,
+                length_w, inv_len_z, workspace)
 
         m_new[t] = IR
         v_new[t] = abs(quad - IR * IR + scale * (1.0 + nugget - tr))
@@ -1534,13 +2099,20 @@ def link_gp_vecch_matern25_withz_parallel(m, v, z, w1, global_w1, NNarray, y, sc
     m_new = np.empty(n_pred, dtype=np.float64)
     v_new = np.empty(n_pred, dtype=np.float64)
 
-    inv_len_w = 1.0 / length_w
-    inv_len2_w = inv_len_w * inv_len_w
-    len2_w = length_w * length_w
-    len3_w = len2_w * length_w
-    len4_w = len2_w * len2_w
 
     for t in prange(n_pred):
+        
+        for kk in range(d):
+            if v[t, kk] != 0.0:
+                break
+        else:
+            m_new[t], v_new[t] = _gp_vecch_deterministic_row(
+                m, z, w1, global_w1, NNarray, y, scale, length_full,
+                nugget, nugget_diag, "matern2.5", t)
+            continue
+
+        
+        workspace = _m52opt_workspace(k, d)
         idx = NNarray[t]
 
         wi = np.empty((k, Dw), dtype=np.float64)
@@ -1573,38 +2145,38 @@ def link_gp_vecch_matern25_withz_parallel(m, v, z, w1, global_w1, NNarray, y, sc
         #Kinv = np.linalg.solve(Ki, np.eye(k))
         Kinv = chol_inv_eye(Ki, L, k)
 
-        Izi = _matern25_kvec_invlen(gi, z[t], inv_len_z)
-
-        m_row = m[t]
-        v_row = v[t]
-
-        IR = 0.0
-        quad = 0.0
-        tr = 0.0
-
-        for i in range(k):
-            Ii = 1.0
-            for kk in range(d):
-                Ii *= _matern25_I1d(wi[i, kk], m_row[kk], v_row[kk],
-                                    length_w[kk], inv_len_w[kk], inv_len2_w[kk])
-
-            si = Izi[i]
-            ai = alpha[i]
-            IR += (Ii * si) * ai
-
-            Jii = _Jii_matern25(wi, i, m_row, v_row,
-                                length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w) * (si * si)
-            tr += Kinv[i, i] * Jii
-            quad += Jii * ai * ai
-
-            for j in range(i):
-                sj = Izi[j]
-                Jij = _Jij_matern25(wi, i, j, m_row, v_row,
-                                    length_w, inv_len_w, inv_len2_w, len2_w, len3_w, len4_w) * (si * sj)
-                tr += 2.0 * Kinv[i, j] * Jij
-                quad += 2.0 * Jij * ai * alpha[j]
+        
+        if _m52vecch_guarded_zero(wi, m[t], v[t], length_w):
+            weights = _matern25_kvec_invlen(gi, z[t], inv_len_z)
+            IR, quad, tr = _m52vecch_scalar_contract(
+                m[t], v[t], wi, Kinv, alpha, length_w, weights)
+        else:
+            IR, quad, tr = _m52opt_query_withz(
+                m[t], v[t], z[t], wi, gi, Kinv, alpha,
+                length_w, inv_len_z, workspace)
 
         m_new[t] = IR
         v_new[t] = abs(quad - IR * IR + scale * (1.0 + nugget - tr))
 
     return m_new, v_new
+
+@njit(cache=True, fastmath=False, inline='never')
+def _U_row(K):
+    m = len(K)
+    v = np.empty(m)
+    try:
+        L = np.linalg.cholesky(K)
+        for j in range(m):
+            if not np.isfinite(L[j, j]) or L[j, j] <= 0.0:
+                return np.full(m, np.nan)
+        solve_lt_e_last_inplace(L, v, m)
+        if not np.isfinite(v).all():
+            return np.full(m, np.nan)
+        return v
+    except Exception:
+        return np.full(m, np.nan)
+
+def _check_U(data, m):
+    bad = np.flatnonzero(~np.isfinite(data))
+    if bad.size:
+        raise np.linalg.LinAlgError('U factor/solve failed: row ' + str(int(bad[0] // m)))

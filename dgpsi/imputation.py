@@ -57,6 +57,11 @@ class imputer:
         is_hetero = self._is_hetero
         upper_map = self._upper_map
         block = self.block
+        
+        factor_cache = {} if any(k.type == 'gp' and not k.vecch
+                                for layer in all_layer for k in layer) else None
+        
+        use_pairs = burnin > 0
         L0 = None
         sqrt_s0 = None
         V0 = None
@@ -87,16 +92,16 @@ class imputer:
                 linked_layer = all_layer[l+1]
                 if block and (not is_hetero[l]):
                     if l == 0:
-                        self.one_sample_block(layer, linked_layer, L0, sqrt_s0, V0)  # cached chol(K) for layer 0
+                        self.one_sample_block(layer, linked_layer, L0, sqrt_s0, V0, factor_cache, use_pairs)  # cached chol(K) for layer 0
                     else:
-                        self.one_sample_block(layer, linked_layer)
+                        self.one_sample_block(layer, linked_layer, factor_cache=factor_cache, use_pairs=use_pairs)
                 else:
                     mp = upper_map[l]
                     for k, target_kernel in enumerate(layer):
-                        self.one_sample(target_kernel, mp[k], k)
+                        self.one_sample(target_kernel, mp[k], k, factor_cache, use_pairs)
 
     @staticmethod
-    def one_sample_block(target_layer,upper_layer, L_list=None, sqrt_s_list=None, V_list=None):
+    def one_sample_block(target_layer,upper_layer, L_list=None, sqrt_s_list=None, V_list=None, factor_cache=None, use_pairs=True):
         """Impute a latent layer.
 
         Args:
@@ -124,8 +129,11 @@ class imputer:
                     # use cached chol(K) for layer-0 kernels
                     nu[:, i] = mvn_from_chol_nb(L_list[i], sqrt_s_list[i])
                 else:
-                    # fallback (original behavior)
-                    nu[:,i] = fmvn(kernel.k_matrix(), kernel.scale)
+                    if factor_cache is None:
+                        nu[:,i] = fmvn(kernel.k_matrix(), kernel.scale)
+                    else:
+                        L, _ = kernel._dense_factor(factor_cache)
+                        nu[:,i] = mvn_from_chol_nb(L, sqrt(float(kernel.scale[0])))
 
         #f = np.vstack([kernel.output.flatten() for kernel in target_layer]).T
         # Choose the ellipse for this sampling iteration.
@@ -136,9 +144,9 @@ class imputer:
         for linked_kernel in upper_layer:
             if linked_kernel.type=='gp':
                 if linked_kernel.vecch:
-                    log_y += linked_kernel.log_likelihood_func_vecch()
+                    log_y += linked_kernel.log_likelihood_func_vecch(use_pairs)
                 else:      
-                    log_y += linked_kernel.log_likelihood_func()
+                    log_y += linked_kernel.log_likelihood_func(factor_cache)
             elif linked_kernel.type=='likelihood': 
                 log_y += linked_kernel.llik()
         log_y += np.log(uniform())
@@ -155,6 +163,8 @@ class imputer:
             fp = update_f(f,nu,theta)
             log_yp=0
             for linked_kernel in upper_layer:
+                if factor_cache is not None:
+                    factor_cache.pop(linked_kernel, None)
                 if linked_kernel.rep is None:
                     linked_kernel.input=fp[:,linked_kernel.input_dim]
                 else:
@@ -164,9 +174,9 @@ class imputer:
                         linked_kernel.input=fp[linked_kernel.rep,:][:,linked_kernel.input_dim]
                 if linked_kernel.type=='gp':
                     if linked_kernel.vecch:
-                        log_yp += linked_kernel.log_likelihood_func_vecch()
+                        log_yp += linked_kernel.log_likelihood_func_vecch(use_pairs)
                     else:
-                        log_yp += linked_kernel.log_likelihood_func()
+                        log_yp += linked_kernel.log_likelihood_func(factor_cache)
                 elif linked_kernel.type=='likelihood': 
                     log_yp += linked_kernel.llik()
             if log_yp > log_y:
@@ -184,7 +194,7 @@ class imputer:
                 theta = uniform(theta_min, theta_max)
     
     @staticmethod
-    def one_sample(target_kernel,linked_upper_kernels,k):
+    def one_sample(target_kernel,linked_upper_kernels,k,factor_cache=None,use_pairs=True):
         """Impute one latent variable produced by a particular GP.
 
         Args:
@@ -201,7 +211,7 @@ class imputer:
                 X=target_kernel.input
             covariance = None
         else:
-            covariance=target_kernel.k_matrix()
+            covariance=target_kernel.k_matrix() if factor_cache is None else None
                   
         if (len(linked_upper_kernels)==1 and linked_upper_kernels[0].type=='likelihood' and linked_upper_kernels[0].exact_post_idx is not None):
             lk = linked_upper_kernels[0]
@@ -223,6 +233,8 @@ class imputer:
                         f=lk.posterior_vecch(idx=idx, U_sp_l=U_sp_latent, U_sp_ol=U_sp_obs_latent, ord=ord, rev_ord=target_kernel.rev_ord)
                 else:
                     #np.fill_diagonal(covariance, target_kernel.scale)
+                    if covariance is None:
+                        covariance = target_kernel.k_matrix()
                     f=lk.posterior(idx=idx,v=target_kernel.scale * covariance)
                 if lk.rep is None:
                     lk.input[:,idx]=f
@@ -237,15 +249,19 @@ class imputer:
         if target_kernel.vecch:
             nu = fmvn_sp(X[target_kernel.ord], target_kernel.NN_rev, target_kernel.NN_count, target_kernel.length, target_kernel.nugget[0], target_kernel.scale[0], target_kernel.name)[target_kernel.rev_ord]
         else:
-            nu = fmvn(covariance, target_kernel.scale)                       
+            if factor_cache is None:
+                nu = fmvn(covariance, target_kernel.scale)
+            else:
+                L, _ = target_kernel._dense_factor(factor_cache)
+                nu = mvn_from_chol_nb(L, sqrt(float(target_kernel.scale[0])))
         # Set the candidate acceptance threshold.
         log_y=0
         for linked_kernel in linked_upper_kernels:
             if linked_kernel.type=='gp':
                 if linked_kernel.vecch:
-                    log_y += linked_kernel.log_likelihood_func_vecch()
+                    log_y += linked_kernel.log_likelihood_func_vecch(use_pairs)
                 else:      
-                    log_y += linked_kernel.log_likelihood_func()
+                    log_y += linked_kernel.log_likelihood_func(factor_cache)
             elif linked_kernel.type=='likelihood': 
                 log_y += linked_kernel.llik()
         log_y += np.log(uniform())
@@ -261,6 +277,8 @@ class imputer:
             fp = update_f(f,nu,theta)
             log_yp=0
             for linked_kernel in linked_upper_kernels:
+                if factor_cache is not None:
+                    factor_cache.pop(linked_kernel, None)
                 pos = np.where(linked_kernel.input_dim==k)[0][0]
                 if linked_kernel.rep is None:
                     linked_kernel.input[:,pos]=fp
@@ -271,9 +289,9 @@ class imputer:
                         linked_kernel.input[:,pos]=fp[linked_kernel.rep]
                 if linked_kernel.type=='gp':
                     if linked_kernel.vecch:
-                        log_yp += linked_kernel.log_likelihood_func_vecch()
+                        log_yp += linked_kernel.log_likelihood_func_vecch(use_pairs)
                     else:
-                        log_yp += linked_kernel.log_likelihood_func()
+                        log_yp += linked_kernel.log_likelihood_func(factor_cache)
                 elif linked_kernel.type=='likelihood': 
                     log_yp += linked_kernel.llik()
             if log_yp > log_y:

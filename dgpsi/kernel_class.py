@@ -4,8 +4,9 @@ from scipy.optimize import minimize, Bounds
 from scipy.linalg import cho_solve, pinvh, cholesky
 from scipy.spatial.distance import pdist
 from .functions import gp, gp_non_parallel, logdet_nb, g, link_gp_matern25_noz_serial, link_gp_matern25_noz_parallel, link_gp_matern25_withz_serial, link_gp_matern25_withz_parallel, link_gp_sexp_noz_serial, link_gp_sexp_noz_parallel, link_gp_sexp_withz_serial, link_gp_sexp_withz_parallel
-from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, dK_matrix_nb, K_matrix_nb, preprocess_nn, link_gp_vecch_sexp_noz_parallel, link_gp_vecch_sexp_noz_serial, link_gp_vecch_sexp_withz_parallel, link_gp_vecch_sexp_withz_serial, link_gp_vecch_matern25_noz_parallel, link_gp_vecch_matern25_noz_serial, link_gp_vecch_matern25_withz_parallel, link_gp_vecch_matern25_withz_serial
+from .vecchia import nn, vecchia_llik, vecchia_nllik, get_pred_nn, gp_vecch, gp_vecch_non_parallel, imp_pointers, dK_matrix_nb, K_matrix_nb, preprocess_nn, link_gp_vecch_sexp_noz_parallel, link_gp_vecch_sexp_noz_serial, link_gp_vecch_sexp_withz_parallel, link_gp_vecch_sexp_withz_serial, link_gp_vecch_matern25_noz_parallel, link_gp_vecch_matern25_noz_serial, link_gp_vecch_matern25_withz_parallel, link_gp_vecch_matern25_withz_serial, _loo_exclude_inplace
 from .utils import get_thread
+from .vecchia import prepare_vecchia_pairs, vecchia_llik_pairs
 class kernel:
     """
     Class that defines the GPs in the DGP hierarchy.
@@ -144,7 +145,13 @@ class kernel:
         self.W_diag=None
         self.origin_n=None
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('_pair_cache', None)
+        return state
+
     def __setstate__(self, state):
+        state.pop('_pair_cache', None)
         if 'g' in state:
             del state['g']
         if 'gfod' in state:
@@ -312,6 +319,7 @@ class kernel:
         - If pointer=True, compute pointer arrays for THIS kernel (even if ord/NN were reused).
         """
 
+        self.__dict__.pop('_pair_cache', None)
         # ----------------------------
         # Decide if we need scaled X
         # ----------------------------
@@ -372,7 +380,7 @@ class kernel:
             # X is guaranteed to exist because need_X_for_ptr -> True above
             X_ord = X[self.ord]
 
-            NNs = get_pred_nn(X_ord, X_ord, self.m)[:, 1:]   # (n, m-1)
+            NNs = _loo_exclude_inplace(get_pred_nn(X_ord, X_ord, self.m))   # (n, m-1)
             n = X_ord.shape[0]
 
             prev = NNs < np.arange(n)[:, None]
@@ -567,13 +575,24 @@ class kernel:
             neg_St=neg_St-self.log_prior_fod()
         return neg_llik, neg_St
 
-    def log_likelihood_func(self):
-        y = self.output.ravel()
+    def _dense_factor(self, cache=None):
+        """Unscaled factor; callers invalidate after changing a GP's inputs.
+
+        The imputer owns the cache for one sample() call, during which kernel
+        parameters and nugget weights are fixed. Outputs and scales are not cached.
+        """
+        if cache is not None and self in cache:
+            return cache[self]
         K = self.k_matrix()
         L = cholesky(K, lower=True, check_finite=False)
-        #L=np.linalg.cholesky(cov)
-        #logdet=2*np.sum(np.log(np.abs(np.diag(L))))
         logdet = logdet_nb(L)
+        if cache is not None:
+            cache[self] = (L, logdet)
+        return L, logdet
+
+    def log_likelihood_func(self, factor_cache=None):
+        y = self.output.ravel()
+        L, logdet = self._dense_factor(factor_cache)
         alpha = cho_solve((L, True), y, check_finite=False)
         quad = y @ alpha
         s = self.scale[0]  # shape (1,)
@@ -583,7 +602,23 @@ class kernel:
             llik+=self.log_prior()
         return llik
 
-    def log_likelihood_func_vecch(self):
+    def _vecchia_pairs(self):
+        """Reuse indices only; snapshots also detect in-place graph edits."""
+        nn, count = self.NN_rev, self.NN_count
+        n = self.input.shape[0]
+        saved = self.__dict__.get('_pair_cache')
+        if saved is not None and saved[2] == n and (
+                np.array_equal(nn, saved[0]) and np.array_equal(count, saved[1])):
+            return saved[3]
+        self.__dict__.pop('_pair_cache', None)
+        del saved  
+        plan = prepare_vecchia_pairs(nn, count)
+        
+        if plan is not None:
+            self._pair_cache = (nn.copy(), count.copy(), n, plan)
+        return plan
+
+    def log_likelihood_func_vecch(self,use_pairs=True):
         """Compute Gaussian log-likelihood function using the Vecchia approximation.
         """
         if self.connect is not None:
@@ -593,7 +628,14 @@ class kernel:
         nugget_diag = self.W_diag
         ord = self.ord
         X0, y0, nugget_diag0 = X[ord], self.output[ord,0], nugget_diag[ord]
-        llik = vecchia_llik(X0, y0, self.NN_rev, self.NN_count, self.scale[0], self.length, self.nugget[0], nugget_diag0, self.name)
+        
+        if use_pairs and X0.dtype == np.float64 and self.length.dtype == np.float64:
+            plan = self._vecchia_pairs()
+        else:
+            self.__dict__.pop('_pair_cache', None)
+            plan = None
+        args = (X0, y0, self.NN_rev, self.NN_count, self.scale[0], self.length, self.nugget[0], nugget_diag0, self.name)
+        llik = vecchia_llik(*args) if plan is None else vecchia_llik_pairs(*args, *plan)
         if self.prior_name=='ref':
             self.compute_cl()
             llik+=self.log_prior()
@@ -700,7 +742,7 @@ class kernel:
                 w = self.input
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             if self.loo_state:
-                NNarray = NNarray[:,1:]
+                NNarray = _loo_exclude_inplace(NNarray)
             nugget_diag = self.W_diag
             if parallel:
                 m,v = gp_vecch(x,w,NNarray,self.output,self.scale[0],self.length,self.nugget[0],nugget_diag,self.name)
@@ -748,7 +790,7 @@ class kernel:
                 w = self.input
             NNarray = get_pred_nn(x/self.length, w/self.length, self.pred_m, method = self.nn_method)
             if self.loo_state:
-                NNarray = NNarray[:,1:]
+                NNarray = _loo_exclude_inplace(NNarray)
             nugget_diag = self.W_diag
             scale = self.scale[0]
             nugget = self.nugget[0]

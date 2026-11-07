@@ -348,7 +348,7 @@ class lgp:
                                         sample_lk[count,]=np.random.normal(m_lk[:,[count]],np.sqrt(v_one_before_lk[:,[count]]),size=(row_num,sample_size))
                                     elif kernel.type=='likelihood':
                                         dgp_sample=np.random.normal(m_one_before_lk,np.sqrt(v_one_before_lk),size=(sample_size, m_one_before_lk.shape[0], m_one_before_lk.shape[1]))
-                                        sample_lk[count,]=np.array([kernel.sampling(dgp_sample[:,:,[kernel.input_dim]][i]) for i in range(sample_size)]).T
+                                        sample_lk[count,]=np.array([kernel.sampling(dgp_sample[i][:,kernel.input_dim]) for i in range(sample_size)]).T
                         if method=='mean_var':                     
                             m_last_layer.append(m_lk)
                             v_last_layer.append(v_lk)

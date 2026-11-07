@@ -1,171 +1,173 @@
-import numpy as np
+"""Float64 Cholesky helpers for dgpsi.
+
+L is a valid square lower Cholesky factor. Only its leading k rows/columns
+are used. RHS buffers must be writable and must not overlap L. Factors may
+be C, F or strided; each call owns its LAPACK argument/work arrays.
+"""
 import ctypes
+import numpy as np
 from numba import njit
 from numba.extending import get_cython_function_address
 
-# ------------------------------------------------------------
-# 1) Resolve SciPy cython_lapack dpotrs for Numba (needs int* UPLO trick)
-# ------------------------------------------------------------
-_ptr_dble = ctypes.POINTER(ctypes.c_double)
-_ptr_int  = ctypes.POINTER(ctypes.c_int)
-
-try:
-    dpotrs_addr = get_cython_function_address("scipy.linalg.cython_lapack", "dpotrs")
-    dpotrs_py = ctypes.CFUNCTYPE(                           # FIX
-        None, ctypes.c_char_p, _ptr_int, _ptr_int, _ptr_dble, _ptr_int, _ptr_dble, _ptr_int, _ptr_int
-    )(dpotrs_addr) 
-    dpotrs_ct = ctypes.CFUNCTYPE(
-        None, _ptr_int, _ptr_int, _ptr_int, _ptr_dble, _ptr_int, _ptr_dble, _ptr_int, _ptr_int
-    )(dpotrs_addr)
-    _HAVE_DPOTRS = True
-except Exception:
-    dpotrs_py = None
-    dpotrs_ct = None
-    _HAVE_DPOTRS = False
+_byte_p = ctypes.POINTER(ctypes.c_uint8)
+_int_p = ctypes.POINTER(ctypes.c_int32)
+_double_p = ctypes.POINTER(ctypes.c_double)
 
 
-def _lapack_self_test_python() -> bool:
-    """
-    Import-time sanity check (no Numba compile):
-      - force F-order float64 arrays
-      - call dpotrs via correct ctypes signature (char* UPLO)
-      - compare to np.linalg.solve
-    """
-    if not _HAVE_DPOTRS:
-        return False
-
-    A = np.array([[4.0, 1.0],
-                  [1.0, 3.0]], dtype=np.float64, order="F")
-    L = np.array(np.linalg.cholesky(A), dtype=np.float64, order="F", copy=False)
-
-    B = np.array([[1.0, 2.0],
-                  [3.0, 4.0]], dtype=np.float64, order="F")
-    X_ref = np.linalg.solve(A, B)
-
-    B2 = B.copy(order="F")
-
-    uplo = b"L"
-    n    = ctypes.c_int(2)
-    nrhs = ctypes.c_int(2)
-    lda  = ctypes.c_int(L.shape[0])
-    ldb  = ctypes.c_int(B2.shape[0])
-    info = ctypes.c_int(0)
-
-    dpotrs_py(
-        uplo,
-        ctypes.byref(n),
-        ctypes.byref(nrhs),
-        L.ctypes.data_as(_ptr_dble),
-        ctypes.byref(lda),
-        B2.ctypes.data_as(_ptr_dble),
-        ctypes.byref(ldb),
-        ctypes.byref(info),
-    )
-
-    if info.value != 0:
-        return False
-    return np.allclose(B2, X_ref, rtol=1e-12, atol=1e-12)
+def _resolve(name, arguments):
+    try:
+        address = get_cython_function_address("scipy.linalg.cython_lapack", name)
+        return ctypes.CFUNCTYPE(None, *arguments)(address), ""
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
 
 
-# Global on/off flag (Python bool, frozen at import-time)
-LAPACK_CHO_SOLVE_ENABLED: bool = bool(_lapack_self_test_python())
+dpotrs_ct, DPOTRS_ERROR = _resolve(
+    "dpotrs", [_byte_p, _int_p, _int_p, _double_p, _int_p,
+               _double_p, _int_p, _int_p])
 
-@njit(cache=False, fastmath=True)
+
+
+def _probe():
+    """Exercise C/upper and F/lower storage without compiling at import."""
+    if dpotrs_ct is None:
+        return False, DPOTRS_ERROR
+    try:
+        a = np.array([[4., 1.], [1., 3.]])
+        for order, triangle in (("C", ord("U")), ("F", ord("L"))):
+            factor = np.array(np.linalg.cholesky(a), order=order)
+            rhs = np.array([[1., 2.], [3., 4.]], order="F")
+            expected = np.linalg.solve(a, rhs)
+            uplo = np.array([triangle], dtype=np.uint8)
+            args = np.array([2, 2, 2, 2, 0], dtype=np.int32)
+            pointers = [args[i:].ctypes.data_as(_int_p) for i in range(5)]
+            dpotrs_ct(uplo.ctypes.data_as(_byte_p), pointers[0], pointers[1],
+                      factor.ctypes.data_as(_double_p), pointers[2],
+                      rhs.ctypes.data_as(_double_p), pointers[3], pointers[4])
+            if args[4] != 0 or not np.allclose(rhs, expected, rtol=1e-12, atol=1e-12):
+                return False, "LAPACK self-test failed"
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+LAPACK_CHO_SOLVE_ENABLED, DPOTRS_ERROR = _probe()
+
+
+@njit(cache=False)
 def _dpotrs_inplace_from_L(L, B, k, lower=True):
-    """
-    In-place solve using LAPACK dpotrs from precomputed factor stored in L.
+    """Private raw bridge: contiguous square L, writable F-order B, validated sizes.
 
-    Solves: A X = B for N=k, where A = L L^T (lower=True) using top-left k×k.
-    Overwrites the first k rows of B (B shape is (ldb, nrhs), ldb >= k).
+For raw C-order lower L use lower=False: LAPACK sees its upper transpose.
+Only B[:k, :] is overwritten. No pointer-bearing function is disk-cached.
+"""
+    uplo = np.empty(1, np.uint8)
+    uplo[0] = 76 if lower else 85
+    args = np.empty(5, np.int32)
+    args[0], args[1], args[2], args[3], args[4] = k, B.shape[1], L.shape[0], B.shape[0], 0
+    dpotrs_ct(uplo.ctypes, args[0:].ctypes, args[1:].ctypes, L.ctypes,
+              args[2:].ctypes, B.ctypes, args[3:].ctypes, args[4:].ctypes)
+    return args[4]
 
-    Returns INFO (0 success).
-    """
-    UPLO = np.array(ord('L') if lower else ord('U'), dtype=np.int32)
-    INFO = np.array(0, dtype=np.int32)
-
-    N   = np.array(k, dtype=np.int32)
-    LDA = np.array(L.shape[0], dtype=np.int32)
-
-    NRHS = np.array(B.shape[1], dtype=np.int32)
-    LDB  = np.array(B.shape[0], dtype=np.int32)
-
-    dpotrs_ct(
-        UPLO.ctypes,
-        N.ctypes,
-        NRHS.ctypes,
-        L.ctypes,
-        LDA.ctypes,
-        B.ctypes,
-        LDB.ctypes,
-        INFO.ctypes
-    )
-    return INFO[()]
 
 @njit(cache=True, fastmath=True)
 def forward_solve_inplace(L, b, k):
-    """Overwrite b[:k] with x solving L x = b (L lower-triangular)."""
+    """Trusted internal loop: overwrite b[:k] with the solution of L x=b."""
     for i in range(k):
         s = b[i]
         for j in range(i):
             s -= L[i, j] * b[j]
         b[i] = s / L[i, i]
 
+
 @njit(cache=True, fastmath=True)
 def backward_solve_inplace(L, b, k):
-    """Overwrite b[:k] with x solving (L.T) x = b, where L is lower-triangular."""
+    """Trusted internal loop: overwrite b[:k] with the solution of L.T x=b."""
     for i in range(k - 1, -1, -1):
         s = b[i]
         for j in range(i + 1, k):
             s -= L[j, i] * b[j]
         b[i] = s / L[i, i]
 
+
 @njit(cache=True)
 def chol_solve_inplace(L, b, k):
-    """Overwrite b[:k] with x solving (L L.T) x = b."""
     forward_solve_inplace(L, b, k)
     backward_solve_inplace(L, b, k)
 
-@njit(cache=False, fastmath=True)
+
+@njit(cache=True, inline="always")
+def _check_factor(L, k):
+    if not L.dtype == np.dtype(np.float64):
+        raise ValueError("Expected a float64 factor")
+    if L.shape[0] != L.shape[1] or k < 0 or k > L.shape[0]:
+        raise ValueError("Expected a square factor and 0 <= k <= its size")
+    if L.shape[0] > 2147483647:
+        raise ValueError("Factor exceeds LAPACK int32 dimensions")
+
+
+@njit(cache=True, inline="always")
+def _overlaps(L, b):
+    """Conservative byte spans also cover negative/strided views."""
+    if L.size == 0 or b.size == 0:
+        return False
+    l0 = np.int64(L.ctypes.data)
+    b0 = np.int64(b.ctypes.data)
+    s0 = (L.shape[0] - 1) * L.strides[0]
+    s1 = (L.shape[1] - 1) * L.strides[1]
+    sb = (b.shape[0] - 1) * b.strides[0]
+    lo = l0 + min(0, s0) + min(0, s1)
+    hi = l0 + max(0, s0) + max(0, s1) + L.itemsize
+    return lo < b0 + max(0, sb) + b.itemsize and b0 + min(0, sb) < hi
+
+
+@njit(cache=False)
 def chol_solve_vec_inplace(L, alpha, k):
-    """
-    alpha: 1D vector, overwritten in-place on alpha[0:k].
-    Returns:
-      0 if LAPACK used successfully
-      1 if fallback used
+    """Solve (L L.T) x=alpha[:k], preserving the tail. Return 0 LAPACK, 1 loop.
 
-    LAPACK will be used only if:
-      - LAPACK_CHO_SOLVE_ENABLED is True
-      - L looks F-contiguous (layout-safe for dpotrs)
-      - alpha is contiguous 1D (so reshape(k,1) view is safe)
-    """
-    if LAPACK_CHO_SOLVE_ENABLED:
-        Lt = L.T
-        # (k,1) view on the same memory; safe because (k,1) has identical C/F strides
-        B = alpha.reshape((k, 1))
-        info = _dpotrs_inplace_from_L(Lt, B, k, lower=False)
-        if info == 0:
+Float64 arrays are required. Unsupported types are rejected during Numba
+typing or validation; size/overlap errors raise ValueError before writing.
+"""
+    _check_factor(L, k)
+    if not alpha.dtype == np.dtype(np.float64):
+        raise ValueError("Expected a float64 RHS")
+    if alpha.size < k:
+        raise ValueError("RHS is shorter than k")
+    if _overlaps(L, alpha):
+        raise ValueError("Factor and RHS must not overlap")
+    if k == 0:
+        return 1
+    if LAPACK_CHO_SOLVE_ENABLED and alpha.flags.c_contiguous:
+        if L.flags.c_contiguous or L.flags.f_contiguous:
+            
+            
+            B = np.ascontiguousarray(alpha[:k]).reshape((k, 1))
+            info = _dpotrs_inplace_from_L(L, B, k, lower=not L.flags.c_contiguous)
+            if info != 0:
+                raise ValueError("DPOTRS rejected validated arguments")
             return 0
-
     chol_solve_inplace(L, alpha, k)
     return 1
 
-@njit(cache=False, fastmath=True)
+
+@njit(cache=False)
 def chol_inv_eye(A, L, k):
-    """
-    Compute inv(A[:k,:k]) using precomputed Cholesky factor L.
+    """Return an F-order inverse from L[:k,:k], without modifying A or L.
 
-    LAPACK path is allowed if L is F-contiguous; identity is symmetric so
-    C/F layout is not a correctness issue here, but we still require L F-order.
-
-    Returns:
-      invA : (k,k) float64 array
-    """
-    if LAPACK_CHO_SOLVE_ENABLED:
-        Lt = L.T
-        Inv = np.eye(k, dtype=np.float64).T
-        info = _dpotrs_inplace_from_L(Lt, Inv, k, lower=False)
-        if info == 0:
-            return Inv
-
-    return np.linalg.solve(A, np.eye(k, dtype=np.float64))
-
+A is retained for signature compatibility; callers must supply its lower
+Cholesky factor L. The fallback also reuses L, avoiding a new factorization.
+"""
+    _check_factor(L, k)
+    if A.shape[0] != A.shape[1] or A.shape[0] < k:
+        raise ValueError("Expected a square A at least k by k")
+    inv = np.eye(k, dtype=np.float64).T
+    if k == 0:
+        return inv
+    if LAPACK_CHO_SOLVE_ENABLED and (L.flags.c_contiguous or L.flags.f_contiguous):
+        info = _dpotrs_inplace_from_L(L, inv, k, lower=not L.flags.c_contiguous)
+        if info != 0:
+            raise ValueError("DPOTRS rejected validated arguments")
+        return inv
+    for i in range(k):
+        chol_solve_inplace(L, inv[:, i], k)
+    return inv
