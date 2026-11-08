@@ -4,6 +4,7 @@ import numpy as np
 from math import erf, sqrt, pi, exp, fabs
 from numpy.random import randn
 from scipy.linalg import pinvh, cholesky, solve_triangular, LinAlgError
+from scipy.special import betaln, gammaln
 import itertools
 from psutil import cpu_count
 from functools import lru_cache
@@ -1384,3 +1385,125 @@ def _m5_log_pair(x, z, lengths, mode):
         correction = new_total - total - adjusted
         total = new_total
     return exp(-total)
+
+
+def _sum_count_loglik(values):
+    """Allow a negative total outside float64 range to reduce to -inf."""
+    if np.all(values <= 0):
+        with np.errstate(over='ignore'):
+            return np.sum(values)
+    return np.sum(values)
+
+
+def _zi_logpmf(y, base, logit):
+    """Add the structural-zero mass only at zero observations."""
+    y, base, logit = np.broadcast_arrays(y, base, np.asarray(logit, dtype=float))
+    weighted = np.asarray(-np.logaddexp(0., logit) + base)
+    zero = y == 0
+    weighted[zero] = np.logaddexp(-np.logaddexp(0., -logit[zero]), weighted[zero])
+    return weighted
+
+
+def _zip_logpmf(y, log_rate, logit):
+    observed = np.asarray(y)
+    y, log_rate = np.broadcast_arrays(observed, np.asarray(log_rate, dtype=float))
+    with np.errstate(over='ignore'):
+        base = np.asarray(-np.exp(log_rate))
+    positive = (y != 0) & np.isfinite(base)
+    if observed.shape == y.shape:
+        log_factorial = gammaln(y[positive] + 1.)
+    else:
+        log_factorial = np.broadcast_to(gammaln(observed + 1.), y.shape)[positive]
+    base[positive] += y[positive] * log_rate[positive] - log_factorial
+    return _zi_logpmf(y, base, logit)
+
+
+def _nb_direct(y, log_mean, log_disp, log_factorial):
+    size = np.exp(-log_disp)
+    a = log_mean + log_disp
+    softplus = np.logaddexp(0., a)
+    return (gammaln(y + size) - gammaln(size) - log_factorial
+            + y * a - (y + size) * softplus)
+
+
+def _nb_size_penalty(log_mean, log_disp, a):
+    """Compute size * log(1 + exp(a)) even when size overflows."""
+    low = a <= 0
+    with np.errstate(over='ignore', under='ignore'):
+        scale = np.exp(.5 * np.where(low, log_mean, -log_disp))
+        weight = np.logaddexp(0., a)
+        z = np.exp(a[low])
+        weight[low] = np.divide(np.log1p(z), z, out=np.ones_like(z), where=z != 0)
+        return (scale * weight) * scale
+
+
+def _nb_gamma_correction(increment, log_increment, log_base):
+    """logGamma(base+h) - logGamma(base) - h*log(base), for base >= 1024.
+
+    Expand ((1+t)*log1p(t)-t)/t near zero and difference the first two
+    Stirling corrections directly to retain precision when h/base is small.
+    """
+    reciprocal = np.exp(-log_base)
+    ratio = np.exp(log_increment - log_base)
+    log_ratio = np.log1p(ratio)
+    small = ratio <= .01
+    t = ratio[small]
+    coefficients = (.5, -1/6, 1/12, -1/20, 1/30, -1/42, 1/56)
+    quotient = np.empty_like(ratio)
+    quotient[small] = t * np.polynomial.polynomial.polyval(t, coefficients)
+    quotient[~small] = (1 + 1/ratio[~small]) * log_ratio[~small] - 1
+    return (increment * quotient - .5 * log_ratio + reciprocal/12 * np.expm1(-log_ratio)
+            - reciprocal**3/360 * np.expm1(-3 * log_ratio))
+
+
+def _nb_tail(y, log_mean, log_disp, log_factorial):
+    """Use a large size or count as the gamma-ratio base. With both small,
+    shift the beta coefficient by one so size may underflow to zero.
+    """
+    a = log_mean + log_disp
+    result = -_nb_size_penalty(log_mean, log_disp, a)
+    large_size = log_disp <= -np.log(1024.)
+    large = (y > 0) & large_size
+    if np.any(large):
+        count, disp, x = y[large], log_disp[large], a[large]
+        log_scaled_mean = np.where(x <= 0, log_mean[large] - np.logaddexp(0., x),
+                                   -disp - np.logaddexp(0., -x))
+        result[large] += (_nb_gamma_correction(count, np.log(count), -disp) + count * log_scaled_mean
+                          - log_factorial[large])
+    small = (y > 0) & ~large_size
+    if np.any(small):
+        count, disp = y[small], log_disp[small]
+        size = np.exp(-disp)
+        log_count = np.log(count)
+        coefficient = -disp - log_count
+        high = count >= 1024
+        if np.any(high):
+            n, log_y = size[high], log_count[high]
+            correction = _nb_gamma_correction(n, -disp[high], log_y)
+            coefficient[high] += n * log_y + correction - gammaln(1 + n)
+        if np.any(~high):
+            y_low, n_low = count[~high], size[~high]
+            coefficient[~high] -= np.log(y_low + n_low) + betaln(y_low, 1 + n_low)
+        result[small] += coefficient - count * np.logaddexp(0., -a[small])
+    return result
+
+
+def _nb_logpmf(y, log_mean, log_disp):
+    """Use the direct formula on ordinary inputs and on whole invalid batches."""
+    observed = np.asarray(y, dtype=float)
+    y, log_mean, log_disp = np.broadcast_arrays(observed, np.asarray(log_mean, dtype=float),
+                                                np.asarray(log_disp, dtype=float))
+    log_factorial = gammaln(observed + 1.)
+    ordinary = (y <= 100) & (np.abs(log_mean) <= 20) & (np.abs(log_disp) <= np.log(1024.))
+    if (np.all(ordinary)
+            or not np.all(np.isfinite(log_mean)) or not np.all(np.isfinite(log_disp))
+            or not np.all(np.isfinite(observed) & (observed >= 0) & (observed == np.floor(observed)))):
+        return _nb_direct(y, log_mean, log_disp, log_factorial)
+    log_factorial = np.broadcast_to(log_factorial, y.shape)
+    result = np.empty(y.shape)
+    if np.any(ordinary):
+        result[ordinary] = _nb_direct(y[ordinary], log_mean[ordinary], log_disp[ordinary],
+                                      log_factorial[ordinary])
+    tail = ~ordinary
+    result[tail] = _nb_tail(y[tail], log_mean[tail], log_disp[tail], log_factorial[tail])
+    return result

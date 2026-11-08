@@ -3,6 +3,7 @@ from scipy.special import gammaln, expit, log_ndtr, ndtr, owens_t
 from scipy.linalg import cholesky, cho_solve
 #from scipy.sparse.linalg import spsolve_triangular
 #from .functions import categorical_sampler #fmvn_mu
+from .functions import _nb_logpmf, _zip_logpmf, _zi_logpmf, _sum_count_loglik
 from .vecchia import forward_substitute, add_to_diag_square
 
 class Poisson:
@@ -260,22 +261,11 @@ class NegBin:
         #self.rep_sp=None
     
     def llik(self):
-        y,f1,f2=(self.output).flatten(),self.input[:,0],self.input[:,1]
-        n = np.exp(-f2)
-        a = f1 + f2
-        softplus_a = np.logaddexp(0.0, a)
-        llik=gammaln(y+n)-gammaln(n)-gammaln(y+1.0)+y*a-(y+n)*softplus_a
-        llik=np.sum(llik)
-        return llik
+        return _sum_count_loglik(_nb_logpmf(self.output.flatten(), self.input[:, 0], self.input[:, 1]))
 
     @staticmethod
     def pllik(y,f):
-        f1, f2 = f[:,:,[0]], f[:,:,[1]]
-        n = np.exp(-f2)
-        a = f1 + f2
-        softplus_a = np.logaddexp(0.0, a)
-        pllik=gammaln(y+n)-gammaln(n)-gammaln(y+1.0)+y*a-(y+n)*softplus_a
-        return pllik
+        return _nb_logpmf(y, f[..., 0:1], f[..., 1:2])
     
     @staticmethod
     def prediction(m,v):
@@ -496,30 +486,7 @@ class ZIP:
         """
         Log-likelihood of Zero-Inflated Poisson.
         """
-        y = (self.output).flatten()
-        f_lambda = self.input[:, 0]
-        f_pi = self.input[:, 1]
-
-        lam = np.exp(f_lambda)
-        pi  = expit(f_pi)
-
-        mask0   = (y == 0)
-        maskpos = ~mask0
-
-        ll = np.empty_like(y, dtype=float)
-
-        log_pi      = np.log(pi[mask0])
-        log1m_pi_0  = np.log1p(-pi[mask0])
-        ll[mask0]   = np.logaddexp(log_pi, log1m_pi_0 - lam[mask0])
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = (
-            log1m_pi_pos
-            - lam[maskpos]
-            + y[maskpos] * f_lambda[maskpos]
-            - gammaln(y[maskpos] + 1.0)
-        )
-        return np.sum(ll)
+        return _sum_count_loglik(_zip_logpmf(self.output.flatten(), self.input[:, 0], self.input[:, 1]))
 
     @staticmethod
     def pllik(y, f):
@@ -533,40 +500,7 @@ class ZIP:
         Returns:
             ndarray: log-likelihoods with shape (N, S, 1).
         """
-        eta_lambda = f[..., 0]     # (N, S)
-        eta_pi     = f[..., 1]     # (N, S)
-
-        f_lambda = eta_lambda[..., None]      # (N, S, 1)
-        lam      = np.exp(f_lambda)           # (N, S, 1)
-
-        pi = expit(eta_pi)[..., None]         # (N, S, 1)
-
-        # Broadcast y and log(y!) to match (N, S, 1)
-        y_b   = np.broadcast_to(y, lam.shape)                  # (N, S, 1)
-        log_y = gammaln(y + 1.0)                               # (N, 1, 1)
-        log_y_b = np.broadcast_to(log_y, lam.shape)            # (N, S, 1)
-
-        ll = np.empty_like(lam, dtype=float)   # (N, S, 1)
-
-        # Masks for zeros and positives
-        mask0   = (y_b == 0)
-        maskpos = ~mask0
-
-        pi0   = pi[mask0]
-        lam0  = lam[mask0]
-        log_pi0     = np.log(pi0)
-        log1m_pi0   = np.log1p(-pi0)
-        ll[mask0]   = np.logaddexp(log_pi0, log1m_pi0 - lam0)
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = (
-            log1m_pi_pos
-            - lam[maskpos]
-            + y_b[maskpos] * f_lambda[maskpos]
-            - log_y_b[maskpos]
-        )
-
-        return ll
+        return _zip_logpmf(y, f[..., 0:1], f[..., 1:2])
     
     @staticmethod    
     def prediction(m, v):
@@ -647,42 +581,9 @@ class ZINB:
         """
         Log-likelihood of Zero-Inflated Negative Binomial.
         """
-        y = (self.output).flatten()
-        f1 = self.input[:, 0]  
-        f2 = self.input[:, 1] 
-        f_pi = self.input[:, 2] 
-
-        # NB parameters
-        n = np.exp(-f2)
-        a = f1 + f2    
-        softplus_a = np.logaddexp(0.0, a)
-
-        # log NB pmf for all y
-        log_nb = (
-            gammaln(y + n)
-            - gammaln(n)
-            - gammaln(y + 1.0)
-            + y * a
-            - (y + n) * softplus_a
-        )
-
-        pi = expit(f_pi)
-
-        mask0 = (y == 0)
-        maskpos = ~mask0
-
-        ll = np.empty_like(y, dtype=float)
-
-        log_nb0 = log_nb[mask0]
-        log_pi0 = np.log(pi[mask0])
-        log1m_pi0 = np.log1p(-pi[mask0])
-
-        ll[mask0] = np.logaddexp(log_pi0, log1m_pi0 + log_nb0)
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = log1m_pi_pos + log_nb[maskpos]
-
-        return np.sum(ll)
+        y = self.output.flatten()
+        base = _nb_logpmf(y, self.input[:, 0], self.input[:, 1])
+        return _sum_count_loglik(_zi_logpmf(y, base, self.input[:, 2]))
 
     @staticmethod
     def pllik(y, f):
@@ -690,45 +591,10 @@ class ZINB:
         Predicted log-likelihood for Zero-Inflated Negative Binomial.
         """
         # Ensure arrays
-        y = np.asarray(y)           # (N,1,1)
-        f = np.asarray(f)           # (N,S,3)
-
-        f1 = f[..., 0:1]            # (N,S,1)
-        f2 = f[..., 1:2]            # (N,S,1)
-        f_pi = f[..., 2:3]          # (N,S,1)
-
-        n = np.exp(-f2)             # (N,S,1)
-        a = f1 + f2                 # (N,S,1)
-        softplus_a = np.logaddexp(0.0, a)
-
-        # Broadcast y to (N,S,1)
-        y_b = np.broadcast_to(y, n.shape)
-
-        # log NB pmf for all (N,S,1)
-        log_nb = (
-            gammaln(y_b + n)
-            - gammaln(n)
-            - gammaln(y_b + 1.0)
-            + y_b * a
-            - (y_b + n) * softplus_a
-        )
-
-        pi = expit(f_pi)            # (N,S,1)
-
-        ll = np.empty_like(log_nb, dtype=float)
-
-        mask0 = (y_b == 0)
-        maskpos = ~mask0
-
-        log_nb0 = log_nb[mask0]
-        log_pi0 = np.log(pi[mask0])
-        log1m_pi0 = np.log1p(-pi[mask0])
-        ll[mask0] = np.logaddexp(log_pi0, log1m_pi0 + log_nb0)
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = log1m_pi_pos + log_nb[maskpos]
-
-        return ll
+        y = np.asarray(y)
+        f = np.asarray(f)
+        base = _nb_logpmf(y, f[..., 0:1], f[..., 1:2])
+        return _zi_logpmf(y, base, f[..., 2:3])
     
     @staticmethod
     def prediction(m, v):
