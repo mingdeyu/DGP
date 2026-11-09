@@ -131,7 +131,9 @@ def _logsumexp_axis1(a: np.ndarray) -> np.ndarray:
     
     amax = np.where(np.isfinite(amax), amax, 0.0)
     with np.errstate(under='ignore', over='ignore', divide='ignore', invalid='ignore'):
-        return amax[:, 0] + np.log(np.sum(np.exp(a - amax), axis=1))
+        shifted = a - amax
+        np.exp(shifted, out=shifted)
+        return amax[:, 0] + np.log(np.sum(shifted, axis=1))
 
 
 def _gh_log_values(fct, y, latent):
@@ -233,11 +235,6 @@ def _ghdiag_log(fct, mu, var, y, q: int = 10, block: int = 8192, max_nodes: int 
         log_block = _logsumexp_axis1(_gh_log_values(fct, y, latent) + logw)
         total = np.logaddexp(total, log_block)
     return total
-
-
-def ghdiag(fct, mu, var, y, q: int = 10, block: int = 8192, max_nodes: int = 2_000_000):
-    """GH expectation of exp(loglik(y | f)); retains the probability interface."""
-    return np.exp(_ghdiag_log(fct, mu, var, y, q, block, max_nodes))
 
 
 ######MICE smooth pred var calculation######
@@ -820,13 +817,6 @@ def link_gp_sexp_withz_parallel(m, v, z, w1, global_w1, Rinv, Rinv_y, scale, inv
 
 # linked GP predictions (non-vecchia, matern2.5)
 
-@njit(cache=True, fastmath=True, inline="always")
-def _Phi(x):
-    """Standard normal CDF via erf."""
-    return 0.5 * (1.0 + erf(x * INV_SQRT2))
-
-
-
 @njit(cache=True, fastmath=False, inline='never')
 def _matern25_det_1d(absdiff_scaled):
     r = absdiff_scaled
@@ -1389,7 +1379,7 @@ def _m5_log_pair(x, z, lengths, mode):
 
 def _sum_count_loglik(values):
     """Allow a negative total outside float64 range to reduce to -inf."""
-    if np.all(values <= 0):
+    if np.max(values, initial=0) <= 0:
         with np.errstate(over='ignore'):
             return np.sum(values)
     return np.sum(values)

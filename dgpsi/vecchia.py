@@ -920,30 +920,6 @@ def L_matrix_nb(X_ord, NN_rev, NN_count, length, nugget, name):
         # rest stays 0
     return Lmat
 
-@njit(cache=True, inline='never')
-def chol_retry_subblock(H, scale):
-    """Try unperturbed first; cold fallback uses kernel-scale-relative jitter.
-
-Three trial diagonal additions: 1e-14, 1e-12, 1e-10 times GP scale.
-Only H is perturbed, and own observation noise remains separate. Successful
-Cholesky is not a guarantee of accurate coefficients when H is ill-conditioned.
-"""
-    try:
-        return np.linalg.cholesky(H)
-    except Exception:
-        pass
-    previous = 0.0
-    for relative in (1e-14, 1e-12, 1e-10):
-        jitter = relative * scale
-        for j in range(H.shape[0]):
-            H[j, j] += jitter - previous
-        previous = jitter
-        try:
-            return np.linalg.cholesky(H)
-        except Exception:
-            pass
-    raise np.linalg.LinAlgError('Local covariance failed bounded jitter retries')
-
 @njit(cache=True, parallel=True, fastmath=False)
 def U_matrix_ptr(X, NNarray, n_obs, length, nugget, scale, gamma, name):
     if nugget != 0.0:

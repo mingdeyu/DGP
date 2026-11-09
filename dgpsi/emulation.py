@@ -2,7 +2,7 @@ import numpy as np
 from .imputation import imputer
 import copy
 from scipy.spatial.distance import cdist
-from .functions import ghdiag, mice_var
+from .functions import mice_var
 from .functions import _ghdiag_log  
 from .vecchia import get_pred_nn
 from contextlib import contextmanager

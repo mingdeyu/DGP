@@ -261,7 +261,7 @@ class NegBin:
         #self.rep_sp=None
     
     def llik(self):
-        return _sum_count_loglik(_nb_logpmf(self.output.flatten(), self.input[:, 0], self.input[:, 1]))
+        return _sum_count_loglik(_nb_logpmf(self.output.ravel(), self.input[:, 0], self.input[:, 1]))
 
     @staticmethod
     def pllik(y,f):
@@ -486,7 +486,7 @@ class ZIP:
         """
         Log-likelihood of Zero-Inflated Poisson.
         """
-        return _sum_count_loglik(_zip_logpmf(self.output.flatten(), self.input[:, 0], self.input[:, 1]))
+        return _sum_count_loglik(_zip_logpmf(self.output.ravel(), self.input[:, 0], self.input[:, 1]))
 
     @staticmethod
     def pllik(y, f):
@@ -581,7 +581,7 @@ class ZINB:
         """
         Log-likelihood of Zero-Inflated Negative Binomial.
         """
-        y = self.output.flatten()
+        y = self.output.ravel()
         base = _nb_logpmf(y, self.input[:, 0], self.input[:, 1])
         return _sum_count_loglik(_zi_logpmf(y, base, self.input[:, 2]))
 
