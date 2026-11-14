@@ -43,6 +43,8 @@ class gp:
         else:
             self.X=X
             self.Y=Y
+            self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+            self.sum_residual = -1.0
         self.kernel=kernel
         self.vecch=vecchia
         self.n_data=self.X.shape[0]
@@ -77,6 +79,8 @@ class gp:
             state['sum_residual'] = None
         self.__dict__.update(state)
         self.kernel.target = 'gp'
+        if self.sum_residual is not None:
+            self.sum_residual = float(np.asarray(self.sum_residual).item())
         if self.W_diag is None:
             self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
         if self.sum_residual is None:
@@ -180,6 +184,8 @@ class gp:
         else:
             self.X=X
             self.Y=Y
+            self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+            self.sum_residual = -1.0
         self.n_data=self.X.shape[0]
         #if self.n_data>=1e5:
         #    self.kernel.nn_method = 'approx'

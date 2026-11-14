@@ -215,6 +215,8 @@ class kernel:
         if 'origin_n' not in state:
             state['origin_n'] = None
         self.__dict__.update(state)
+        if self.sum_residual is not None:
+            self.sum_residual = float(np.asarray(self.sum_residual).item())
         if new_R2_added:
             self.r2(overwritten=True)
         if self.output is not None and self.W_diag is None:

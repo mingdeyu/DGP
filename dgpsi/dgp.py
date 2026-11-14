@@ -675,7 +675,7 @@ class dgp:
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            residual = self.Y[:,k] - kernel.output[kernel.rep,0]
                             kernel.sum_residual = np.dot(residual, residual)
                             kernel.origin_n = len(kernel.rep)
                 else:
@@ -1017,7 +1017,7 @@ class dgp:
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            residual = self.Y[:,k] - kernel.output[kernel.rep,0]
                             kernel.sum_residual = np.dot(residual, residual)
                             kernel.origin_n = len(kernel.rep)
                 if kernel.type=='gp':
@@ -1104,7 +1104,7 @@ class dgp:
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            residual = self.Y[:,k] - kernel.output[kernel.rep,0]
                             kernel.sum_residual = np.dot(residual, residual)
                             kernel.origin_n = len(kernel.rep)
                 else:
@@ -1377,7 +1377,7 @@ class dgp:
                             sum_y = np.bincount(kernel.rep, weights=self.Y[:,[k]].flatten(), minlength=NN)
                             kernel.W_diag = 1.0 / np.bincount(kernel.rep, minlength=NN)
                             kernel.output = (sum_y * kernel.W_diag).reshape(-1,1)
-                            residual = self.Y[:,0] - kernel.output[kernel.rep,0]
+                            residual = self.Y[:,k] - kernel.output[kernel.rep,0]
                             kernel.sum_residual = np.dot(residual, residual)
                             kernel.origin_n = len(kernel.rep)
                 else:
