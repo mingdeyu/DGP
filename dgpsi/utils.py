@@ -5,12 +5,7 @@ import numpy as np
 from scipy.linalg import svd
 from scipy.optimize import minimize, Bounds
 from sklearn.metrics.pairwise import pairwise_kernels
-from pathos.multiprocessing import ProcessingPool as Pool
-from numba import set_num_threads
 from typing import Callable, Tuple, Any, Optional
-import multiprocess.context as ctx
-import platform
-import psutil 
 #import copy
 #from contextlib import contextmanager
 
@@ -275,90 +270,100 @@ def multistart(
     up: np.ndarray,
     args: Tuple = (),
     method: str = 'L-BFGS-B',
-    core_num: Optional[int] = None,
     out_dim: Optional[int] = 0,
-    int_mask: Optional[np.ndarray] = None
+    int_mask: Optional[np.ndarray] = None,
+    options: Optional[dict] = None
 ) -> np.ndarray:
     """
-    Perform parallel multistart optimization and return the best optimized x.
-    
+    Perform serial multistart optimization and return the best optimized x.
+
     Parameters:
     - func: The objective function to be minimized. Should accept (x, *args).
     - initials: 2D NumPy array where each row is a starting point.
-    - lb: 1D NumPy array of lower bounds for each parameter.
-    - up: 1D NumPy array of upper bounds for each parameter.
+    - lb: 1D NumPy array of finite lower bounds for each parameter.
+    - up: 1D NumPy array of finite upper bounds for each parameter.
     - args: Additional arguments to pass to the objective function.
     - method: Optimization method (default 'L-BFGS-B').
-    - core_num: Number of worker processes to use.
     - out_dim: The index of the output to which the optimization is to be implemented.
-    - int_mask: Boolean mask indicating which variables in `x` must be integers.
-    
+    - int_mask: Boolean mask indicating integer coordinates, fixed at each start.
+    - options: SciPy solver options overriding maxiter=100 and solver defaults.
+
     Returns:
     - best_x: Optimized parameters corresponding to the lowest target value.
     """
-    
-    # Create a Bounds object using Scipy's Bounds class
-    bounds = Bounds(lb, up)
-    D = len(lb)
-    os_type = platform.system()
-    if os_type in ['Darwin', 'Linux']:
-        ctx._force_start_method('forkserver')
-    total_cores = psutil.cpu_count(logical = False)
-    if core_num is None:
-        core_num = total_cores//2
-    num_thread = total_cores // core_num
+    lb = np.asarray(lb, dtype=float).copy()
+    up = np.asarray(up, dtype=float).copy()
+    if (not np.all(np.isfinite(lb)) or not np.all(np.isfinite(up)) or
+            np.any(lb > up)):
+        raise ValueError('Bounds must be finite and ordered.')
+    if int_mask is None:
+        int_mask = np.zeros(len(lb), dtype=bool)
+    else:
+        int_mask = np.asarray(int_mask, dtype=bool)
+    lb[int_mask] = np.ceil(lb[int_mask])
+    up[int_mask] = np.floor(up[int_mask])
+    if np.any(lb > up):
+        raise ValueError('No feasible integer point within the bounds.')
+    with np.errstate(over='raise'):
+        span = up - lb
+    free = (~int_mask) & (span > 0)
+    n_free = np.count_nonzero(free)
+    lower_free, upper_free, span_free = lb[free], up[free], span[free]
+    bounds = Bounds(np.zeros(n_free), np.ones(n_free)) if n_free else None
+    solver_options = {'maxiter': 100}
+    if options is not None:
+        solver_options.update(options)
 
-    def wrapped_func(x, *args):
-        if int_mask is not None:
-            x[int_mask] = np.round(x[int_mask])
-        # Convert 1D x0 to 2D array with one row
-        x_2d = np.atleast_2d(x)
-        # Compute negative of the function
+    def wrapped_func(x, point, *args):
+        point = point.copy()
+        point[free] = np.clip(lower_free + x * span_free, lower_free, upper_free)
+        x_2d = np.atleast_2d(point)
         if out_dim == -1:
             return -np.mean(func(x_2d, *args)[0])
         else:
             return -func(x_2d, *args)[0][out_dim]
-    
+
     def optimize_from_x0(x0: np.ndarray) -> Tuple[np.ndarray, float]:
         """
         Optimize the objective function from a single starting point.
-        
+
         Parameters:
         - x0: Initial starting point.
-        
+
         Returns:
         - Tuple containing the optimized x and the corresponding fun value.
         """
-        set_num_threads(num_thread)
+        x0 = np.asarray(x0, dtype=float)
+        if not np.all(np.isfinite(x0)):
+            raise ValueError('Starting point must be finite.')
+        point = np.clip(x0, lb, up)
+        point[int_mask] = np.round(point[int_mask])
+        if not n_free:
+            return point, wrapped_func(np.empty(0), point, *args)
         res = minimize(
             wrapped_func,
-            x0,
-            args=args,
+            (point[free] - lower_free) / span_free,
+            args=(point, *args),
             method=method,
             bounds=bounds,
-            options={'maxiter': 100, 'maxfun': np.max((30,20+5*D))}
+            options=solver_options
         )
-        return res.x, res.fun
-    
-    if core_num == 1:
-        results = [optimize_from_x0(x) for x in initials]
-    else:
-    # Create a pool of worker processes
-        with Pool(core_num) as pool:
-            results = pool.map(optimize_from_x0, [x for x in initials])
-    
-    # Convert results to NumPy arrays for efficient processing
-    optimized_x, fun_values = zip(*results)
-    optimized_x = np.array(optimized_x)
-    fun_values = np.array(fun_values)
-    
-    # Identify the index of the minimum fun value
-    best_idx = np.argmin(fun_values)
-    
-    # Extract the best optimized x
-    best_x = optimized_x[best_idx]
+        if not np.all(np.isfinite(res.x)):
+            raise ValueError('Optimized coordinates must be finite.')
+        point[free] = np.clip(lower_free + res.x * span_free, lower_free, upper_free)
+        return point, res.fun
 
-    if int_mask is not None:
-        best_x[int_mask] = np.round(best_x[int_mask])
-    
+    best_x, best_value = None, np.inf
+    for x0 in initials:
+        try:
+            point, value = optimize_from_x0(x0)
+        except Exception:
+            continue
+        if (not np.isfinite(value) or not np.all(np.isfinite(point)) or
+                not np.all((point >= lb) & (point <= up))):
+            continue
+        if value < best_value:
+            best_x, best_value = point.copy(), value
+    if best_x is None:
+        raise RuntimeError('No usable multistart result.')
     return best_x

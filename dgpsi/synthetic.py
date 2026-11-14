@@ -1,7 +1,6 @@
 import copy
 import numpy as np
-from .functions import pdist_matern_coef
-from scipy.spatial.distance import pdist, squareform
+from .vecchia import K_matrix_nb
 
 class path:
     #main algorithm
@@ -45,13 +44,6 @@ class path:
     
     @staticmethod
     def k_matrix(X, length, name):
-        X_l=X/length
-        if name=='sexp':
-            dists = pdist(X_l, metric="sqeuclidean")
-            K = squareform(np.exp(-dists))
-        elif name=='matern2.5':
-            K=np.exp(-np.sqrt(5)*pdist(X_l, metric="minkowski",p=1))
-            K*=pdist_matern_coef(X_l)
-            K=squareform(K)
-        np.fill_diagonal(K, 1)
-        return K
+        n = X.shape[0]
+        nuggeti = np.zeros(n)
+        return K_matrix_nb(X, length, nuggeti, name, (n>=400))

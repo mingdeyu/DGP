@@ -3,6 +3,7 @@ from scipy.special import gammaln, expit, log_ndtr, ndtr, owens_t
 from scipy.linalg import cholesky, cho_solve
 #from scipy.sparse.linalg import spsolve_triangular
 #from .functions import categorical_sampler #fmvn_mu
+from .functions import _nb_logpmf, _zip_logpmf, _zi_logpmf, _sum_count_loglik
 from .vecchia import forward_substitute, add_to_diag_square
 
 class Poisson:
@@ -109,27 +110,31 @@ class Hetero:
 
     def llik(self):
         mu,log_var=self.input[:,0],self.input[:,1]
-        r2 = ((self.output).flatten()-mu)**2
-        llik=-0.5*(np.log(2*np.pi)+log_var+np.exp(np.log(r2)-log_var))
-        llik=np.sum(llik)
+        y = self.output[:, 0]
+        res = y - mu  
+        r2 = res * res
+        var = np.exp(log_var)
+        llik = -0.5 * (np.log(2*np.pi) + log_var + (r2 / var))
+        llik = np.sum(llik)
         return llik
 
     @staticmethod
     def pllik(y,f):
-        mu,var=f[:,:,[0]],np.exp(f[:,:,[1]])
-        pllik=-0.5*(np.log(2*np.pi*var)+(y-mu)**2/var)
+        mu, logvar=f[:,:,[0]], f[:,:,[1]]
+        var = np.exp(logvar)
+        pllik = -0.5 * (np.log(2*np.pi) + logvar + (y - mu)**2 / var)
         return pllik
 
     @staticmethod    
     def prediction(m,v):
         y_mean=m[:,0]
         y_var=np.exp(m[:,1]+v[:,1]/2)+v[:,0]
-        return y_mean.flatten(),y_var.flatten()
+        return y_mean,y_var
     
     @staticmethod
     def sampling(f_sample):
         y_sample=np.random.normal(f_sample[:,0],np.sqrt(np.exp(f_sample[:,1])))
-        return y_sample.flatten()
+        return y_sample
 
     def posterior(self,idx,v):
         """Sampling from the conditional posterior distribution of the mean in heteroskedastic Gaussian likelihood.
@@ -157,7 +162,7 @@ class Hetero:
             if self.rep is None:
                 f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, self.output[ord,0])[rev_ord]
             else:
-                num = np.bincount(self.rep, weights=invg*self.output.flatten(), minlength=U_sp_l.shape[0])[ord]
+                num = np.bincount(self.rep, weights=invg*self.output[:,0], minlength=U_sp_l.shape[0])[ord]
                 y = num * invd
                 f_mu = self.post_het_vecch(U_sp_l, U_sp_ol, y)[rev_ord]
             return f_mu
@@ -170,15 +175,8 @@ class Hetero:
         """
         L_sp_l = U_sp_l.transpose().tocsr()
         intermediate = U_sp_ol.transpose().dot(y)
-        #U_latent_obs_y = U_sp_ol.transpose().dot(y)
-        #U_latent_U_latent_obs_y = U_sp_l.dot(U_latent_obs_y)
-        #intermediate = backward_substitute(U_sp_l.data, U_sp_l.indices, U_sp_l.indptr, U_latent_obs_y)
-        mu = -forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, intermediate)
-        #mu = -spsolve_triangular(L_sp_l, intermediate)
         sd = np.random.randn(U_sp_l.shape[0])
-        samp = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd)
-        #samp = spsolve_triangular(L_sp_l, sd)
-        f = mu + samp
+        f = forward_substitute(L_sp_l.data, L_sp_l.indices, L_sp_l.indptr, sd - intermediate)
         return f
 
     @staticmethod
@@ -187,7 +185,7 @@ class Hetero:
            of the heteroskedastic Gaussian likelihood when there are no repetitions
            in the training data.
         """
-        #N = v.shape[0]
+        N = v.shape[0]
         vGamma = v.copy()
         #add_to_diag_square(vGamma, np.full(N, 1e-10))
         #v_jitter = vGamma.copy()
@@ -197,7 +195,7 @@ class Hetero:
 
         L1 = cholesky(v, lower=True, check_finite=False)
         mu = v.dot(cho_solve((L, True), y_mask.flatten(), check_finite=False))
-        sd = np.random.randn(len(mu),2)
+        sd = np.random.randn(N,2)
         u = L1.dot(sd[:,0])
         w = np.sqrt(Gamma) * sd[:,1]
         f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
@@ -219,7 +217,8 @@ class Hetero:
         GammaInvY = GammaInv * y_mask.flatten()
         MGammaInvY = np.bincount(mask_f, weights=GammaInvY, minlength=N)
         MGammaInvM = np.bincount(mask_f, weights=GammaInv, minlength=N)
-
+        
+        MGammaInvM = np.maximum(MGammaInvM, 1e-20)
         invMGammaInvM = 1.0/MGammaInvM
         vinvMGammaInvM = v.copy()
         #add_to_diag_square(vinvMGammaInvM, np.full(N, 1e-10))
@@ -234,8 +233,8 @@ class Hetero:
 
         L1 = cholesky(v, lower=True, check_finite=False)
         mu=v.dot(cho_solve((L, True), invMGammaInvM*MGammaInvY, check_finite=False))
-
-        sd = np.random.randn(len(mu),2)
+        
+        sd = np.random.randn(N,2)
         u = L1.dot(sd[:,0])
         w = np.sqrt(invMGammaInvM) * sd[:,1]
         f = -v.dot(cho_solve((L, True), u+w, check_finite=False))
@@ -262,22 +261,11 @@ class NegBin:
         #self.rep_sp=None
     
     def llik(self):
-        y,f1,f2=(self.output).flatten(),self.input[:,0],self.input[:,1]
-        n = np.exp(-f2)
-        a = f1 + f2
-        softplus_a = np.logaddexp(0.0, a)
-        llik=gammaln(y+n)-gammaln(n)-gammaln(y+1.0)+y*a-(y+n)*softplus_a
-        llik=np.sum(llik)
-        return llik
+        return _sum_count_loglik(_nb_logpmf(self.output.ravel(), self.input[:, 0], self.input[:, 1]))
 
     @staticmethod
     def pllik(y,f):
-        f1, f2 = f[:,:,[0]], f[:,:,[1]]
-        n = np.exp(-f2)
-        a = f1 + f2
-        softplus_a = np.logaddexp(0.0, a)
-        pllik=gammaln(y+n)-gammaln(n)-gammaln(y+1.0)+y*a-(y+n)*softplus_a
-        return pllik
+        return _nb_logpmf(y, f[..., 0:1], f[..., 1:2])
     
     @staticmethod
     def prediction(m,v):
@@ -498,30 +486,7 @@ class ZIP:
         """
         Log-likelihood of Zero-Inflated Poisson.
         """
-        y = (self.output).flatten()
-        f_lambda = self.input[:, 0]
-        f_pi = self.input[:, 1]
-
-        lam = np.exp(f_lambda)
-        pi  = expit(f_pi)
-
-        mask0   = (y == 0)
-        maskpos = ~mask0
-
-        ll = np.empty_like(y, dtype=float)
-
-        log_pi      = np.log(pi[mask0])
-        log1m_pi_0  = np.log1p(-pi[mask0])
-        ll[mask0]   = np.logaddexp(log_pi, log1m_pi_0 - lam[mask0])
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = (
-            log1m_pi_pos
-            - lam[maskpos]
-            + y[maskpos] * f_lambda[maskpos]
-            - gammaln(y[maskpos] + 1.0)
-        )
-        return np.sum(ll)
+        return _sum_count_loglik(_zip_logpmf(self.output.ravel(), self.input[:, 0], self.input[:, 1]))
 
     @staticmethod
     def pllik(y, f):
@@ -535,40 +500,7 @@ class ZIP:
         Returns:
             ndarray: log-likelihoods with shape (N, S, 1).
         """
-        eta_lambda = f[..., 0]     # (N, S)
-        eta_pi     = f[..., 1]     # (N, S)
-
-        f_lambda = eta_lambda[..., None]      # (N, S, 1)
-        lam      = np.exp(f_lambda)           # (N, S, 1)
-
-        pi = expit(eta_pi)[..., None]         # (N, S, 1)
-
-        # Broadcast y and log(y!) to match (N, S, 1)
-        y_b   = np.broadcast_to(y, lam.shape)                  # (N, S, 1)
-        log_y = gammaln(y + 1.0)                               # (N, 1, 1)
-        log_y_b = np.broadcast_to(log_y, lam.shape)            # (N, S, 1)
-
-        ll = np.empty_like(lam, dtype=float)   # (N, S, 1)
-
-        # Masks for zeros and positives
-        mask0   = (y_b == 0)
-        maskpos = ~mask0
-
-        pi0   = pi[mask0]
-        lam0  = lam[mask0]
-        log_pi0     = np.log(pi0)
-        log1m_pi0   = np.log1p(-pi0)
-        ll[mask0]   = np.logaddexp(log_pi0, log1m_pi0 - lam0)
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = (
-            log1m_pi_pos
-            - lam[maskpos]
-            + y_b[maskpos] * f_lambda[maskpos]
-            - log_y_b[maskpos]
-        )
-
-        return ll
+        return _zip_logpmf(y, f[..., 0:1], f[..., 1:2])
     
     @staticmethod    
     def prediction(m, v):
@@ -583,24 +515,19 @@ class ZIP:
         lam_mean = np.exp(m_lambda + 0.5 * v_lambda)
         lam_var  = (np.exp(v_lambda) - 1.0) * np.exp(2.0 * m_lambda + v_lambda)
 
-        # Moments of pi
+        # Approximate mean of pi
         denom   = 1.0 + (np.pi / 8.0) * v_pi
         denom   = np.maximum(denom, 1e-12)  # numerical safety
         mu_star = m_pi / np.sqrt(denom)
-
-        pi_mean = expit(mu_star) 
-        var_star = v_pi / denom
-        pi_var   = (pi_mean * (1.0 - pi_mean))**2 * var_star
-        pi_var   = np.clip(pi_var, 0.0, pi_mean * (1.0 - pi_mean))
+        pi_mean = expit(mu_star)
 
         # Predictive mean
         y_mean = (1.0 - pi_mean) * lam_mean
 
         # Predictive variance
-        cond_var = (1.0 - pi_mean) * lam_mean * (1.0 + pi_mean * lam_mean)
-        var_g = ((1.0 - pi_mean)**2 + pi_var) * lam_var + pi_var * lam_mean**2
-        y_var = cond_var + var_g
-        y_var = np.maximum(y_var, 0.0)  # numerical safety
+        y_var = (1.0 - pi_mean) * (lam_mean + lam_var) + pi_mean * (1.0 - pi_mean) * lam_mean**2
+
+        y_var = np.maximum(y_var, 0.0)
 
         return y_mean.flatten(), y_var.flatten()
     
@@ -654,42 +581,9 @@ class ZINB:
         """
         Log-likelihood of Zero-Inflated Negative Binomial.
         """
-        y = (self.output).flatten()
-        f1 = self.input[:, 0]  
-        f2 = self.input[:, 1] 
-        f_pi = self.input[:, 2] 
-
-        # NB parameters
-        n = np.exp(-f2)
-        a = f1 + f2    
-        softplus_a = np.logaddexp(0.0, a)
-
-        # log NB pmf for all y
-        log_nb = (
-            gammaln(y + n)
-            - gammaln(n)
-            - gammaln(y + 1.0)
-            + y * a
-            - (y + n) * softplus_a
-        )
-
-        pi = expit(f_pi)
-
-        mask0 = (y == 0)
-        maskpos = ~mask0
-
-        ll = np.empty_like(y, dtype=float)
-
-        log_nb0 = log_nb[mask0]
-        log_pi0 = np.log(pi[mask0])
-        log1m_pi0 = np.log1p(-pi[mask0])
-
-        ll[mask0] = np.logaddexp(log_pi0, log1m_pi0 + log_nb0)
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = log1m_pi_pos + log_nb[maskpos]
-
-        return np.sum(ll)
+        y = self.output.ravel()
+        base = _nb_logpmf(y, self.input[:, 0], self.input[:, 1])
+        return _sum_count_loglik(_zi_logpmf(y, base, self.input[:, 2]))
 
     @staticmethod
     def pllik(y, f):
@@ -697,45 +591,10 @@ class ZINB:
         Predicted log-likelihood for Zero-Inflated Negative Binomial.
         """
         # Ensure arrays
-        y = np.asarray(y)           # (N,1,1)
-        f = np.asarray(f)           # (N,S,3)
-
-        f1 = f[..., 0:1]            # (N,S,1)
-        f2 = f[..., 1:2]            # (N,S,1)
-        f_pi = f[..., 2:3]          # (N,S,1)
-
-        n = np.exp(-f2)             # (N,S,1)
-        a = f1 + f2                 # (N,S,1)
-        softplus_a = np.logaddexp(0.0, a)
-
-        # Broadcast y to (N,S,1)
-        y_b = np.broadcast_to(y, n.shape)
-
-        # log NB pmf for all (N,S,1)
-        log_nb = (
-            gammaln(y_b + n)
-            - gammaln(n)
-            - gammaln(y_b + 1.0)
-            + y_b * a
-            - (y_b + n) * softplus_a
-        )
-
-        pi = expit(f_pi)            # (N,S,1)
-
-        ll = np.empty_like(log_nb, dtype=float)
-
-        mask0 = (y_b == 0)
-        maskpos = ~mask0
-
-        log_nb0 = log_nb[mask0]
-        log_pi0 = np.log(pi[mask0])
-        log1m_pi0 = np.log1p(-pi[mask0])
-        ll[mask0] = np.logaddexp(log_pi0, log1m_pi0 + log_nb0)
-
-        log1m_pi_pos = np.log1p(-pi[maskpos])
-        ll[maskpos] = log1m_pi_pos + log_nb[maskpos]
-
-        return ll
+        y = np.asarray(y)
+        f = np.asarray(f)
+        base = _nb_logpmf(y, f[..., 0:1], f[..., 1:2])
+        return _zi_logpmf(y, base, f[..., 2:3])
     
     @staticmethod
     def prediction(m, v):
@@ -756,35 +615,24 @@ class ZINB:
         mu_mean = np.exp(m1 + 0.5 * v1)
         mu_var  = (np.exp(v1) - 1.0) * np.exp(2.0 * m1 + v1)
         mu2_mean = np.exp(2.0 * m1 + 2.0 * v1)
-
         E_exp_f2 = np.exp(m2 + 0.5 * v2)
-        mu2_over_n_mean = mu2_mean * E_exp_f2 
+        mu2_over_n_mean = mu2_mean * E_exp_f2
 
-        # Moments of pi
-        denom = 1.0 + (np.pi / 8.0) * v_pi
-        denom = np.maximum(denom, 1e-12)
+        # Approximate mean of mu
+        denom   = 1.0 + (np.pi / 8.0) * v_pi
+        denom   = np.maximum(denom, 1e-12)
         mu_star = m_pi / np.sqrt(denom)
-
-        pi_mean = expit(mu_star) 
-        var_star = v_pi / denom
-        pi_var = (pi_mean * (1.0 - pi_mean))**2 * var_star
-        pi_var = np.clip(pi_var, 0.0, pi_mean * (1.0 - pi_mean))
+        pi_mean = expit(mu_star)
 
         # Predictive mean
         y_mean = (1.0 - pi_mean) * mu_mean
 
-        # Predictive variance
-        E_pi1m = pi_mean * (1.0 - pi_mean) - pi_var
-        E_pi1m = np.clip(E_pi1m, 0.0, pi_mean * (1.0 - pi_mean))
+        # Base NB predictive variance:
+        base_var = mu_mean + mu2_over_n_mean + mu_var
 
-        cond_var = (
-            (1.0 - pi_mean) * (mu_mean + mu2_over_n_mean)
-            + E_pi1m * mu2_mean
-        )
+        # Predictive variance of ZINB
+        y_var = (1.0 - pi_mean) * base_var + pi_mean * (1.0 - pi_mean) * mu_mean**2
 
-        var_g = ((1.0 - pi_mean)**2 + pi_var) * mu_var + pi_var * (mu_mean**2)
-
-        y_var = cond_var + var_g
         y_var = np.maximum(y_var, 0.0)
 
         return y_mean.flatten(), y_var.flatten()

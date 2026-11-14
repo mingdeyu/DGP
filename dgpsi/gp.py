@@ -1,13 +1,8 @@
-import multiprocess.context as ctx
-import platform
 import numpy as np
 from scipy.spatial.distance import cdist
 from .functions import mice_var
-from .vecchia import get_pred_nn, loo_gp_vecch
-from pathos.multiprocessing import ProcessingPool as Pool
-import psutil 
+from .vecchia import get_pred_nn, loo_gp_vecch, _loo_target_first_inplace
 import copy
-from numba import set_num_threads
 
 class gp:
     """
@@ -38,14 +33,18 @@ class gp:
                 sum_y = np.bincount(self.indices, weights=Y.flatten(), minlength=N)
                 self.W_diag = 1.0 / counts
                 self.Y = (sum_y * self.W_diag).reshape(-1,1)
-                residual = Y - self.Y[self.indices,:]
-                self.sum_residual = (residual.T @ residual).flatten()
+                residual = Y[:,0] - self.Y[self.indices,0]
+                self.sum_residual = np.dot(residual, residual)
             else:  
                 self.X=X
                 self.Y=Y
+                self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+                self.sum_residual = -1.0
         else:
             self.X=X
             self.Y=Y
+            self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+            self.sum_residual = -1.0
         self.kernel=kernel
         self.vecch=vecchia
         self.n_data=self.X.shape[0]
@@ -74,8 +73,18 @@ class gp:
             state['indices'] = None
         if 'check_rep' not in state:
             state['check_rep'] = False
+        if 'W_diag' not in state:
+            state['W_diag'] = None
+        if 'sum_residual' not in state:
+            state['sum_residual'] = None
         self.__dict__.update(state)
         self.kernel.target = 'gp'
+        if self.sum_residual is not None:
+            self.sum_residual = float(np.asarray(self.sum_residual).item())
+        if self.W_diag is None:
+            self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+        if self.sum_residual is None:
+            self.sum_residual = -1.0
 
     def initialize(self):
         """Assign input/output data to the kernel for training.
@@ -85,15 +94,18 @@ class gp:
         else:
             self.kernel.input=(self.X).copy()
             self.kernel.input_dim=np.arange(np.shape(self.X)[1])
+        self.kernel.output=(self.Y).copy()
         if self.indices is not None:
             self.kernel.rep=self.indices
-            self.kernel.W_diag=self.W_diag
-            self.kernel.sum_residual=self.sum_residual
+            self.kernel.origin_n = len(self.kernel.rep)
+        else:
+            self.kernel.origin_n = len(self.kernel.output)
+        self.kernel.sum_residual=self.sum_residual
+        self.kernel.W_diag=self.W_diag
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=self.X[:,self.kernel.connect]
-        self.kernel.output=(self.Y).copy()
         self.kernel.D=np.shape(self.kernel.input)[1]
         if self.kernel.connect is not None:
             self.kernel.D+=len(self.kernel.connect)
@@ -162,14 +174,18 @@ class gp:
                 sum_y = np.bincount(self.indices, weights=Y.flatten(), minlength=N)
                 self.W_diag = 1.0 / counts
                 self.Y = (sum_y * self.W_diag).reshape(-1,1)
-                residual = Y - self.Y[self.indices,:]
-                self.sum_residual = residual.T @ residual
+                residual = Y[:,0] - self.Y[self.indices,0]
+                self.sum_residual = np.dot(residual, residual)
             else:  
                 self.X=X
                 self.Y=Y
+                self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+                self.sum_residual = -1.0
         else:
             self.X=X
             self.Y=Y
+            self.W_diag = np.ones(self.Y.shape[0], dtype=np.float64)
+            self.sum_residual = -1.0
         self.n_data=self.X.shape[0]
         #if self.n_data>=1e5:
         #    self.kernel.nn_method = 'approx'
@@ -185,20 +201,20 @@ class gp:
         Args: 
             reset_lengthscale (bool): whether to reset hyperparameter of the GP emulator to the initial values.
         """
+        self.kernel.output=self.Y.copy()
         if self.indices is not None:
             self.kernel.rep=self.indices
-            self.kernel.W_diag=self.W_diag
-            self.kernel.sum_residual=self.sum_residual
+            self.kernel.origin_n=len(self.kernel.rep)
         else: 
             self.kernel.rep=None
-            self.kernel.W_diag=None
-            self.kernel.sum_residual=None
+            self.kernel.origin_n=len(self.kernel.output)
+        self.kernel.sum_residual=self.sum_residual
+        self.kernel.W_diag=self.W_diag
         self.kernel.input=self.X[:,self.kernel.input_dim]
         if self.kernel.connect is not None:
             if len(np.intersect1d(self.kernel.connect,self.kernel.input_dim))!=0:
                 raise Exception('The local input and global input should not have any overlap. Change input_dim or connect so they do not have any common indices.')
             self.kernel.global_input=self.X[:,self.kernel.connect]
-        self.kernel.output=self.Y.copy()
         self.kernel.m = self.m
         if reset_lengthscale:
             initial_hypers=self.kernel.para_path[0,:]
@@ -220,53 +236,6 @@ class gp:
         """
         final_struct=copy.deepcopy(self.kernel)
         return [final_struct]
-
-    def pmetric(self, x_cand, method='MICE',nugget_s=1.,m=50,score_only=False,chunk_num=None,core_num=None):
-        """Implement parallel computation of the ALM, MICE, or VIGF criterion for sequential designs.
-
-        Args:
-            x_cand, method, nugget_s, m, score_only: see descriptions of the method :meth:`.gp.metric`.
-            chunk_num (int, optional): the number of chunks that the candidate design set **x_cand** will be divided into. 
-                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``max physical cores available // 2``.
-
-        Returns:
-            Same as the method :meth:`.gp.metric`.
-        """
-        if method == 'ALM':
-            _, sigma2 = self.ppredict(x=x_cand,m=m,chunk_num=chunk_num,core_num=core_num)
-            if score_only:
-                return sigma2
-            else:
-                idx = np.argmax(sigma2, axis=0)
-                return idx, sigma2[idx,0]
-        elif method == 'MICE':
-            _, sigma2 = self.ppredict(x=x_cand,m=m,chunk_num=chunk_num,core_num=core_num)
-            sigma2_s = mice_var(x_cand, x_cand, self.kernel.input_dim, self.kernel.connect, self.kernel.name, self.kernel.length, self.kernel.scale, self.kernel.nugget[0], nugget_s)
-            mice_val = sigma2/sigma2_s
-            if score_only:
-                return mice_val
-            else:
-                idx = np.argmax(mice_val, axis=0)
-                return idx, mice_val[idx,0]
-        elif method == 'VIGF':
-            X0 = np.unique(self.X, axis=0)
-            if len(X0) != self.n_data:
-                raise Exception('VIGF criterion is currently not applicable to GP emulators whose training data contain replicates.')
-            if self.vecch or self.n_data>500:
-                index = get_pred_nn(x_cand, self.X, 1, method = self.kernel.nn_method).flatten()
-            else:
-                Dist=cdist(x_cand, self.X, "euclidean")
-                index=np.argmin(Dist, axis=1)
-            mu, sigma2 = self.ppredict(x=x_cand,m=m,chunk_num=chunk_num,core_num=core_num)
-            bias=(mu-self.Y[index,:])**2
-            vigf=4*sigma2*bias+2*sigma2**2
-            if score_only:
-                return vigf
-            else:
-                idx = np.argmax(vigf, axis=0)
-                return idx, vigf[idx,0]
             
     def metric(self, x_cand, method='MICE',nugget_s=1.,m=50,score_only=False):
         """Compute the value of the ALM, MICE, or VIGF criterion for sequential designs.
@@ -345,10 +314,8 @@ class gp:
         if self.vecch:
             X_scale = self.X/self.kernel.length
             NNarray = get_pred_nn(X_scale, X_scale, m+1, method=self.kernel.nn_method)
-            if self.indices is None:
-                nugget_diag = np.ones(len(self.Y))
-            else:
-                nugget_diag = self.W_diag
+            NNarray = _loo_target_first_inplace(NNarray)
+            nugget_diag = self.W_diag
             mu,sigma2 = loo_gp_vecch(self.X, NNarray, self.Y, self.kernel.scale[0], self.kernel.length, self.kernel.nugget[0],nugget_diag, self.kernel.name)
             mu,sigma2 = mu.reshape(-1,1), sigma2.reshape(-1,1)
         else:
@@ -364,50 +331,11 @@ class gp:
             else:
                 return mu[self.indices,:], sigma2[self.indices,:]
         elif method=='sampling':
-            samples=np.random.normal(mu.flatten(),np.sqrt(sigma2.flatten()),size=(sample_size,len(mu))).T
+            samples = np.random.normal(loc=mu, scale=np.sqrt(sigma2), size=(mu.shape[0], sample_size))
             if self.indices is None:
                 return samples
             else:
                 return samples[self.indices,:]
-
-    def ppredict(self,x,method='mean_var',sample_size=50,m=50,chunk_num=None,core_num=None):
-        """Implement parallel predictions from the trained GP model.
-
-        Args:
-            x, method, sample_size, m: see descriptions of the method :meth:`.gp.predict`.
-            chunk_num (int, optional): the number of chunks that the testing input array **x** will be divided into. 
-                Defaults to `None`. If not specified, the number of chunks is set to **core_num**. 
-            core_num (int, optional): the number of processes to be used. Defaults to `None`. If not specified, 
-                the number of cores is set to ``max physical cores available // 2``.
-
-        Returns:
-            Same as the method :meth:`.gp.predict`.
-        """
-        os_type = platform.system()
-        if os_type in ['Darwin', 'Linux']:
-            ctx._force_start_method('forkserver')
-        total_cores = psutil.cpu_count(logical = False)
-        if core_num is None:
-            core_num = total_cores//2
-        if chunk_num is None:
-            chunk_num=core_num
-        if chunk_num<core_num:
-            core_num=chunk_num
-        num_thread = total_cores // core_num
-        def f(params):
-            x, method, sample_size, m = params
-            set_num_threads(num_thread)
-            return self.predict(x, method, sample_size, m)
-        z=np.array_split(x,chunk_num)
-        with Pool(core_num) as pool:
-            res = pool.map(f, [[x, method, sample_size, m] for x in z])
-            pool.close()
-            pool.join()
-            pool.clear()
-        if method == 'mean_var':
-            return tuple(np.concatenate(worker) for worker in zip(*res))
-        elif method == 'sampling':
-            return np.concatenate(res)
 
     def predict(self,x,method='mean_var',sample_size=50,m=50):
         """Implement predictions from the trained GP model.
@@ -435,19 +363,24 @@ class gp:
                 the array has its rows corresponding to testing positions and columns corresponding to
                 `sample_size` number of samples drawn from the predictive distribution of GP.
         """
-        if x.ndim==1:
+        if x.ndim != 2:
             raise Exception('The testing input has to be a numpy 2d-array')
-        M=len(x)
-        overall_global_test_input=x
+        M=x.shape[0]
+
         if self.kernel.connect is not None:
-            z_k_in=overall_global_test_input[:,self.kernel.connect]
+            z_k_in=x[:,self.kernel.connect]
         else:
             z_k_in=None
+
         self.kernel.pred_m = m
+
+        mu,sigma2=self.kernel.gp_prediction(x=x[:,self.kernel.input_dim],z=z_k_in)
+
+        mu = mu.reshape(-1, 1)
+        sigma2 = sigma2.reshape(-1, 1)
+
         if method=='mean_var':
-            mu,sigma2=self.kernel.gp_prediction(x=overall_global_test_input[:,self.kernel.input_dim],z=z_k_in)
-            return mu.reshape(-1,1), sigma2.reshape(-1,1)
+            return mu, sigma2
         elif method=='sampling':
-            mu,sigma2=self.kernel.gp_prediction(x=overall_global_test_input[:,self.kernel.input_dim],z=z_k_in)
-            samples=np.random.normal(mu,np.sqrt(sigma2),size=(sample_size,M)).T
+            samples=np.random.normal(loc=mu, scale=np.sqrt(sigma2), size=(M, sample_size))
             return samples
