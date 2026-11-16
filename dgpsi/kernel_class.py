@@ -74,6 +74,7 @@ class kernel:
             in the global input, i.e., rep is assigned during the initialisation of :class:`.dgp` class if one input position 
             has multiple outputs. Otherwise, it is `None`. Defaults to `None`. 
         Rinv (ndarray): a numpy 2d-array that stores the inversion of correlation matrix. Defaults to `None`.
+        Rchol (ndarray): the lower Cholesky factor of the correlation matrix for dense GP prediction. Defaults to `None`.
         Rinv_y (ndarray): a numpy 1d-array that stores the product of correlation matrix inverse and the output Y. Defaults to `None`.
         vecch (bool): indicates weather the Vecchia apprxoimation is used. Defaults to `None`.
         D (int): the dimension of input data to the GP node. Defaults to `None`.
@@ -120,6 +121,7 @@ class kernel:
         self.rep=None
         self.rep_hetero=None
         self.Rinv=None
+        self.Rchol=None
         self.Rinv_y=None
         self.R2sexp=None
         self.Psexp=None
@@ -152,6 +154,8 @@ class kernel:
 
     def __setstate__(self, state):
         state.pop('_pair_cache', None)
+        rebuild_chol = 'Rchol' not in state
+        state.setdefault('Rchol', None)
         if 'g' in state:
             del state['g']
         if 'gfod' in state:
@@ -231,6 +235,11 @@ class kernel:
                 self.origin_n = len(self.rep)
             elif self.output is not None:
                 self.origin_n = len(self.output)
+        if rebuild_chol and not self.vecch and self.Rinv is not None:
+            try:
+                self.Rchol = np.linalg.cholesky(self.k_matrix())
+            except LinAlgError:
+                self.Rchol = None
 
     def compute_cl(self):
         if len(self.length)==1:
@@ -758,9 +767,9 @@ class kernel:
                 x = x / self.length                                      
                 w = self.input / self.length
             if parallel:
-                m,v=gp(x,w,self.Rinv,self.Rinv_y,self.scale[0],self.nugget[0],self.name)
+                m,v=gp(x,w,self.Rinv,self.Rinv_y,self.scale[0],self.nugget[0],self.name,self.Rchol)
             else:
-                m,v=gp_non_parallel(x,w,self.Rinv,self.Rinv_y,self.scale[0],self.nugget[0],self.name)
+                m,v=gp_non_parallel(x,w,self.Rinv,self.Rinv_y,self.scale[0],self.nugget[0],self.name,self.Rchol)
         return m,v
 
     def linkgp_prediction(self,m,v,z):
@@ -1056,6 +1065,7 @@ class kernel:
         """
         R=self.k_matrix()
         n = self.output.shape[0]
+        self.Rchol=None
         #U, s, Vh = np.linalg.svd(R)
         #self.Rinv=Vh.T@np.diag(s**-1)@U.T
         #L=np.linalg.cholesky(R)
@@ -1066,6 +1076,7 @@ class kernel:
             L=np.linalg.cholesky(R)
             self.Rinv=cho_solve((L, True), np.eye(n), check_finite=False)
             self.Rinv_y=cho_solve((L, True), self.output[:,0], check_finite=False)
+            self.Rchol=L
         except LinAlgError:
             self.Rinv=pinvh(R,check_finite=False)
             self.Rinv_y=np.dot(self.Rinv,self.output[:,0])

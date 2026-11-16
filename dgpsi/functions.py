@@ -8,6 +8,7 @@ from scipy.special import betaln, gammaln
 import itertools
 from psutil import cpu_count
 from functools import lru_cache
+from .chol_backend import forward_solve_inplace
 
 core_num = cpu_count(logical = False)
 max_threads = config.NUMBA_NUM_THREADS
@@ -565,31 +566,41 @@ def K_vec_matern25_nb(X, z):
 
 # gp predictions (non-vecchia)
 
+@njit(cache=True, fastmath=False, inline='never')
+def _gp_chol_variance(L, r, nugget):
+    forward_solve_inplace(L, r, len(r))
+    return 1.0 + nugget - np.dot(r, r)
+
+
 @njit(cache=True)
-def gp_non_parallel(x,w1,Rinv,Rinv_y,scale,nugget,name):
+def gp_non_parallel(x,w1,Rinv,Rinv_y,scale,nugget,name,Rchol=None):
     """Make GP predictions
     """
     n_pred = x.shape[0]
     m, v = np.empty(n_pred), np.empty(n_pred)
     for i in range(n_pred):
         ri=K_vec_nb(w1,x[i],name)
-        Rinv_ri=np.dot(Rinv,ri)
-        r_Rinv_r=np.dot(ri, Rinv_ri)
         m[i] = np.dot(Rinv_y, ri)
-        v[i] = abs(scale*(1.0+nugget-r_Rinv_r))
+        if Rchol is None:
+            Rinv_ri=np.dot(Rinv,ri)
+            r_Rinv_r=np.dot(ri, Rinv_ri)
+            variance = 1.0 + nugget - r_Rinv_r
+        else:
+            variance = _gp_chol_variance(Rchol, ri, nugget)
+        v[i] = scale * max(variance, 0.0)
     return m, v
 
 
 @njit(cache=True)
-def gp(x,w1,Rinv,Rinv_y,scale,nugget,name):
+def gp(x,w1,Rinv,Rinv_y,scale,nugget,name,Rchol=None):
     """Make GP predictions with contiguous rows for the symmetric inverse."""
     if Rinv.flags.f_contiguous and not Rinv.flags.c_contiguous:
-        return _gp_layout_core(x,w1,Rinv.T,Rinv_y,scale,nugget,name)
-    return _gp_layout_core(x,w1,Rinv,Rinv_y,scale,nugget,name)
+        return _gp_layout_core(x,w1,Rinv.T,Rinv_y,scale,nugget,name,Rchol)
+    return _gp_layout_core(x,w1,Rinv,Rinv_y,scale,nugget,name,Rchol)
 
 
 @njit(cache=True, parallel=True)
-def _gp_layout_core(x,w1,Rinv,Rinv_y,scale,nugget,name):
+def _gp_layout_core(x,w1,Rinv,Rinv_y,scale,nugget,name,Rchol=None):
     """Make GP predictions
     """
     n_pred = x.shape[0]
@@ -597,9 +608,13 @@ def _gp_layout_core(x,w1,Rinv,Rinv_y,scale,nugget,name):
     m, v = np.empty(n_pred), np.empty(n_pred)
     for i in prange(n_pred):
         ri=K_vec_nb(w1,x[i],name)
-        r_Rinv_r=quad0(Rinv, ri, n_train)
         m[i] = np.dot(Rinv_y, ri)
-        v[i] = abs(scale*(1.0+nugget-r_Rinv_r))
+        if Rchol is None:
+            r_Rinv_r=quad0(Rinv, ri, n_train)
+            variance = 1.0 + nugget - r_Rinv_r
+        else:
+            variance = _gp_chol_variance(Rchol, ri, nugget)
+        v[i] = scale * max(variance, 0.0)
     return m, v
 
 @njit(cache=True, fastmath=True)
